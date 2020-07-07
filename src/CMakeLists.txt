@@ -1,0 +1,4 @@
+add_subdirectory(fleetProvisioning)
+add_subdirectory(nvs_utility)
+add_subdirectory(shci)
+add_subdirectory(credential_storage_utility)
