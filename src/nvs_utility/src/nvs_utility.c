@@ -226,7 +226,7 @@ static int32_t _getNVSnamespaceHandle( const NVS_Entry_Details_t *pItem, int32_t
  */
 int32_t NVS_Initialize( void )
 {
-	esp_err_t err;
+	esp_err_t err = ESP_OK;
 
 #ifdef CONFIG_NVS_ENCRYPTION
 	const esp_partition_t * key_part =  esp_partition_find_first( ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS_KEYS, nvsKeys_PARTITION);
