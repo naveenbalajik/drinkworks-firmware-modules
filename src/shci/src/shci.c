@@ -17,6 +17,7 @@
 #include <esp_wifi.h>
 #include "shci.h"
 #include "shci_internal.h"
+#include "crc16_ccitt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/uart.h"
@@ -28,6 +29,8 @@
 #include "espFunction.h"
 #include "bleFunction.h"
 #include "wifiFunction.h"
+
+#include "esp_log.h"
 
 /************************************************************/
 
@@ -49,7 +52,8 @@ static QueueHandle_t hci_handle;
 static uint8_t TxEventBuf[180];
 
 static uint8_t commandCompleteResponse[] = { 0x00, 0x00, 0x00 };
-
+static bool _shciUseCRC;
+static portMUX_TYPE shci_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
 // _shciResponse_t deviceInfoResponse = 
 // {
@@ -106,7 +110,32 @@ static void _shciSendResponse( _shciResponse_t * pResponse );
 
 /************************************************************/
 
+#define CAMERA_LIGHT    15
+#define	CAMERA_RESET		33
+#define GPIO_OUTPUT_PIN_SEL  ( ( 1ULL << CAMERA_LIGHT ) | ( 1ULL << CAMERA_RESET ) )
+/**
+ * Configure IO15 as an output
+ */
+void debug_gpio_init( void )
+{
+    gpio_config_t io_conf;
+    //disable interrupt
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    //bit mask of the pins that you want to set,e.g.GPIO15/33
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    //disable pull-down mode
+    io_conf.pull_down_en = 0;
+    //disable pull-up mode
+    io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
 
+    gpio_set_level( CAMERA_LIGHT, 0);
+    gpio_set_level( CAMERA_RESET, 0);
+
+}
 /**
  * @brief Serial Host Command Interface (shci) Initialization.  Creates a new thread to run the shci task
  * 
@@ -120,6 +149,8 @@ int shci_init(int uart_num)
 	_shciUartNum = uart_num;    // Save UART number in static variable
 //    uint8_t unknownCommandResponse[3] = { 0x80, 0x00, 0x01 };
 	
+	_shciUseCRC = true;
+
 	/* Intialize SHCI Command List */
 	for( i = 0; i < MAX_SHCI_COMMAND_LIST_TABLES; ++i )
 	{
@@ -167,6 +198,9 @@ int shci_init(int uart_num)
 	bleFunction_init();					/* Initialize DW BLE Function module */
 	wifiFunction_init();					/* Initialize DW WiFi Function module */
 	
+	/* Debug - use IO15 for timing analysis */
+	debug_gpio_init();
+
     return 0;
 
 }
@@ -197,6 +231,7 @@ static void _shciTask(void *arg)
 {
     int uart_num = (int) arg;
     uint8_t unknownCommandResponse[3] = { 0x80, 0x00, 0x01 };
+    uint32_t dbg = 0;
 
 	
     /* Configure parameters of an UART driver,
@@ -228,7 +263,11 @@ static void _shciTask(void *arg)
     while( 1 ) 
 	{
 		
+    	gpio_set_level( CAMERA_RESET, dbg);			// Debug - Toggle Camera reset
+    	dbg ^= 0x01;
+
     	_shciProcessInput( &IncommingCommand );
+    	puts("ST1");
     	if( _rxState == eSHCIRxValid ) 
 		{
 			if( _shciDispatchCommand( IncommingCommand.opCode, IncommingCommand.data, IncommingCommand.pbCount ) )
@@ -244,6 +283,7 @@ static void _shciTask(void *arg)
     		_rxState = eSHCIRxSync;
     	}
 		
+    	puts("ST2");
 		if( _shciMessageBuffer != NULL )
 		{
 			_testResponse.numBytes = xMessageBufferReceive( _shciMessageBuffer, &_testResponse.buffer, MAX_TX_RESPONSE, ( TickType_t ) 0 );
@@ -251,13 +291,20 @@ static void _shciTask(void *arg)
 			if ( _testResponse.numBytes != 0 )
 			{
 				
-//	            IotLogInfo( "Read %d bytes from Message Buffer",  _testResponse.numBytes );
+//			    gpio_set_level( CAMERA_RESET, 0);
+	            IotLogInfo( "Read %d bytes from Message Buffer",  _testResponse.numBytes );
 			
 				_shciSendResponse( & _testResponse );
 			}
+			else
+			{
+//	            IotLogInfo( "Message Buffer empty" );
+			}
 			// Test with hardwired response to Device Information command times-out with vTaskDelay(50);
 		}
-        vTaskDelay( 1 );
+		puts("ST3");
+		vTaskDelay( 1 );
+		puts("ST4");
     }
 }
 
@@ -300,7 +347,7 @@ static bool _shciDispatchCommand( uint8_t opCode, uint8_t *pdata, uint16_t nByte
 	bool error = true;
 	_shciCommandTable_t *pCommandTable;
 	ShciCommandTableElement_t	*pElement;
-	
+puts("DC0");
 	for( pCommandTable = ShciCommandTableList; pCommandTable->pTable != NULL; ++pCommandTable )
 	{
 		pElement = pCommandTable->pTable;
@@ -309,12 +356,14 @@ static bool _shciDispatchCommand( uint8_t opCode, uint8_t *pdata, uint16_t nByte
 			if( pElement->command == opCode )
 			{
 				pElement->callback(pdata, nBytes);    /* dispatch command callback */
+				puts("DC1");
 				error = false;
 				return error;
 			}
 		}
 	}
 	IotLogInfo( "No callback found for command: %02X", opCode );
+	puts("DC2");
 	return error;
 }
 
@@ -334,7 +383,7 @@ void shci_postCommandComplete( _CommandOpcode_t opCode, _errorCodeType_t error)
  *
  * @param[in] pData  Pointer to Response Data
  * @param[in] numBytes  Number of bytes in Response Data
- * @return true if Reponse was successfully send to Message Buffer, false if error when Sending Response to Message Buffer
+ * @return true if Response was successfully send to Message Buffer, false if error when Sending Response to Message Buffer
  *
  * Note that Response Data is copied into message Buffer, so caller does not need to 
  * maintain buffer integrity.
@@ -342,12 +391,25 @@ void shci_postCommandComplete( _CommandOpcode_t opCode, _errorCodeType_t error)
 bool shci_PostResponse( const uint8_t *pData, size_t numBytes )
 {
 	bool error = true;
+	size_t n;
 	
 	if ( _shciMessageBuffer != NULL )
 	{
-		if( xMessageBufferSend( _shciMessageBuffer, ( const void * ) pData, numBytes, ( TickType_t ) 5 ) == numBytes )
+		/*  Since this function can be called from different tasks, must follow:
+		 *
+		 * "If there are to be multiple different writers then the application writer must
+		 *  place each call to a writing API function (such as xMessageBufferSend()) inside
+		 *  a critical section and use a send block time of 0"
+		 */
+	    portENTER_CRITICAL(&shci_spinlock);
+		n = xMessageBufferSend( _shciMessageBuffer, ( const void * ) pData, numBytes, 0 );
+	    portEXIT_CRITICAL(&shci_spinlock);
+
+		if( n == numBytes )
 		{
-//			IotLogInfo( "shci_PostResponse %d bytes", numBytes);
+//		    gpio_set_level( CAMERA_RESET, 1);
+//			 vTaskDelay( 10 );
+			IotLogInfo( "shci_PostResponse %d bytes", numBytes);
 			return false;		/* Succeeded to post the message, within 5 ticks */
 		}
 		IotLogError( "shci_PostResponse failed");
@@ -369,62 +431,105 @@ bool shci_PostResponse( const uint8_t *pData, size_t numBytes )
 static _shciRxStateType_t _shciProcessInput( _shciCommand_t *ic )
 {
 	int len;
-	uint8_t	head[2];
 
-	switch( _rxState )
+	_shciRxStateType_t nextState = _rxState;	// default to maintaining current state
+//	puts("_PI: enter");
+	do
 	{
+		_rxState = nextState;
 
-		case eSHCIRxSync:
-	        len = uart_read_bytes( _shciUartNum, &ic->sync, 1, ( 10 / portTICK_RATE_MS ) );	// read one byte
-			if( ( len == 1 ) && ( ic->sync == SYNC_CHAR ) )
-			{
-				_rxState = eSHCIRxHead;
-				ic->pbCount = 0;
-				ic->checksum = 0;
-			}
-			break;
+		/* get number of bytes in UART RX FIFO */
+		uart_get_buffered_data_len( _shciUartNum, ( size_t * )&len );
 
-		case eSHCIRxHead:
-	        len = uart_read_bytes( _shciUartNum, head, 2, ( 10 / portTICK_RATE_MS ) );		// read 2 bytes
-	        if( len == 2 )
-			{
-				ic->length = ( head[0] << 8 ) + head[1];
-				ic->checksum += head[0] + head[1];
-				_rxState = eSHCIRxData;
-	        }
-			break;
+		switch( _rxState )
+		{
 
-		case eSHCIRxData:																	// includes the OpCode, any parameters and checksum
-	        len = uart_read_bytes( _shciUartNum, ic->data, (ic->length + 1), 0 );			// read (length+1) bytes
-	        if ( len == ( ic->length + 1 ) ) 
-			{
-	        	for ( int i = 0; i <= ic->length; ++i ) 									// sum all data bytes, including checksum
+			case eSHCIRxSync:
+				if( len >= 1 )
 				{
-	        		ic->checksum += ic->data[i];
-	        	}
-	        	if ( ic->checksum == 0 )													// if checksum is zero 
-				{
-	        		ic->opCode = ic->data[0];												// copy first byte to OpCode
-					ic->pbCount = ( ic->length - 1 );
-	        		_rxState = eSHCIRxValid;
-	        	}
-	        	else 
-				{
-	        		IotLogError( "ProcessInput, non-zero checksum:" );
-//	        		esp_log_buffer_hex( TAG, (void *)ic->data, ic->length );
-	        		_rxState = eSHCIRxError;
-	        	}
-	        }
-			break;
+					len = uart_read_bytes( _shciUartNum, &ic->head.sync, 1, 0 );	// read one byte
+					if( ( len == 1 ) && ( ( SYNC_A_CHAR == ic->head.sync ) || (SYNC_B_CHAR == ic->head.sync ) ) )
+					{
+						gpio_set_level( CAMERA_LIGHT, 1);
+						nextState = eSHCIRxHead;
+						ic->useCRC = ( SYNC_B_CHAR == ic->head.sync ) ? true : false;
+						ic->pbCount = 0;
+					}
+				}
+				break;
 
-		case eSHCIRxValid:
-		case eSHCIRxError:
-			break;
+			case eSHCIRxHead:
+				if( len >= 2 )
+				{
+	//	            gpio_set_level( CAMERA_LIGHT, 0);
+					len = uart_read_bytes( _shciUartNum, ic->head.length, 2, 0 );		// read 2 bytes
+					ic->length = ( ic->head.length[0] << 8 ) + ic->head.length[1];				// reassemble length
+					nextState = eSHCIRxData;
+				}
+				break;
 
-		default:
-			_rxState = eSHCIRxSync;
-			break;
-	}
+			case eSHCIRxData:																	// includes the OpCode, any parameters and checksum/crc
+				if( ic->useCRC )
+				{
+					if( len >= ( ic->length + 2 ) )
+					{
+	//				    gpio_set_level( CAMERA_LIGHT, 1);
+						len = uart_read_bytes( _shciUartNum, &ic->opCode, (ic->length + 2), 0 );		// read (length+2) bytes
+						/* compute CRC and validate that it is zero */
+						ic->crc = crc16_ccitt_compute( &ic->rawData[ 1 ], ( ic->length + 4 ) );		// include length and crc bytes
+					}
+					gpio_set_level( CAMERA_LIGHT, 0);
+					if ( ic->crc == 0 )																// if crc is zero
+					{
+						ic->pbCount = ( ic->length - 1 );
+						nextState = eSHCIRxValid;
+					}
+					else
+					{
+						IotLogError( "ProcessInput, non-zero CRC" );
+						nextState = eSHCIRxError;
+					}
+				}
+				else
+				{
+					if ( len >= ( ic->length + 1 ) )
+					{
+						len = uart_read_bytes( _shciUartNum, &ic->opCode, (ic->length + 1), 0 );		// read (length+1) bytes
+						ic->checksum = 0;
+						for ( int i = 1; i <= ( ic->length + 3 ); ++i ) 							// sum all data bytes, including length and checksum
+						{
+							ic->checksum += ic->rawData[ i ];
+						}
+						if ( ic->checksum == 0 )													// if checksum is zero
+						{
+	//						ic->opCode = ic->data[0];												// copy first byte to OpCode
+							ic->pbCount = ( ic->length - 1 );
+							gpio_set_level( CAMERA_LIGHT, 0);
+							nextState = eSHCIRxValid;
+						}
+						else
+						{
+							IotLogError( "ProcessInput, non-zero checksum" );
+		//	        		esp_log_buffer_hex( TAG, (void *)ic->data, ic->length );
+							nextState = eSHCIRxError;
+						}
+					}
+				}
+				break;
+
+			case eSHCIRxValid:
+			case eSHCIRxError:
+				break;
+
+			default:
+				nextState = eSHCIRxSync;
+				break;
+		}
+	} while( nextState != _rxState ); 		// keep looping if state changes
+
+	_rxState = nextState;
+//	puts("_PI: exit");
+
 	return _rxState;
 }
 
@@ -436,21 +541,45 @@ static _shciRxStateType_t _shciProcessInput( _shciCommand_t *ic )
  */
 static void _shciSendResponse( _shciResponse_t * pResponse )
 {
+	uint16_t j;
 	uint16_t i = 0;
 	uint8_t chksum = 0;
 
-	TxEventBuf[ i++ ] = SYNC_CHAR;
-	chksum += TxEventBuf[ i++ ] = ( uint8_t )( pResponse->numBytes >> 8 );        /* MSB of length field */
-	chksum += TxEventBuf[ i++ ] = ( uint8_t )( pResponse->numBytes & 0xFF );      /* LSB of length field */
-
-	for( uint16_t j = 0; j < pResponse->numBytes; ++j )                           /* Copy Response data to TxEventBuf */
+	if( _shciUseCRC )																/* SHCI Protocol with CRC16 */
 	{
-		chksum += TxEventBuf[ i++ ] = pResponse->buffer[ j ];
+		uint16_t crc;
+
+		TxEventBuf[ i++ ] = SYNC_B_CHAR;
+		TxEventBuf[ i++ ] = ( uint8_t )( pResponse->numBytes >> 8 );					/* MSB of length field */
+		TxEventBuf[ i++ ] = ( uint8_t )( pResponse->numBytes & 0xFF );					/* LSB of length field */
+
+		for( j = 0; j < pResponse->numBytes; ++j )										/* Copy Response data to TxEventBuf */
+		{
+			TxEventBuf[ i++ ] = pResponse->buffer[ j ];
+		}
+
+		crc = crc16_ccitt_compute( &TxEventBuf[ 1 ], ( pResponse->numBytes + 2 ) );
+
+		TxEventBuf[ i++ ] = ( uint8_t )( crc >> 8 );									/* Add CRC msb */
+		TxEventBuf[ i++ ] = ( uint8_t )( crc & 0xff );									/* Add CRC lsb */
+//		iot_log_info( "_shciSendResponse: ");
+//		esp_log_buffer_hex( "_shciSendResponse: ", (void *)TxEventBuf, i );
+	}
+	else																				/* SHCI Protocol with 8-bit checksum */
+	{
+		TxEventBuf[ i++ ] = SYNC_A_CHAR;
+		chksum += TxEventBuf[ i++ ] = ( uint8_t )( pResponse->numBytes >> 8 );			/* MSB of length field */
+		chksum += TxEventBuf[ i++ ] = ( uint8_t )( pResponse->numBytes & 0xFF );		/* LSB of length field */
+
+		for( j = 0; j < pResponse->numBytes; ++j )										/* Copy Response data to TxEventBuf */
+		{
+			chksum += TxEventBuf[ i++ ] = pResponse->buffer[ j ];
+		}
+
+		TxEventBuf[ i++ ] = ( uint8_t )( 0 - chksum );									/* Add checksum */
 	}
 
-	TxEventBuf[ i++ ] = ( uint8_t )( 0 - chksum );                                /* Add checksum */
-
-	uart_write_bytes( _shciUartNum, (const char *) TxEventBuf, i );               /* transmit Response packet */
+	uart_write_bytes( _shciUartNum, (const char *) TxEventBuf, i );						/* transmit Response packet */
 }
 
 

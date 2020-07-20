@@ -48,7 +48,8 @@ typedef enum
 } _shciRxStateType_t;
 
 #define MAX_PARAM_LEN	256
-#define	SYNC_CHAR	0xAA
+#define	SYNC_A_CHAR		0xAA									/**< Sync byte for SHCI protocol with 8-bit Checksum */
+#define	SYNC_B_CHAR		0xCC									/**< Sync byte for SHCI protocol with 16-bit CRC */
 
 //#define	MAX_TX_RESPONSE	( 5 * 1024 )                           
 #define	MAX_TX_RESPONSE	( 512 )                           /**< Maximum Data for SHCI Response */
@@ -60,15 +61,34 @@ typedef enum
 
 /**
  * @brief SHCI Command format
+ *
+ * Within packet payload:
+ * 		length value includes opCode and data, it does not include the length bytes, or the checksum/crc byte(s)
+ * 		Checksum/CRC includes the two length bytes, but not the sync byte
+ * 		Checksum/CRC is calculated on rawData[ 1 .. (length + 2) ]
  */
 typedef struct _shciCommand
 {
-	uint8_t	sync;
+	union
+	{
+		uint8_t	rawData[ MAX_PARAM_LEN + 6 ];
+		struct
+		{
+			struct
+			{
+				uint8_t	sync;						/**< Sync byte */
+				uint8_t length[ 2 ];				/**< head length, includes opcode and data */
+			} head;
+			uint8_t	opCode;							/**< command/event opcode */
+			uint8_t data[ MAX_PARAM_LEN ];			/**< parameter data */
+			uint8_t checkbytes[ 2];					/**< allocate space for 8-bit checksum or 16-bit CRC */
+		};
+	};
 	uint16_t length;
-	uint8_t	opCode;
-	uint8_t data[ MAX_PARAM_LEN ];
 	uint8_t checksum;
 	uint16_t pbCount;						// Parameter byte count
+	bool	useCRC;
+	uint16_t	crc;								/**< CRC16_CCITT value */
 } _shciCommand_t;
 
 
@@ -76,6 +96,7 @@ typedef struct _shciResponse
 {
 	uint16_t   numBytes;
 	uint8_t    buffer[ MAX_TX_RESPONSE ];
+	bool		useCRC;
 } _shciResponse_t;
 
 #endif /* _DWSHCI_INTERNAL_H_ */

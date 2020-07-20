@@ -35,6 +35,15 @@ enum CommandOpcode
 	eWiFiResetProvisioning = 				0xA0,
 	eWiFiReadStatus =						0xA1,
 	
+	eWifiTestParameter =					0xB2,
+	eWifiTestStart,
+	eWifiTestStop,
+
+	eCaptureArm =							0xB6,
+	eCaptureRead,
+
+	eWifiConnectAP = 						0xBA,
+
 	eEspSetSerialNumber = 					0xC0
 
 };
@@ -125,7 +134,10 @@ enum EventOpcode
 	ReceivedTransparentData = 0x9a,									// 0x9A
 	// All commands below are extensions to those supported by the BM7x Module, and are targeted for the ESP32 module
 	eWiFiStatus = 0xB0,
-	eNetworkInitializedEvent = 0xB1
+	eNetworkInitializedEvent = 0xB1,
+	eWifiTestStatus = 0xB5,
+	eCaptureComplete = 0xB8,
+	eDispenseComplete = 0xB9
 };
 typedef uint8_t _eventOpcode_t;
 
