@@ -26,7 +26,7 @@
 
 #define	SHCI_STACK_SIZE    ( 2048 )
 
-#define	SHCI_TASK_PRIORITY	( 10 )
+#define	SHCI_TASK_PRIORITY	( 20 )
 
 #define MAX_READ_CHAR_BUFF_SIZE 	40					///< Maximum data size for Read Local Characteristic command
 
