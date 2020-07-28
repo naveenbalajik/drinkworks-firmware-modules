@@ -662,6 +662,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 					err = ESP_FAIL;
 					break;
 				}
+				IotLogInfo( "NVS_Set, Blob, pSize = %d", *(size_t *)pSize);
 
 				err = NVS_Get_Size_Of( nvsItem, &currentSize );
 
@@ -678,6 +679,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 				if( err != ESP_OK || memcmp( pInput, currentVal, *(size_t*)pSize ) != 0 )
 				{
 					err = nvs_set_blob( handle, pItem->nvsKey, pInput, *(size_t*)pSize );
+					IotLogInfo( "NVS_Set, Blob, err = %d", err);
 				}
 				else
 				{
