@@ -186,6 +186,19 @@ int shci_init(int uart_num)
 
 }
 
+/**
+ * @brief	Deinitialize SHCI - Delete the SHCI Task
+ *
+ * The SHCI task must be terminated if communications with host processor are to be aborted.
+ */
+void shci_deinit( void)
+{
+	if( NULL != _shciTaskHandle )
+	{
+		IotLogInfo( "Deleting SHCI Task" );
+		vTaskDelete( _shciTaskHandle );
+	}
+}
 
 /**
  * @brief Serial Host Command Interface (shci) Task.  Executes on separate thread, reads input from

@@ -52,7 +52,6 @@ typedef uint8_t _CommandOpcode_t;
 /**
  * @brief Enumerated ESP Module Error Codes, common to ESP, BLE and WIFI modules
  */
-
 enum
 {
 	eCommandSucceeded,												// 0x00
@@ -112,18 +111,17 @@ typedef uint8_t _errorCodeType_t;
 /**
  * @brief Enumerated SHCI Event OpCodes, common to ESP, BLE and WiFi modules
  */
-
 enum EventOpcode 
 {
 	NoEventOpcode,													// 0x00
-	ePasskeyEntryRequest = 0x60,										// 0x60
+	ePasskeyEntryRequest = 0x60,									// 0x60
 	ePairingComplete,												// 0x61
 	ePasskeyConfirmRequest,											// 0x62
 	AdvertisingReport = 0x70,										// 0x70
 	eLeConnectionComplete,											// 0x71
 	eDisconnectionComplete,											// 0x72
 	ConnectionParameterUpdateNotify,								// 0x73
-	eCommandComplete = 0x80,											// 0x80
+	eCommandComplete = 0x80,										// 0x80
 	eStatusReport,													// 0x81
 	ConfigureModeStatus = 0x8f,										// 0x8F
 	DiscoverAllPrimaryServiceResponse,								// 0x90
@@ -141,7 +139,6 @@ enum EventOpcode
 };
 typedef uint8_t _eventOpcode_t;
 
-//typedef struct gatts_connect_evt_param gatts_connect_evt_param_t;
 
 /**
  * @brief Callback called when an SHCI command is received
@@ -174,7 +171,14 @@ typedef struct _shciCommandTable
  * @return ESP_FAIL if Task or Queue cannot be created
  *         ESP_OK if Task and Queue were successfully created
  */
-extern int shci_init(int uart_num);
+int shci_init(int uart_num);
+
+/**
+ * @brief	Deinitialize SHCI - Delete the SHCI Task
+ *
+ * The SHCI task must be terminated if communications with host processor are to be aborted.
+ */
+void shci_deinit( void);
 
 /**
  * @brief Register a list of commands with associated callback functions
@@ -183,10 +187,13 @@ extern int shci_init(int uart_num);
  * @param[in] numEntries Number of entries in Command Table
  * @return true if Command Table was successfully registered, false if error registering table
  */
-extern bool shci_RegisterCommandList( ShciCommandTableElement_t *pCommandTable, uint8_t numEntries );
+bool shci_RegisterCommandList( ShciCommandTableElement_t *pCommandTable, uint8_t numEntries );
 
 /**
  * @brief Post a Command Complete Event message to the Message Buffer
+ *
+ * @param[in]	opCode	Op-code of the completing command
+ * @param[in]	error	Error code for the completing command
  */
 void shci_postCommandComplete( _CommandOpcode_t opCode, _errorCodeType_t error);
 
@@ -195,21 +202,11 @@ void shci_postCommandComplete( _CommandOpcode_t opCode, _errorCodeType_t error);
  *
  * @param[in] pData  Pointer to Response Data
  * @param[in] numBytes  Number of bytes in Response Data
- * @return true if Reponse was successfully send to Message Buffer, false if error when Sending Response to Message Buffer
+ * @return true if Response was successfully send to Message Buffer, false if error when Sending Response to Message Buffer
  *
  * Note that Response Data is copied into message Buffer, so caller does not need to 
  * maintain buffer integrity.
  */
 bool shci_PostResponse( const uint8_t *pData, size_t numBytes );
-
-/**
- * @brief Queue a response to be transmitted to Host
- *
- * @param[in] pResponse  Pointer to Response Data structure
- * @return true if Reponse was successfully queued, false if error when queuing Response
- *
- * Note that Response is queued by pointer, so caller must maintain buffer intgrity
- */
-//extern bool DwShci_QueueResponse( _shciResponse_t *pResponse );
 
 #endif /* _SHCI_H_ */
