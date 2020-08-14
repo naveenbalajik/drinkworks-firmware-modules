@@ -235,12 +235,16 @@ static img_proces_err_t _medianFilterUINT32(uint32_t* buf, uint32_t bufSize, uin
 	}
 
 	// Find median and set array
+	uint32_t* medianFilterArray = (uint32_t*)malloc(medianSize * sizeof(uint32_t));
 	if(err == IMG_PROCES_OK){
-		uint32_t medianFilterArray[medianSize];
 		for(i = medianSize/2; i<bufSize - medianSize/2; i++){
 			memcpy(medianFilterArray, &bufCopy[i - medianSize/2], medianSize*sizeof(uint32_t));
 			buf[i] = _medianFindUINT32(medianFilterArray, medianSize);
 		}
+	}
+
+	if (medianFilterArray != NULL) {
+		free(medianFilterArray);
 	}
 
 	if(bufCopy != NULL){
