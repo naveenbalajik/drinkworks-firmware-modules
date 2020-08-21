@@ -27,7 +27,7 @@
 										.colAvg = {{{0, 0}, {0, 0}}, COL_SCAN, NULL, 0}, \
 										.barcode1 = {{{{0, 0}, {0, 0}}, COL_SCAN, NULL, 0}, NULL, {0, 0, 0, 0, 0}, NOT_INITIALIZED}, \
 										.barcode2 = {{{{0, 0}, {0, 0}}, COL_SCAN, NULL, 0}, NULL, {0, 0, 0, 0, 0}, NOT_INITIALIZED}, \
-										.trustmark = {NULL, 0, 0, 0, 0, 0, 0, {{0,0},{0,0}}, 0}, \
+										.trustmark = {{NULL, 0, 0, 0, PIXFORMAT_GRAYSCALE, {0,0}}, 0, 0, 0, {{0,0},{0,0}}, 0}, \
 										.result = {NOT_INITIALIZED, IMG_PROCES_FAIL_NOT_INITIALIZED}, \
 										}
 
@@ -64,10 +64,7 @@ typedef struct {
 }Image_Region_Avg_t;
 
 typedef struct {
-	uint8_t*		buf;
-	uint32_t		width;
-	uint32_t		height;
-	uint32_t		length;
+	camera_fb_t		fb;
 	uint32_t		startCol;
 	uint32_t		endCol;
 	uint32_t		bwThres;

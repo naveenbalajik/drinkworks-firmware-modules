@@ -137,8 +137,6 @@ static const bool						masterDrinkworksTrademark[DRINKWORKS_TEMPLATE_TMARK_HEIGH
 	{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
 
-static uint32_t currentScanRow = 0;
-
 Image_Proces_Frame_t img = VGA_IMG_DEFAULT_INITIALIZATION;
 
 static img_proces_err_t _calcImgRegionAvg(Image_Region_Avg_t* imgRegionAvg, camera_fb_t* fb){
@@ -313,14 +311,14 @@ uint8_t _consistencyCheck(uint32_t* buf, int32_t startLoc, int32_t endLoc) {
 	}
 }
 
-static img_proces_err_t _determineStartStopRow(Image_Proces_Frame_t* img){
+static img_proces_err_t _determineStartStopRow(Image_Proces_Frame_t* img, uint32_t* currentScanRow){
 
 	Image_Region_t tempBarcode1Region = {0};
 	Image_Region_t tempBarcode2Region = {0};
 
 	uint32_t startRow, testRow;
 	// Loop through the row averages data
-	for(startRow=currentScanRow; startRow < img->rowAvg.len; startRow++){
+	for(startRow=*currentScanRow; startRow < img->rowAvg.len; startRow++){
 		// First Check for a falling transition
 		if(_checkForRowAvgTransition(&(img->rowAvg), startRow, FALLING_TRANSITION) == TRANSITION_FOUND){
 			tempBarcode1Region.startPoint.y = startRow + (img->rowAvg.len)/48;
@@ -391,7 +389,7 @@ static img_proces_err_t _determineStartStopRow(Image_Proces_Frame_t* img){
 			// At this point, we have confirmed the signature of the DW image, and the start/stop rows can be stored in the img
 			memcpy(&(img->barcode1.regionAvg.imgRegion), &tempBarcode1Region, sizeof(Image_Region_t));
 			memcpy(&(img->barcode2.regionAvg.imgRegion), &tempBarcode2Region, sizeof(Image_Region_t));
-			currentScanRow = startRow;
+			*currentScanRow = startRow;
 			IotLogDebug("Start/Stop Rows Found");
 			return IMG_PROCES_OK;
 		}
@@ -418,9 +416,10 @@ void _scaleBufferUINT32(uint32_t* buf, uint32_t len, uint32_t maxVal){
 
 static int8_t _checkForColAvgTransition(Image_Proces_Frame_t* img, uint32_t testCol){
 	uint32_t	x, i, endScanCol;
+	int32_t* colAvgBuf = (int32_t*)img->colAvg.avgBuf;
 
 	x = testCol;
-	if(img->colAvg.avgBuf[x] - img->colAvg.avgBuf[x + 10] > COL_DROP_THRES && img->colAvg.avgBuf[x + 1] - img->colAvg.avgBuf[x + 11] > COL_DROP_THRES && img->colAvg.avgBuf[x + 2] - img->colAvg.avgBuf[x + 12] > COL_DROP_THRES){
+	if(colAvgBuf[x] - colAvgBuf[x + 10] > COL_DROP_THRES && colAvgBuf[x + 1] - colAvgBuf[x + 11] > COL_DROP_THRES && colAvgBuf[x + 2] - colAvgBuf[x + 12] > COL_DROP_THRES && colAvgBuf[x] > 50 && colAvgBuf[x + 1] > 50 && colAvgBuf[x + 2] > 50){
 		if (x + COL_SIZE_JUMP + COL_DOP_SCAN_WINDOW >= img->fb.width) {
 			endScanCol = img->fb.width - 1;
 		}
@@ -428,7 +427,7 @@ static int8_t _checkForColAvgTransition(Image_Proces_Frame_t* img, uint32_t test
 			endScanCol = x + COL_SIZE_JUMP + COL_DOP_SCAN_WINDOW;
 		}
 		for (i = endScanCol; i >= endScanCol - COL_DOP_SCAN_WINDOW; i--) {				// Scan left from the endScanCol location to determine white to black transition location which indicates end of barcode
-			if (img->colAvg.avgBuf[i] - img->colAvg.avgBuf[i - 10] > COL_DROP_THRES && img->colAvg.avgBuf[i - 1] - img->colAvg.avgBuf[i - 11] > COL_DROP_THRES && img->colAvg.avgBuf[i - 2] - img->colAvg.avgBuf[i - 12] > COL_DROP_THRES) {			// Three column filter to determine rise. A rise indicates the end of the barcode
+			if (colAvgBuf[i] - colAvgBuf[i - 10] > COL_DROP_THRES && colAvgBuf[i - 1] - colAvgBuf[i - 11] > COL_DROP_THRES && colAvgBuf[i - 2] - colAvgBuf[i - 12] > COL_DROP_THRES && colAvgBuf[i] > 50 && colAvgBuf[i + 1] > 50 && colAvgBuf[i + 2] > 50) {			// Three column filter to determine rise. A rise indicates the end of the barcode
 				// Perform final check to ensure that there is white space to the left and right of the assumed barcode location
 				int16_t startScan = x - 60;																// Scan left 60 pixels to confirm there is only whitespace to the left of the barcode start col
 				int16_t endScan = i + 60;																	// Scan right 60 pixels to confirm there is only whitespace to the right of the barcode start col
@@ -438,7 +437,7 @@ static int8_t _checkForColAvgTransition(Image_Proces_Frame_t* img, uint32_t test
 				if (endScan > img->fb.width) {																	// If end scan is outside of array
 					endScan = img->fb.width;																		// Set to max array
 				}
-				if (_consistencyCheck(img->colAvg.avgBuf, startScan, x) && _consistencyCheck(img->colAvg.avgBuf, i, endScan)) {			// Use consistencyCheck function to ensure there is whitespace to the right and left of the barcode.
+				if (_consistencyCheck(colAvgBuf, startScan, x) && _consistencyCheck(colAvgBuf, i, endScan)) {			// Use consistencyCheck function to ensure there is whitespace to the right and left of the barcode.
 					img->barcode1.regionAvg.imgRegion.startPoint.x = x;																// If whitespace to the right and left of the barcode, store barcode startCol location
 					img->barcode2.regionAvg.imgRegion.startPoint.x = x;
 					img->barcode1.regionAvg.imgRegion.endPoint.x = i - 10;															// If whitespace to the right and left of the barcode, store barcode endCol location
@@ -494,28 +493,28 @@ static void	_gaussianAverage(Trustmark_t* trustmark) {
 	uint32_t	x,y;
 
 	// Box filter on each pixel (3x3 box)
-	for (y = 1; y < trustmark->height - 1; y++) {															// Loop through rows
-		for (x = 1; x < trustmark->width - 1; x++) {											// Loop through columns
-			trustmark->buf[y*trustmark->width + x] = (trustmark->buf[(y - 1)*trustmark->width + x - 1] + trustmark->buf[(y)*trustmark->width + x - 1] + trustmark->buf[(y + 1)*trustmark->width + x - 1] + trustmark->buf[(y - 1)*trustmark->width + x] + trustmark->buf[(y)*trustmark->width + x] + trustmark->buf[(y + 1)*trustmark->width + x] + trustmark->buf[(y - 1)*trustmark->width + x + 1] + trustmark->buf[(y)*trustmark->width + x + 1] + trustmark->buf[(y + 1)*trustmark->width + x + 1]) / 9;			// Set the current pixel value to the average value of the 3x3 box
+	for (y = 1; y < trustmark->fb.height - 1; y++) {															// Loop through rows
+		for (x = 1; x < trustmark->fb.width - 1; x++) {											// Loop through columns
+			trustmark->fb.buf[y*trustmark->fb.width + x] = (trustmark->fb.buf[(y - 1)*trustmark->fb.width + x - 1] + trustmark->fb.buf[(y)*trustmark->fb.width + x - 1] + trustmark->fb.buf[(y + 1)*trustmark->fb.width + x - 1] + trustmark->fb.buf[(y - 1)*trustmark->fb.width + x] + trustmark->fb.buf[(y)*trustmark->fb.width + x] + trustmark->fb.buf[(y + 1)*trustmark->fb.width + x] + trustmark->fb.buf[(y - 1)*trustmark->fb.width + x + 1] + trustmark->fb.buf[(y)*trustmark->fb.width + x + 1] + trustmark->fb.buf[(y + 1)*trustmark->fb.width + x + 1]) / 9;			// Set the current pixel value to the average value of the 3x3 box
 		}
 	}
 
 	// **** Due to the nature of the 3x3 box filter, edges of the trademark cannot be included in the loop. Below code fills the edges with their nearest filtered neighbor. Edges include first/last rows and columns
 	// Replace first/last rows/columns with second rows/columns
-	for (x = 1; x < trustmark->width - 1; x++) {
-		trustmark->buf[x] = trustmark->buf[trustmark->width + x];
-		trustmark->buf[(trustmark->height - 1)*trustmark->width + x] = trustmark->buf[(trustmark->height - 2)*trustmark->width + x];
+	for (x = 1; x < trustmark->fb.width - 1; x++) {
+		trustmark->fb.buf[x] = trustmark->fb.buf[trustmark->fb.width + x];
+		trustmark->fb.buf[(trustmark->fb.height - 1)*trustmark->fb.width + x] = trustmark->fb.buf[(trustmark->fb.height - 2)*trustmark->fb.width + x];
 	}
-	for (y = 1; y < trustmark->height - 1; y++) {
-		trustmark->buf[(y)*trustmark->width] = trustmark->buf[(y)*trustmark->width + 1];
-		trustmark->buf[(y)*trustmark->width + trustmark->width - 1] = trustmark->buf[(y)*trustmark->width + trustmark->width - 2];
+	for (y = 1; y < trustmark->fb.height - 1; y++) {
+		trustmark->fb.buf[(y)*trustmark->fb.width] = trustmark->fb.buf[(y)*trustmark->fb.width + 1];
+		trustmark->fb.buf[(y)*trustmark->fb.width + trustmark->fb.width - 1] = trustmark->fb.buf[(y)*trustmark->fb.width + trustmark->fb.width - 2];
 	}
 
 	//Replace corners
-	trustmark->buf[0] = trustmark->buf[trustmark->width + 1];
-	trustmark->buf[(trustmark->height - 1)*trustmark->width] = trustmark->buf[(trustmark->height - 2)*trustmark->width + 1];
-	trustmark->buf[trustmark->width - 1] = trustmark->buf[trustmark->width + trustmark->width - 2];
-	trustmark->buf[(trustmark->height - 1)*trustmark->width + trustmark->width - 1] = trustmark->buf[(trustmark->height - 2)*trustmark->width + trustmark->width - 2];
+	trustmark->fb.buf[0] = trustmark->fb.buf[trustmark->fb.width + 1];
+	trustmark->fb.buf[(trustmark->fb.height - 1)*trustmark->fb.width] = trustmark->fb.buf[(trustmark->fb.height - 2)*trustmark->fb.width + 1];
+	trustmark->fb.buf[trustmark->fb.width - 1] = trustmark->fb.buf[trustmark->fb.width + trustmark->fb.width - 2];
+	trustmark->fb.buf[(trustmark->fb.height - 1)*trustmark->fb.width + trustmark->fb.width - 1] = trustmark->fb.buf[(trustmark->fb.height - 2)*trustmark->fb.width + trustmark->fb.width - 2];
 }
 
 
@@ -530,7 +529,7 @@ static void _defineBWThreshold(Image_Proces_Frame_t* img){
 			leftThreshold += img->fb.buf[(y*img->fb.width)+(x)];
 			leftThresCount++;
 		}
-		for(x = img->trustmark.startCol + img->trustmark.width; x<=img->fb.width && x < img->trustmark.startCol + img->trustmark.width + 10; x++){
+		for(x = img->trustmark.startCol + img->trustmark.fb.width; x<=img->fb.width && x < img->trustmark.startCol + img->trustmark.fb.width + 10; x++){
 			rightThreshold += img->fb.buf[(y*img->fb.width)+(x)];
 			rightThresCount++;
 		}
@@ -559,12 +558,12 @@ static void _defineBWThreshold(Image_Proces_Frame_t* img){
 static void _bwThreshold(Trustmark_t* trustmark){
 	uint32_t i;
 
-	for(i=0; i<trustmark->length; i++){
-		if(trustmark->buf[i] < trustmark->bwThres){
-			trustmark->buf[i] = 0;
+	for(i=0; i<trustmark->fb.len; i++){
+		if(trustmark->fb.buf[i] < trustmark->bwThres){
+			trustmark->fb.buf[i] = 0;
 		}
 		else{
-			trustmark->buf[i] = 255;
+			trustmark->fb.buf[i] = 255;
 		}
 	}
 }
@@ -574,14 +573,12 @@ static img_proces_err_t _findTrustmark(Image_Proces_Frame_t* img){
 	Image_Region_Avg_t tmarkRegionAvg;
 	memset(&tmarkRegionAvg, 0, sizeof(Image_Region_Avg_t));
 
-	tmarkRegionAvg.imgRegion.startPoint.x = img->trustmark.startCol;
-	tmarkRegionAvg.imgRegion.startPoint.y = img->barcode1.regionAvg.imgRegion.endPoint.y;
-	tmarkRegionAvg.imgRegion.endPoint.x = img->trustmark.endCol;
-	tmarkRegionAvg.imgRegion.endPoint.y = img->barcode1.regionAvg.imgRegion.endPoint.y + img->trustmark.height;
+	tmarkRegionAvg.imgRegion.endPoint.x = img->trustmark.fb.width;
+	tmarkRegionAvg.imgRegion.endPoint.y = img->trustmark.fb.height;
 	tmarkRegionAvg.scanDirection = ROW_SCAN;
-	tmarkRegionAvg.len = img->trustmark.height;
+	tmarkRegionAvg.len = img->trustmark.fb.height;
 
-	err = _calcImgRegionAvg(&tmarkRegionAvg, &(img->fb));
+	err = _calcImgRegionAvg(&tmarkRegionAvg, &(img->trustmark.fb));
 
 	if(err != IMG_PROCES_OK){
 		return err;
@@ -591,7 +588,7 @@ static img_proces_err_t _findTrustmark(Image_Proces_Frame_t* img){
 
 	uint32_t y, x;
 	// Go backwards in row averages array to find start row of trademark
-	for(y=img->trustmark.height / 2; y>0; y--){
+	for(y=img->trustmark.fb.height / 2; y>0; y--){
 		if(tmarkRegionAvg.avgBuf[y] > TMARK_ROW_AVG_THRES && ((int32_t)tmarkRegionAvg.avgBuf[y] - (int32_t)tmarkRegionAvg.avgBuf[y + 5]) > 75){
 			img->trustmark.isolatedTrustmark.startPoint.y = y;
 			break;
@@ -599,7 +596,7 @@ static img_proces_err_t _findTrustmark(Image_Proces_Frame_t* img){
 	}
 
 	// Jump forward in row averages array and find end row of trademark
-	for(y=img->trustmark.height / 2; y<img->trustmark.height; y++){
+	for(y=img->trustmark.fb.height / 2; y<img->trustmark.fb.height; y++){
 		if(tmarkRegionAvg.avgBuf[y] > TMARK_ROW_AVG_THRES && ((int32_t)tmarkRegionAvg.avgBuf[y] - (int32_t)tmarkRegionAvg.avgBuf[y - 5]) > 75){
 			img->trustmark.isolatedTrustmark.endPoint.y = y;
 			break;
@@ -607,7 +604,7 @@ static img_proces_err_t _findTrustmark(Image_Proces_Frame_t* img){
 	}
 
 	if (!img->trustmark.isolatedTrustmark.endPoint.y || (img->trustmark.isolatedTrustmark.endPoint.y - img->trustmark.isolatedTrustmark.startPoint.y == 0)) {														// If the trademark start or end row was not found
-		img->trustmark.isolatedTrustmark.endPoint.y = img->trustmark.height;																								// Save the end row as the last row of the trademark
+		img->trustmark.isolatedTrustmark.endPoint.y = img->trustmark.fb.height;																								// Save the end row as the last row of the trademark
 	}
 
 	// Reset the region average
@@ -617,10 +614,12 @@ static img_proces_err_t _findTrustmark(Image_Proces_Frame_t* img){
 	}
 
 	// Calculate the column average for the region
+	tmarkRegionAvg.imgRegion.startPoint.y = img->trustmark.isolatedTrustmark.startPoint.y;
+	tmarkRegionAvg.imgRegion.endPoint.y = img->trustmark.isolatedTrustmark.endPoint.y;
 	tmarkRegionAvg.scanDirection = COL_SCAN;
-	tmarkRegionAvg.len = img->trustmark.width;
+	tmarkRegionAvg.len = img->trustmark.fb.width;
 
-	err = _calcImgRegionAvg(&tmarkRegionAvg, &(img->fb));
+	err = _calcImgRegionAvg(&tmarkRegionAvg, &(img->trustmark.fb));
 
 	if(err != IMG_PROCES_OK){
 		return err;
@@ -629,14 +628,14 @@ static img_proces_err_t _findTrustmark(Image_Proces_Frame_t* img){
 	_scaleBufferUINT32(tmarkRegionAvg.avgBuf, tmarkRegionAvg.len, 255);
 
 	// Go backwards to find start col of trademark
-	for(x = img->trustmark.width/2; x>0; x--){
+	for(x = img->trustmark.fb.width/2; x>0; x--){
 		if(tmarkRegionAvg.avgBuf[x] > TMARK_COL_AVG_THRES){
 			img->trustmark.isolatedTrustmark.startPoint.x = x;
 			break;
 		}
 	}
 	// Jump forward in columns and find end col of trademark
-	for(x = img->trustmark.width/2; x<= img->trustmark.width; x++){
+	for(x = img->trustmark.fb.width/2; x<= img->trustmark.fb.width; x++){
 		if(tmarkRegionAvg.avgBuf[x] > TMARK_COL_AVG_THRES){
 			img->trustmark.isolatedTrustmark.endPoint.x = x;
 			break;
@@ -676,7 +675,7 @@ static void _differenceCalc(Image_Proces_Frame_t* img){
 			xNearestNeighbor = x*xResizeRatio;																																	// Determine what pixel from the original trademark array will be used for the resized array. Based on the x ratio
 			yNearestNeighbor = y*yResizeRatio;																																	// Determine what pixel from the original trademark array will be used for the resized array. Based on the y ratio
 			if(y >= 0 && y < DRINKWORKS_TEMPLATE_TMARK_HEIGHT && x >= 0 && x < DRINKWORKS_TEMPLATE_TMARK_WIDTH && (yNearestNeighbor + img->trustmark.isolatedTrustmark.startPoint.y) < TMARK_AREA_HEIGHT && (xNearestNeighbor + img->trustmark.isolatedTrustmark.startPoint.x) < TMARK_AREA_WIDTH){
-				resizedTrademark[(y*DRINKWORKS_TEMPLATE_TMARK_WIDTH)+(x)] = img->trustmark.buf[(yNearestNeighbor + img->trustmark.isolatedTrustmark.startPoint.y)*TMARK_AREA_WIDTH + (xNearestNeighbor + img->trustmark.isolatedTrustmark.startPoint.x)];
+				resizedTrademark[(y*DRINKWORKS_TEMPLATE_TMARK_WIDTH)+(x)] = img->trustmark.fb.buf[(yNearestNeighbor + img->trustmark.isolatedTrustmark.startPoint.y)*TMARK_AREA_WIDTH + (xNearestNeighbor + img->trustmark.isolatedTrustmark.startPoint.x)];
 			}
 		}
 	}
@@ -704,9 +703,9 @@ static void _differenceCalc(Image_Proces_Frame_t* img){
 static img_proces_err_t _authenticateTrustmark(Image_Proces_Frame_t* img){
 	img_proces_err_t err = IMG_PROCES_OK;
 
-	img->trustmark.width = TMARK_AREA_WIDTH;
-	img->trustmark.height = img->barcode2.regionAvg.imgRegion.startPoint.y - img->barcode1.regionAvg.imgRegion.endPoint.y;
-	img->trustmark.length = (img->barcode2.regionAvg.imgRegion.startPoint.y - img->barcode1.regionAvg.imgRegion.endPoint.y) * TMARK_AREA_WIDTH;
+	img->trustmark.fb.width = TMARK_AREA_WIDTH;
+	img->trustmark.fb.height = img->barcode2.regionAvg.imgRegion.startPoint.y - img->barcode1.regionAvg.imgRegion.endPoint.y;
+	img->trustmark.fb.len = (img->barcode2.regionAvg.imgRegion.startPoint.y - img->barcode1.regionAvg.imgRegion.endPoint.y) * TMARK_AREA_WIDTH;
 
 	if (((int32_t)img->barcode1.regionAvg.imgRegion.endPoint.x + (int32_t)img->barcode1.regionAvg.imgRegion.startPoint.x) / 2 - TMARK_AREA_WIDTH/2 >= 0) {																// If the trademark start location is greater than 0
 		img->trustmark.startCol = (img->barcode1.regionAvg.imgRegion.endPoint.x + img->barcode1.regionAvg.imgRegion.startPoint.x) / 2 - TMARK_AREA_WIDTH/2;											// Store the trademark start col location
@@ -720,8 +719,8 @@ static img_proces_err_t _authenticateTrustmark(Image_Proces_Frame_t* img){
 	}
 
 	// Create a new array for the trademark
-	img->trustmark.buf = (uint8_t*)malloc(img->trustmark.length * sizeof(uint8_t));
-	if(img->trustmark.buf == NULL){
+	img->trustmark.fb.buf = (uint8_t*)malloc(img->trustmark.fb.len * sizeof(uint8_t));
+	if(img->trustmark.fb.buf == NULL){
 		IotLogError("Error (Authenticate Trademark): Failed to allocate memory for trademark");
 		return IMG_PROCES_FAIL;
 	}
@@ -730,7 +729,7 @@ static img_proces_err_t _authenticateTrustmark(Image_Proces_Frame_t* img){
 	uint32_t x, y;
 	for (y = img->barcode1.regionAvg.imgRegion.endPoint.y; y < img->barcode2.regionAvg.imgRegion.startPoint.y && y < img ->fb.height; y++) {			// Fill trademark array with values from expected trademark location based on the start/end rows/cols of the barcodes
 		for (x = img->trustmark.startCol; x < img->trustmark.endCol; x++) {
-			img->trustmark.buf[(y - img->barcode1.regionAvg.imgRegion.endPoint.y)*TMARK_AREA_WIDTH + x - img->trustmark.startCol] = img->fb.buf[y*img->fb.width + x];
+			img->trustmark.fb.buf[(y - img->barcode1.regionAvg.imgRegion.endPoint.y)*TMARK_AREA_WIDTH + x - img->trustmark.startCol] = img->fb.buf[y*img->fb.width + x];
 		}
 	}
 
@@ -763,15 +762,27 @@ static img_proces_err_t _fillBarcodeAvgRegions(Image_Proces_Frame_t* img){
 
 	img_proces_err_t err = IMG_PROCES_OK;
 
-	// Error checking for start and end points of barcode regions
+	// Save the initial start and end points to recall later
+	uint32_t	initialStartCol = img->barcode1.regionAvg.imgRegion.startPoint.x;
+	uint32_t	initialEndCol = img->barcode1.regionAvg.imgRegion.endPoint.x;
+
+	// Expand barcode region to inclde buffer to left and right of barcode
 	if(img->barcode1.regionAvg.imgRegion.startPoint.x >= BCODE_SCAN_OFFSET){
 		img->barcode1.regionAvg.imgRegion.startPoint.x -= BCODE_SCAN_OFFSET;
 		img->barcode2.regionAvg.imgRegion.startPoint.x -= BCODE_SCAN_OFFSET;
+	}
+	else {
+		img->barcode1.regionAvg.imgRegion.startPoint.x = 0;
+		img->barcode2.regionAvg.imgRegion.startPoint.x = 0;
 	}
 
 	if(img->barcode1.regionAvg.imgRegion.endPoint.x + BCODE_SCAN_OFFSET <= img->fb.width){
 		img->barcode1.regionAvg.imgRegion.endPoint.x += BCODE_SCAN_OFFSET;
 		img->barcode2.regionAvg.imgRegion.endPoint.x += BCODE_SCAN_OFFSET;
+	}
+	else {
+		img->barcode1.regionAvg.imgRegion.endPoint.x = img->fb.width - 1;
+		img->barcode2.regionAvg.imgRegion.endPoint.x = img->fb.width - 1;
 	}
 
 	img->barcode1.regionAvg.len = img->barcode1.regionAvg.imgRegion.endPoint.x - img->barcode1.regionAvg.imgRegion.startPoint.x;
@@ -793,6 +804,12 @@ static img_proces_err_t _fillBarcodeAvgRegions(Image_Proces_Frame_t* img){
 	if(err == IMG_PROCES_OK){
 		_scaleBufferUINT32(img->barcode2.regionAvg.avgBuf, img->barcode2.regionAvg.len, 255);
 	}
+
+	// Recall the start and end columns of the barcode
+	img->barcode1.regionAvg.imgRegion.startPoint.x = initialStartCol;
+	img->barcode2.regionAvg.imgRegion.startPoint.x = initialStartCol;
+	img->barcode1.regionAvg.imgRegion.endPoint.x = initialEndCol;
+	img->barcode2.regionAvg.imgRegion.endPoint.x = initialEndCol;
 
 	return err;
 
@@ -817,27 +834,32 @@ static img_proces_err_t _thresholdCalc(BarcodeRegion_t* bcode, Image_Proces_Fram
 		return err;
 	}
 
-	uint32_t x,y;
+	uint32_t barcodeScanStart = 0;
+	if (bcode->regionAvg.imgRegion.startPoint.x >= BCODE_SCAN_OFFSET) {
+		barcodeScanStart = bcode->regionAvg.imgRegion.startPoint.x - BCODE_SCAN_OFFSET;
+	}
+
 	// Define barcode threshold based on the surrounding whitespace
+	uint32_t x, y;
 	if(bcode->regionAvg.imgRegion.startPoint.y >= 10 && bcode->regionAvg.imgRegion.endPoint.y <= img->fb.width - 1 - 10){
 		for(y = bcode->regionAvg.imgRegion.startPoint.y - 10; y < bcode->regionAvg.imgRegion.startPoint.y - 5; y++){
-			for(x = bcode->regionAvg.imgRegion.startPoint.x; x < bcode->regionAvg.imgRegion.endPoint.x; x++){
+			for(x = barcodeScanStart; x < barcodeScanStart + bcode->regionAvg.len && x; x++){
 				if(img->fb.buf[(y*img->fb.width)+(x)] > 30){
-					topThres[x - bcode->regionAvg.imgRegion.startPoint.x] += img->fb.buf[(y*img->fb.width)+(x)];
+					topThres[x - barcodeScanStart] += img->fb.buf[(y*img->fb.width)+(x)];
 				}
 				else{
-					topThres[x - bcode->regionAvg.imgRegion.startPoint.x] += 160;
+					topThres[x - barcodeScanStart] += 160;
 				}
 			}
 		}
 
 		for(y = bcode->regionAvg.imgRegion.endPoint.y + 5; y < bcode->regionAvg.imgRegion.endPoint.y + 10; y++){
-			for(x = bcode->regionAvg.imgRegion.startPoint.x; x < bcode->regionAvg.imgRegion.endPoint.x; x++){
+			for (x = barcodeScanStart; x < barcodeScanStart + bcode->regionAvg.len; x++) {
 				if(img->fb.buf[(y*img->fb.width)+(x)] > 30){
-					bottomThres[x - bcode->regionAvg.imgRegion.startPoint.x] += img->fb.buf[(y*img->fb.width)+(x)];
+					bottomThres[x - barcodeScanStart] += img->fb.buf[(y*img->fb.width)+(x)];
 				}
 				else{
-					bottomThres[x - bcode->regionAvg.imgRegion.startPoint.x] += 160;
+					bottomThres[x - barcodeScanStart] += 160;
 				}
 			}
 		}
@@ -941,7 +963,7 @@ static img_proces_err_t _eleventhBitCalculation(Image_Proces_Frame_t* img, Barco
 	IotLogDebug("TrustmarkStartCol: %d", img->trustmark.startCol);
 
 	// Determine if the bit is to the left or the right of the trademark
-	if(bcode->singleBit.startCol < img->trustmark.startCol){
+	if(bcode->singleBit.startCol > img->trustmark.startCol){
 		thresStartCol = bcode->singleBit.startCol - 35;
 		thresEndCol = bcode->singleBit.startCol - 15;
 	}
@@ -978,14 +1000,14 @@ static img_proces_err_t _eleventhBitCalculation(Image_Proces_Frame_t* img, Barco
 static img_proces_err_t _eleventhBitDeterminations(Image_Proces_Frame_t* img){
 	img_proces_err_t err = IMG_PROCES_OK;
 
-	img->barcode1.singleBit.startCol = img->barcode1.regionAvg.imgRegion.startPoint.x + BCODE_SCAN_OFFSET + SINGLE_BIT_OFFSET_1;
-	img->barcode1.singleBit.endCol = img->barcode1.regionAvg.imgRegion.startPoint.x + BCODE_SCAN_OFFSET + SINGLE_BIT_OFFSET_2;
+	img->barcode1.singleBit.startCol = img->barcode1.regionAvg.imgRegion.startPoint.x + SINGLE_BIT_OFFSET_1;
+	img->barcode1.singleBit.endCol = img->barcode1.regionAvg.imgRegion.startPoint.x + SINGLE_BIT_OFFSET_2;
 
 	err = _eleventhBitCalculation(img, &(img->barcode1));
 
 	if(err == IMG_PROCES_OK){
-		img->barcode2.singleBit.startCol = img->barcode2.regionAvg.imgRegion.endPoint.x - BCODE_SCAN_OFFSET - SINGLE_BIT_OFFSET_2;
-		img->barcode2.singleBit.endCol = img->barcode2.regionAvg.imgRegion.endPoint.x - BCODE_SCAN_OFFSET - SINGLE_BIT_OFFSET_1;
+		img->barcode2.singleBit.startCol = img->barcode2.regionAvg.imgRegion.endPoint.x - SINGLE_BIT_OFFSET_2;
+		img->barcode2.singleBit.endCol = img->barcode2.regionAvg.imgRegion.endPoint.x - SINGLE_BIT_OFFSET_1;
 		err = _eleventhBitCalculation(img, &(img->barcode2));
 	}
 
@@ -1274,14 +1296,13 @@ void _resetBarcodeResults(Image_Proces_Frame_t* img){
 	img->colAvg = (Image_Region_Avg_t){{{0, 0}, {0, 0}}, COL_SCAN, NULL, 0};
 	img->barcode1 = (BarcodeRegion_t){{{{0, 0}, {0, 0}}, COL_SCAN, NULL, 0}, NULL, {0, 0, 0, 0, 0}, NOT_INITIALIZED};
 	img->barcode2 = (BarcodeRegion_t){{{{0, 0}, {0, 0}}, COL_SCAN, NULL, 0}, NULL, {0, 0, 0, 0, 0}, NOT_INITIALIZED};
-	img->trustmark = (Trustmark_t){NULL, 0, 0, 0, 0, 0, 0, {{0,0},{0,0}}, 0};
+	img->trustmark = (Trustmark_t){ {NULL, 0, 0, 0, PIXFORMAT_GRAYSCALE, {0,0}}, 0, 0, 0, {{0,0},{0,0}}, 0};
 	img->result = (Image_Decode_Result_t){NOT_INITIALIZED, IMG_PROCES_FAIL_NOT_INITIALIZED};
 }
 
 img_proces_err_t imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img){
 	img_proces_err_t err = IMG_PROCES_OK;
-	currentScanRow = 0;
-
+	uint32_t currentScanRow = 0;
 	_resetBarcodeResults(img);
 
 	// NEED TO ADD THIS FUNCTIONALITY
@@ -1300,7 +1321,7 @@ img_proces_err_t imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img){
 
 	while(img->result.fail != IMG_PROCES_FAIL_NO_FAILURE && currentScanRow < img->fb.height){
 		if(err == IMG_PROCES_OK){
-			err = _determineStartStopRow(img);
+			err = _determineStartStopRow(img, &currentScanRow);
 			if(err){
 				img->result.fail |= IMG_PROCES_FAIL_RECOGNITION;
 				break;
@@ -1309,6 +1330,10 @@ img_proces_err_t imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img){
 
 		if(err == IMG_PROCES_OK){
 			err = _determineStartStopCol(img);
+			if (err) {
+				img->result.fail |= IMG_PROCES_FAIL_RECOGNITION;
+				break;
+			}
 		}
 
 		if(err == IMG_PROCES_OK){
@@ -1380,8 +1405,8 @@ void imageProces_CleanupFrame(Image_Proces_Frame_t* img){
 		img->barcode2.regionAvg.avgBuf = NULL;
 	}
 
-	if(img->trustmark.buf != NULL){
-		free(img->trustmark.buf);
+	if(img->trustmark.fb.buf != NULL){
+		free(img->trustmark.fb.buf);
 	}
 }
 
