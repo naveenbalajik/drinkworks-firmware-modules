@@ -286,7 +286,7 @@ static void _shciTask(void *arg)
 			}
 			// Test with hardwired response to Device Information command times-out with vTaskDelay(50);
 		}
-		vTaskDelay( 10 );
+		vTaskDelay( 10 / portTICK_PERIOD_MS );
     }
 }
 
