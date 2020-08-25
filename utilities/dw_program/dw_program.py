@@ -2,6 +2,7 @@ import sys
 import subprocess
 import os
 import time
+import serial
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -60,10 +61,35 @@ if __name__ == "__main__":
     os.system(systemCommand)
 
     print("Programming Flash...")
-    systemCommand = "Esptool.py -p " + COMport + " -b 460800 --after no_reset write_flash --flash_mode dio --flash_freq 40m 0x1000 bootloader.bin 0xE000 partition-table.bin 0x10000 ota_data_initial.bin 0x200000 dw_ModelA.bin 0x800000 dw_MfgTest.bin"
+    systemCommand = "Esptool.py -p " + COMport + " -b 460800 --after hard_reset write_flash --flash_mode dio --flash_freq 40m 0x1000 bootloader.bin 0xE000 partition-table.bin 0x10000 ota_data_initial.bin 0x200000 dw_ModelA.bin 0x800000 dw_MfgTest.bin"
     os.system(systemCommand)
 
-    print("Encrypting flash contents(30s)...")
-    time.sleep(30)
+    ser = serial.Serial(COMport, 115200, exclusive=True, rtscts=0, dsrdtr=0, timeout=10)
+    # rts and dtr are set to 1 by the OS. Need to hard set them to 0 after opening the serial port
+    ser.rts = 0
+    ser.dtr = 0
+    startTime = time.time()
+    secondTimeout = 120
+    completeOutput = ''
 
-    print("Programming Completed")
+    while True:
+        timePassed = time.time() - startTime
+        if timePassed < secondTimeout:
+            data = ser.read(ser.in_waiting or 1)
+            if data:
+                try:
+                    decodedData = data.decode("utf-8")
+                    sys.stdout.write(decodedData)
+                    completeOutput += decodedData
+
+                    if 'Drinkworks' in completeOutput:
+                        sys.stdout.write("Drinkworks String Found\r\nBootloader Encryption Completed\r\n")
+                        break
+                except:
+                    pass
+
+        else:
+            sys.stdout.write("Drinkworks not found in " + str(secondTimeout) + "s\r\nEncryption Timeout\r\n")
+            break
+
+    print("Exiting Program")
