@@ -61,13 +61,14 @@ if __name__ == "__main__":
     os.system(systemCommand)
 
     print("Programming Flash...")
-    systemCommand = "Esptool.py -p " + COMport + " -b 460800 --after hard_reset write_flash --flash_mode dio --flash_freq 40m 0x1000 bootloader.bin 0xE000 partition-table.bin 0x10000 ota_data_initial.bin 0x200000 dw_ModelA.bin 0x800000 dw_MfgTest.bin"
+    systemCommand = "Esptool.py -p " + COMport + " -b 460800 --after no_reset write_flash --flash_mode dio --flash_freq 40m 0x1000 bootloader.bin 0xE000 partition-table.bin 0x10000 ota_data_initial.bin 0x200000 dw_ModelA.bin 0x800000 dw_MfgTest.bin"
     os.system(systemCommand)
 
     ser = serial.Serial(COMport, 115200, exclusive=True, rtscts=0, dsrdtr=0, timeout=10)
     # rts and dtr are set to 1 by the OS. Need to hard set them to 0 after opening the serial port
-    ser.rts = 0
     ser.dtr = 0
+    time.sleep(1)
+    ser.rts = 0
     startTime = time.time()
     secondTimeout = 120
     completeOutput = ''
