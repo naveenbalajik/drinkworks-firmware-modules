@@ -437,7 +437,7 @@ static int8_t _checkForColAvgTransition(Image_Proces_Frame_t* img, uint32_t test
 				if (endScan > img->fb.width) {																	// If end scan is outside of array
 					endScan = img->fb.width;																		// Set to max array
 				}
-				if (_consistencyCheck(colAvgBuf, startScan, x) && _consistencyCheck(colAvgBuf, i, endScan)) {			// Use consistencyCheck function to ensure there is whitespace to the right and left of the barcode.
+				if (_consistencyCheck((uint32_t*)colAvgBuf, startScan, x) && _consistencyCheck((uint32_t*)colAvgBuf, i, endScan)) {			// Use consistencyCheck function to ensure there is whitespace to the right and left of the barcode.
 					img->barcode1.regionAvg.imgRegion.startPoint.x = x;																// If whitespace to the right and left of the barcode, store barcode startCol location
 					img->barcode2.regionAvg.imgRegion.startPoint.x = x;
 					img->barcode1.regionAvg.imgRegion.endPoint.x = i - 10;															// If whitespace to the right and left of the barcode, store barcode endCol location
