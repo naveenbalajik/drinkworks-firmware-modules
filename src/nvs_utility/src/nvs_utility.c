@@ -80,6 +80,10 @@ static const NVS_Entry_Details_t NVS_Items[] =
 	[ NVS_FINAL_PRIVATE_KEY ] = {	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "FinalPKey"},
 	[ NVS_THING_NAME ]        = { 	.type = NVS_TYPE_STR,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ThingName"},
 	[ NVS_SERIAL_NUM ]        = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "SerialNumber"},
+	[ NVS_FIFO_HEAD ]         = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoHead"},
+	[ NVS_FIFO_TAIL ]         = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoTail"},
+	[ NVS_FIFO_FULL ]         = { 	.type = NVS_TYPE_U8,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoFull"},
+	[ NVS_FIFO_MAX ]         = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoMax"},
 };
 
 #ifdef CONFIG_NVS_ENCRYPTION
@@ -185,7 +189,7 @@ static int32_t _getNVSnamespaceHandle( const NVS_Entry_Details_t *pItem, int32_t
 	}
 	pPartition = &NVS_Partitions[ part_idx ];
 
-	IotLogInfo( "%s: part_idx = %d, label = %s", __func__, part_idx, pPartition->label );
+//	IotLogInfo( "%s: part_idx = %d, label = %s", __func__, part_idx, pPartition->label );
 	/* Initialize (un-inited) partition, use Security Configuration if partition is encrypted */
 	if( pPartition->initialized == false )
 	{
@@ -311,19 +315,13 @@ int32_t NVS_Initialize( void )
  *
  * @return 	ESP_OK if successful, -1 if failed
  */
-int32_t NVS_Get_Size_Of( NVS_Items_t nvsItem, uint32_t* size )
+int32_t NVS_pGet_Size_Of(  const NVS_Entry_Details_t *pItem, uint32_t* size )
 {
 	esp_err_t err;
 	nvs_handle handle;
-	const NVS_Entry_Details_t * pItem;
 
-	err = _getTablePointerFromNVSItem( nvsItem, &pItem );
 
-	// Open the namespace handle
-	if( err == ESP_OK )
-	{
-		err = _getNVSnamespaceHandle( pItem, NVS_READONLY, &handle );
-	}
+	err = _getNVSnamespaceHandle( pItem, NVS_READONLY, &handle );
 
 	if( err == ESP_OK )
 	{
@@ -376,7 +374,7 @@ int32_t NVS_Get_Size_Of( NVS_Items_t nvsItem, uint32_t* size )
 
 	if (err != ESP_OK)
 	{
-		IotLogInfo( "Unable to get NVS Item size" );
+		IotLogDebug( "Unable to get NVS Item size" );
 	}
 
 	nvs_close( handle );
@@ -385,28 +383,46 @@ int32_t NVS_Get_Size_Of( NVS_Items_t nvsItem, uint32_t* size )
 }
 
 /**
- * @brief Get the value of a specified nvs item
+ * @brief Get the size of a specified nvs item
  *
- * @param[in] nvsItem		NVS item
+ * @param[in] 	nvsItem		NVS item
+ * @param[out] 	size		size of the NVS item
+ *
+ * @return 	ESP_OK if successful, -1 if failed
+ */
+int32_t NVS_Get_Size_Of( NVS_Items_t nvsItem, uint32_t* size )
+{
+	esp_err_t err;
+	const NVS_Entry_Details_t * pItem;
+
+	err = _getTablePointerFromNVSItem( nvsItem, &pItem );
+
+	if( err == ESP_OK )
+	{
+		err = NVS_pGet_Size_Of( pItem, size );
+	}
+
+	return err;
+}
+
+/**
+ * @brief Get the value of an nvs item using an NVS_Entry_details_t pointer
+ *
+ * @param[in]  pItem		Pointer to NVS_Entry_details_t item
  * @param[out] pOutput		Output value
  * @param[out] pSize		size of the output.  Only used for strings and blobs
  *
  * @return 	ESP_OK if successful, -1 if failed
  */
-int32_t NVS_Get( NVS_Items_t nvsItem, void* pOutput, void* pSize )
+int32_t NVS_pGet( const NVS_Entry_Details_t *pItem, void* pOutput, void* pSize )
 {
 	esp_err_t err;
 	nvs_handle handle;
 	// Initialize output size to 0
-	const NVS_Entry_Details_t *pItem;
 
-	err = _getTablePointerFromNVSItem( nvsItem, &pItem );
 
 	// Open the namespace handle
-	if( err == ESP_OK )
-	{
-		err = _getNVSnamespaceHandle( pItem, NVS_READONLY, &handle );
-	}
+	err = _getNVSnamespaceHandle( pItem, NVS_READONLY, &handle );
 
 	if( err == ESP_OK )
 	{
@@ -470,32 +486,51 @@ int32_t NVS_Get( NVS_Items_t nvsItem, void* pOutput, void* pSize )
 }
 
 /**
- * @brief Set the value of a specified nvs item
+ * @brief Get the value of a specified nvs item
+ *
+ * @param[in] nvsItem		NVS item
+ * @param[out] pOutput		Output value
+ * @param[out] pSize		size of the output.  Only used for strings and blobs
+ *
+ * @return 	ESP_OK if successful, -1 if failed
+ */
+int32_t NVS_Get( NVS_Items_t nvsItem, void* pOutput, void* pSize )
+{
+	esp_err_t err;
+	// Initialize output size to 0
+	const NVS_Entry_Details_t *pItem;
+
+	err = _getTablePointerFromNVSItem( nvsItem, &pItem );
+
+	// Use pItem to perform "Get"
+	if( err == ESP_OK )
+	{
+		err = NVS_pGet( pItem, pOutput, pSize );
+	}
+
+	return err;
+}
+
+/**
+ * @brief Set the value of an NVS item using an NVS_Entry_details_t pointer
  *
  * Only set the value in nvs if the value is different then what is currently stored in nvs
  *
- * @param[in] nvsItem		NVS item
+ * @param[in] pItem			Pointer to NVS_Entry_Details_t item
  * @param[in] pInput		Input value to set
  * @param[in] pSize			size of the input. Only used for blobs
  *
  * @return 	ESP_OK if successful, -1 if failed
  */
-int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
+int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, void* pInput, void* pSize )
 {
 	esp_err_t err;
 	nvs_handle handle;
 	void *currentVal = NULL;
 	uint32_t currentSize = 0;
-	const NVS_Entry_Details_t *pItem;
-
-	err = _getTablePointerFromNVSItem( nvsItem, &pItem );
-
 
 	// Open the namespace handle
-	if( err == ESP_OK )
-	{
-		err = _getNVSnamespaceHandle( pItem, NVS_READWRITE, &handle );
-	}
+	err = _getNVSnamespaceHandle( pItem, NVS_READWRITE, &handle );
 
 	if( err == ESP_OK )
 	{
@@ -503,7 +538,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 		{
 			case NVS_TYPE_U8:
 				currentVal = pvPortMalloc( sizeof(uint8_t) );
-				err = NVS_Get( nvsItem, currentVal, NULL );
+				err = NVS_pGet( pItem, currentVal, NULL );
 
 				if( err != ESP_OK || memcmp( pInput, currentVal, sizeof(uint8_t) ) != 0 )
 				{
@@ -511,7 +546,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 				}
 				else
 				{
-					IotLogInfo( "NVS item %s already set to %u, ignoring write", pItem->nvsKey, *(uint8_t*)pInput );
+					IotLogDebug( "NVS item %s already set to %u, ignoring write", pItem->nvsKey, *(uint8_t*)pInput );
 				}
 
 				vPortFree( currentVal );
@@ -519,7 +554,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 
 			case NVS_TYPE_I8:
 				currentVal = pvPortMalloc( sizeof(int8_t) );
-				err = NVS_Get(nvsItem, currentVal, NULL);
+				err = NVS_pGet( pItem, currentVal, NULL);
 
 				if( err != ESP_OK || memcmp( pInput, currentVal, sizeof(int8_t) ) != 0 )
 				{
@@ -535,7 +570,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 
 			case NVS_TYPE_U16:
 				currentVal = pvPortMalloc( sizeof(uint16_t) );
-				err = NVS_Get( nvsItem, currentVal, NULL );
+				err = NVS_pGet( pItem, currentVal, NULL );
 
 				if( err != ESP_OK || memcmp( pInput, currentVal, sizeof(uint16_t) ) != 0 )
 				{
@@ -543,7 +578,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 				}
 				else
 				{
-					IotLogInfo( "NVS item %s already set to %u, ignoring write", pItem->nvsKey, *(uint16_t*)pInput );
+					IotLogDebug( "NVS item %s already set to %u, ignoring write", pItem->nvsKey, *(uint16_t*)pInput );
 				}
 
 				vPortFree( currentVal );
@@ -551,7 +586,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 
 			case NVS_TYPE_I16:
 				currentVal = pvPortMalloc( sizeof(int16_t) );
-				err = NVS_Get( nvsItem, currentVal, NULL );
+				err = NVS_pGet( pItem, currentVal, NULL );
 
 				if( err != ESP_OK || memcmp( pInput, currentVal, sizeof(int16_t) ) != 0 )
 				{
@@ -567,7 +602,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 
 			case NVS_TYPE_U32:
 				currentVal = pvPortMalloc( sizeof(uint32_t) );
-				err = NVS_Get( nvsItem, currentVal, NULL );
+				err = NVS_pGet( pItem, currentVal, NULL );
 
 				if( err != ESP_OK || memcmp(pInput, currentVal, sizeof(uint32_t)) != 0 )
 				{
@@ -583,7 +618,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 
 			case NVS_TYPE_I32:
 				currentVal = pvPortMalloc( sizeof(int32_t) );
-				err = NVS_Get( nvsItem, currentVal, NULL );
+				err = NVS_pGet( pItem, currentVal, NULL );
 
 				if( err != ESP_OK || memcmp( pInput, currentVal, sizeof(int32_t) ) != 0 )
 				{
@@ -599,7 +634,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 
 			case NVS_TYPE_U64:
 				currentVal = pvPortMalloc( sizeof(uint64_t) );
-				err = NVS_Get( nvsItem, currentVal, NULL );
+				err = NVS_pGet( pItem, currentVal, NULL );
 
 				if( err != ESP_OK || memcmp(pInput, currentVal, sizeof(uint64_t)) != 0 )
 				{
@@ -615,7 +650,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 
 			case NVS_TYPE_I64:
 				currentVal = pvPortMalloc( sizeof(int64_t) );
-				err = NVS_Get( nvsItem, currentVal, NULL );
+				err = NVS_pGet( pItem, currentVal, NULL );
 
 				if( err != ESP_OK || memcmp( pInput, currentVal, sizeof(int64_t) ) != 0 )
 				{
@@ -629,7 +664,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 				break;
 
 			case NVS_TYPE_STR:
-				err = NVS_Get_Size_Of( nvsItem, &currentSize );
+				err = NVS_pGet_Size_Of( pItem, &currentSize );
 
 				if( err == ESP_OK )
 				{
@@ -638,7 +673,7 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 
 				if( err == ESP_OK )
 				{
-					err = NVS_Get( nvsItem, currentVal, &currentSize );
+					err = NVS_pGet( pItem, currentVal, &currentSize );
 				}
 
 				if( err != ESP_OK || memcmp( pInput, currentVal, currentSize ) != 0 )
@@ -662,9 +697,9 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 					err = ESP_FAIL;
 					break;
 				}
-				IotLogInfo( "NVS_Set, Blob, pSize = %d", *(size_t *)pSize);
+				IotLogDebug( "NVS_Set, Blob, pSize = %d", *(size_t *)pSize);
 
-				err = NVS_Get_Size_Of( nvsItem, &currentSize );
+				err = NVS_pGet_Size_Of( pItem, &currentSize );
 
 				if( err == ESP_OK )
 				{
@@ -673,13 +708,12 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 
 				if( err == ESP_OK )
 				{
-					err = NVS_Get( nvsItem, currentVal, &currentSize );
+					err = NVS_pGet( pItem, currentVal, &currentSize );
 				}
 
 				if( err != ESP_OK || memcmp( pInput, currentVal, *(size_t*)pSize ) != 0 )
 				{
 					err = nvs_set_blob( handle, pItem->nvsKey, pInput, *(size_t*)pSize );
-					IotLogInfo( "NVS_Set, Blob, err = %d", err);
 				}
 				else
 				{
@@ -714,6 +748,33 @@ int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
 	}
 
 	nvs_close( handle );
+
+	return err;
+}
+
+/**
+ * @brief Set the value of a specified nvs item
+ *
+ * Only set the value in nvs if the value is different then what is currently stored in nvs
+ *
+ * @param[in] nvsItem		NVS item
+ * @param[in] pInput		Input value to set
+ * @param[in] pSize			size of the input. Only used for blobs
+ *
+ * @return 	ESP_OK if successful, -1 if failed
+ */
+int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
+{
+	esp_err_t err;
+	const NVS_Entry_Details_t *pItem;
+
+	err = _getTablePointerFromNVSItem( nvsItem, &pItem );
+
+	// Open the namespace handle
+	if( err == ESP_OK )
+	{
+		err = NVS_pSet( pItem, pInput, pSize );
+	}
 
 	return err;
 }
