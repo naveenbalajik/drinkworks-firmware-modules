@@ -534,6 +534,16 @@ uint16_t fifo_getHead( fifo_handle_t fifo)
 	return fifo->head;
 }
 
+/**
+ * @brief	Getter for FIFO Tail
+ *
+ * Only intended of test usage
+ */
+uint16_t fifo_getTail( fifo_handle_t fifo)
+{
+	return fifo->tail;
+}
+
 /* *****************************************************************************
  End of File
  */

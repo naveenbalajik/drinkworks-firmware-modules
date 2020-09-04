@@ -38,4 +38,6 @@ int32_t fifo_get( fifo_handle_t fifo, void* blob, size_t *pLength );
 
 uint16_t fifo_getHead( fifo_handle_t fifo);
 
+uint16_t fifo_getTail( fifo_handle_t fifo);
+
 #endif	/* EVENT_FIFO_H */

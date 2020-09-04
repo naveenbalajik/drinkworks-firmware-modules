@@ -233,8 +233,8 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 
 	switch( pTest->phase )
 	{
-		case PHASE_0:									// empty the FIFO before starting, unless resuming
-			IotLogInfo( "fifo_test_1: start" );
+		case PHASE_0:									// empty the FIFO before starting
+			IotLogInfo( "fifo_test1: start" );
 			err = fifo_empty_test( fifo );
 			IotLogInfo( "  emptied" );
 			pTest->index = startIndex;					// initialize test index
@@ -251,7 +251,7 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 					IotLogInfo( "  index = %d, head = %d", pTest->index, fifo_getHead( fifo ) );
 					if( ESP_OK == err )
 					{
-						IotLogDebug( "  fifo_test_1: write" );
+						IotLogDebug( "  fifo_test1: write" );
 						err = put_test_data( fifo, pTest->index );				// Write record
 					}
 					else
@@ -262,7 +262,7 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 
 					if( ESP_OK == err )
 					{
-						IotLogDebug( "  fifo_test_1: check full" );
+						IotLogDebug( "  fifo_test1: check full" );
 						if( fifo_full( fifo ) )
 						{
 							IotLogError( "  fifo_full error" );
@@ -273,7 +273,7 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 
 					if( ESP_OK == err )
 					{
-						IotLogDebug( "  fifo_test_1: check empty" );
+						IotLogDebug( "  fifo_test1: check empty" );
 						if( fifo_empty( fifo ) )
 						{
 							IotLogError( "  fifo_empty error" );
@@ -291,13 +291,13 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 				case TEST1_STEP_GET:
 					if( ESP_OK == err )
 					{
-						IotLogDebug( "  fifo_test_1: get/verify" );
+						IotLogDebug( "  fifo_test1: get/verify" );
 						err = get_verify_test_data( fifo, pTest->index );			// read/verify record
 					}
 
 					if( ESP_OK == err )
 					{
-						IotLogDebug( "  fifo_test_1: check size" );
+						IotLogDebug( "  fifo_test1: check size" );
 						if( 0 != fifo_size( fifo ) )
 						{
 							IotLogError( "  fifo_size" );
@@ -308,7 +308,7 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 
 					if( ESP_OK == err )
 					{
-						IotLogDebug( "  fifo_test_1: check full" );
+						IotLogDebug( "  fifo_test1: check full" );
 						if( fifo_full( fifo ) )
 						{
 							IotLogError( "  fifo_full error" );
@@ -319,7 +319,7 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 
 					if( ESP_OK == err )
 					{
-						IotLogDebug( "  fifo_test_1: check empty" );
+						IotLogDebug( "  fifo_test1: check empty" );
 						if( false == fifo_empty( fifo ) )
 						{
 							IotLogError( "  fifo_empty error" );
@@ -367,6 +367,231 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 	return err;
 }
 
+/**
+ * @brief	FIFO Test 2
+ *
+ * This test writes a number of records into the FIFO, then reads them back.
+ *
+ * If the number of records written is less than FIFO_SIZE, fifo_full should not be set
+ * and all the records should be able to be read back.
+ *
+ * If the number of records written is equal to FIFO_SIZE, fifo_full should be set
+ * and all the records should be able to be read back.
+ *
+ * If the number of records written is greater than FIFO_SIZE, fifo_full should be set
+ * but only the last FIFO_SIZE records should be able to be read back.
+ *
+ * In each case, after all the available records are read back, fifo_empty should be true.
+ *
+ * 	2.	Fill FIFO
+ * 		a) For record count = FIFO_SIZE
+ * 		b) Write unique data
+ * 		c) Verify fifo_size, fifo_full, fifo_empty
+ * 		d) Next record
+ * 		e) While not fifo_empty
+ * 		f) Read record
+ * 		g) Verify fifo_size, fifo_full, fifo_empty
+ * 		h) Compare data
+ * 		i) Next record
+ *
+ */
+static int32_t fifo_test2( testControl_t *pTest, fifo_handle_t fifo, uint32_t startIndex, uint32_t count )
+{
+	esp_err_t err = ESP_OK;
+	uint32_t	nRecords;
+
+	switch( pTest->phase )
+	{
+		case PHASE_0:									// empty the FIFO before starting
+			IotLogInfo( "fifo_test2: start" );
+			err = fifo_empty_test( fifo );
+			IotLogInfo( "  emptied" );
+			pTest->index = startIndex;					// initialize test index
+			pTest->step = 0;							// initialize test step
+			pTest->bComplete = false;					// initialize test complete flag
+			pTest->error = 0;							// Clear error count
+			++pTest->phase;								// Next phase
+			break;
+
+		case PHASE_1:									// Write Records, no steps required
+			IotLogInfo( "  Write, index = %d, head = %d", pTest->index, fifo_getHead( fifo ) );
+			if( ESP_OK == err )
+			{
+				IotLogDebug( "  fifo_test2: write" );
+				err = put_test_data( fifo, pTest->index );				// Write record
+			}
+
+			if( ESP_OK != err )
+			{
+				IotLogError( "  put_test_data: %d", err );
+				++pTest->error;											// increment error count
+			}
+
+			if( ESP_OK == err )
+			{
+				IotLogDebug( "  fifo_test2: check capacity" );
+				if( FIFO_SIZE != fifo_capacity( fifo ) )
+				{
+					IotLogError( "  fifo_capacity error" );
+					err = ESP_FAIL;
+					++pTest->error;											// increment error count
+				}
+			}
+
+
+			if( ESP_OK == err )
+			{
+				IotLogDebug( "  fifo_test2: check size" );
+				nRecords = pTest->index - startIndex + 1;						// records written
+
+				if( ( ( nRecords <= FIFO_SIZE ) && ( nRecords != fifo_size( fifo ) ) ) ||
+					( ( nRecords == FIFO_SIZE ) && ( FIFO_SIZE != fifo_size( fifo ) ) ) )
+				{
+					IotLogError( "  fifo_size error" );
+					err = ESP_FAIL;
+					++pTest->error;											// increment error count
+				}
+			}
+
+
+			if( ESP_OK == err )
+			{
+				IotLogDebug( "  fifo_test2: check full" );
+				/*
+				 * fifo_full should be set after FIFO_SIZE records have been written
+				 * otherwise it should be clear
+				 */
+				if( ( ( FIFO_SIZE != fifo_size( fifo ) ) && (  fifo_full( fifo ) ) ) ||
+					( ( FIFO_SIZE == fifo_size( fifo ) ) && ( !fifo_full( fifo ) ) ) )
+				{
+					IotLogError( "  fifo_full error" );
+					err = ESP_FAIL;
+					++pTest->error;											// increment error count
+				}
+			}
+
+			if( ESP_OK == err )
+			{
+				IotLogDebug( "  fifo_test2: check empty" );
+				if( fifo_empty( fifo ) )
+				{
+					IotLogError( "  fifo_empty error" );
+					err = ESP_FAIL;
+					++pTest->error;											// increment error count
+				}
+			}
+
+			if (ESP_OK == err )											/* iteration passed */
+			{
+				if( ++pTest->index >= ( startIndex + count ) )			/* increment index, if phase is complete */
+				{
+					if( fifo_full( fifo ) )								/* if FIFO is full */
+					{
+						pTest->index -= fifo_capacity( fifo );			/* Adjust for overwritten records */
+						IotLogInfo( "  fifo_test2: %d records overwritten", (pTest->index - startIndex ) );
+					}
+					else
+					{
+						pTest->index = startIndex;						/* set index to start index */
+					}
+
+					pTest->phase++;										/* increment phase */
+				}
+			}
+			break;
+
+		case PHASE_2:									// Read/Verify Records, no steps required
+			IotLogInfo( "  Get, index = %d, tail = %d", pTest->index, fifo_getTail( fifo ) );
+			if( ESP_OK == err )
+			{
+				IotLogDebug( "  fifo_test2: get/verify" );
+				err = get_verify_test_data( fifo, pTest->index );			// read/verify record
+			}
+
+			if( ESP_OK != err )
+			{
+				IotLogError( "  get_verify_test_data: %d", err );
+				++pTest->error;												// increment error count
+			}
+
+			if( ESP_OK == err )
+			{
+				/*
+				 * Check size, size = (startIndex + Count - pTest->index - 1)
+				 */
+				IotLogDebug( "  fifo_test2: check size" );
+				if( ( startIndex + count - pTest->index - 1 ) != fifo_size( fifo ) )
+				{
+					IotLogError( "  fifo_size" );
+					err = ESP_FAIL;
+					++pTest->error;											// increment error count
+				}
+			}
+
+			if( ESP_OK == err )
+			{
+				IotLogDebug( "  fifo_test2: check full" );
+				if( fifo_full( fifo ) )
+				{
+					IotLogError( "  fifo_full error" );
+					err = ESP_FAIL;
+					++pTest->error;											// increment error count
+				}
+			}
+
+			if( ESP_OK == err )
+			{
+				IotLogDebug( "  fifo_test2: check empty" );
+				/*
+				 * Check empty, since fifo_size was checked above, if fifo_size is zero,
+				 * fifo_empty should be true.
+				 */
+				if( ( ( 0 == fifo_size( fifo ) ) && !fifo_empty( fifo ) ) ||
+					( ( 0 != fifo_size( fifo ) ) &&  fifo_empty( fifo ) ) )
+				{
+					IotLogError( "  fifo_empty error" );
+					err = ESP_FAIL;
+					++pTest->error;											// increment error count
+				}
+			}
+
+			if( ESP_OK == err )											/* Iteration passed */
+			{
+				if( ++pTest->index >= ( startIndex + count ) )			/* increment index, if phase is complete */
+				{
+					pTest->phase++;										/* increment phase */
+				}
+			}
+			break;
+
+		case PHASE_3:												/* Test is complete */
+			IotLogInfo( "fifo_test2: complete" );
+			if( pTest->error )
+			{
+				IotLogInfo( "  FAILED, error count = %d", pTest->error );
+			}
+			else
+			{
+				IotLogInfo("  PASSED" );
+			}
+			pTest->bComplete = true;
+			break;
+
+		default:
+			break;
+	}
+
+	return err;
+}
+
+
+/**
+ * @brief	Reset test parameters
+ *
+ * All test-level parameters, except for cycle count, are reset to default values
+ *
+ * param[in]	pTest	Pointer to test parameter structure
+ */
 static void reset_test( testControl_t *pTest)
 {
 	pTest->proc = 0;
@@ -376,6 +601,7 @@ static void reset_test( testControl_t *pTest)
 	pTest->error = 0;
 	pTest->bComplete = false;
 }
+
 
 /**
  * @brief	Event FIFO test sequencer
@@ -432,18 +658,36 @@ void fifo_test( void )
 				switch( test.proc )
 				{
 					case 0:
-						fifo_test1( &test, fifo, 1234, 100 );				// Run fifo test #1
-						if( test.bComplete )								// When test is complete
-						{
-							++test.proc;									// move on to next test
-						}
+						fifo_test1( &test, fifo, 1234, 10 );				// Run fifo test #1
 						break;
+
+					case 1:
+						fifo_test2( &test, fifo, 2000, 10 );				// short run of test #2
+						break;
+
+//					case 2:
+//						fifo_test2( &test, fifo, 2000, FIFO_SIZE );			// test #2 - exactly fill FIFO
+//						break;
+//
+//					case 3:
+//						fifo_test2( &test, fifo, 2000, ( FIFO_SIZE + 15 ) );	// test #2 - over fill FIFO
+//						break;
 
 					default:												// All tests complete
 						reset_test( &test );								// Reset test parameters so test suite can be re-run
 						test.cycle++;										// increment cycle count
 						bAllDone = true;									// terminate test loop
 						break;
+				}
+
+				if( test.bComplete )								// When test is complete
+				{
+					test.phase = 0;
+					test.index = 0;
+					test.step = 0;
+					test.error = 0;
+					test.bComplete = false;
+					++test.proc;									// move on to next test
 				}
 
 				/* Save test controls to NVS */
