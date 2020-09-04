@@ -66,6 +66,8 @@ if __name__ == "__main__":
 
     ser = serial.Serial(COMport, 115200, exclusive=True, rtscts=0, dsrdtr=0, timeout=10)
     # rts and dtr are set to 1 by the OS. Need to hard set them to 0 after opening the serial port
+    ser.dtr = 1
+    ser.rts = 1
     ser.dtr = 0
     time.sleep(1)
     ser.rts = 0
