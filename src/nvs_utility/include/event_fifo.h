@@ -22,7 +22,7 @@ typedef struct fifo_s fifo_t;
  */
 typedef fifo_t* fifo_handle_t;
 
-fifo_handle_t fifo_init(const NVS_Partitions_t partition, const char * namespace, const char *keyPrefix, const uint16_t nItems, NVS_Items_t headKey, NVS_Items_t tailKey, NVS_Items_t fullKey, NVS_Items_t maxKey );
+fifo_handle_t fifo_init(const NVS_Partitions_t partition, const char * namespace, const char *keyPrefix, const uint16_t nItems, NVS_Items_t controlsKey, NVS_Items_t maxKey );
 
 bool fifo_full( fifo_handle_t fifo );
 

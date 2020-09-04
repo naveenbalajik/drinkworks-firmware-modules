@@ -74,16 +74,15 @@ static NVS_Partition_Details_t NVS_Partitions[] =
 */
 static const NVS_Entry_Details_t NVS_Items[] =
 {
-	[ NVS_CLAIM_CERT ]        = {	.type = NVS_TYPE_BLOB, 	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ClaimCert"},
-	[ NVS_CLAIM_PRIVATE_KEY ] = {	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ClaimPKey"},
-	[ NVS_FINAL_CERT ]        = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "FinalCert"},
-	[ NVS_FINAL_PRIVATE_KEY ] = {	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "FinalPKey"},
-	[ NVS_THING_NAME ]        = { 	.type = NVS_TYPE_STR,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ThingName"},
-	[ NVS_SERIAL_NUM ]        = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "SerialNumber"},
-	[ NVS_FIFO_HEAD ]         = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoHead"},
-	[ NVS_FIFO_TAIL ]         = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoTail"},
-	[ NVS_FIFO_FULL ]         = { 	.type = NVS_TYPE_U8,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoFull"},
-	[ NVS_FIFO_MAX ]         = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoMax"},
+	[ NVS_CLAIM_CERT ]        = {	.type = NVS_TYPE_BLOB, 	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ClaimCert" },
+	[ NVS_CLAIM_PRIVATE_KEY ] = {	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ClaimPKey" },
+	[ NVS_FINAL_CERT ]        = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "FinalCert" },
+	[ NVS_FINAL_PRIVATE_KEY ] = {	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "FinalPKey" },
+	[ NVS_THING_NAME ]        = { 	.type = NVS_TYPE_STR,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ThingName" },
+	[ NVS_SERIAL_NUM ]        = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "SerialNumber" },
+	[ NVS_FIFO_CONTROLS ]     = { 	.type = NVS_TYPE_U32,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoControls" },
+	[ NVS_FIFO_MAX ]          = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoMax" },
+	[ NVS_FIFO_TEST ]          = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "Fifotest" },			/**< For test purposes only */
 };
 
 #ifdef CONFIG_NVS_ENCRYPTION

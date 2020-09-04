@@ -45,10 +45,9 @@ typedef enum
 	NVS_FINAL_PRIVATE_KEY,
 	NVS_THING_NAME,
 	NVS_SERIAL_NUM,
-	NVS_FIFO_HEAD,
-	NVS_FIFO_TAIL,
-	NVS_FIFO_FULL,
-	NVS_FIFO_MAX
+	NVS_FIFO_CONTROLS,
+	NVS_FIFO_MAX,
+	NVS_FIFO_TEST						/**< For test purposes only */
 } NVS_Items_t;
 
 int32_t NVS_Initialize( void );

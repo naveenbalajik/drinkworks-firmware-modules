@@ -27,14 +27,20 @@
 
 struct fifo_s
 {
-	uint16_t head;				/**< Head Index, elements are added at this location */
-	uint16_t tail;				/**< Tail Index, elements are removed at this location */
+	union
+	{
+		struct
+		{
+			uint32_t head : 15;					/**< Head Index, elements are added at this location */
+			uint32_t full : 1;					/**< flag, true when buffer is full */
+			uint32_t tail : 15;					/**< Tail Index, elements are removed at this location */
+			uint32_t : 1;						/**< spare bit */
+		};
+		uint32_t	controls;					/**< All fifo control items consolidated into 32-bit item */
+	};
 	uint16_t max;								/**< Size of the buffer */
-	uint8_t full;								/**< flag, true when buffer is full */
 	NVS_Entry_Details_t entry;
-	NVS_Items_t	headKey;
-	NVS_Items_t	tailKey;
-	NVS_Items_t	fullKey;
+	NVS_Items_t	controlsKey;
 	NVS_Items_t	maxKey;
 
 	char namespace[ MAX_NAMESPACE_LENGTH ];
@@ -50,16 +56,16 @@ struct fifo_s
 /* ************************************************************************** */
 
 /**
- * @brief	Save FIFO pointers in NVS
+ * @brief	Save FIFO controls in NVS
  *
  * Save the FIFO head, tail and full items in NVS
  *
  * @param[in] fifo	Handle of FIFO
  * @return
- * 	- ESP_OK if all pointers are saved without issue
- * 	- ESP_FAIL if error saving pointers
+ * 	- ESP_OK if controls are saved without issue
+ * 	- ESP_FAIL if error saving controls
  */
-static int32_t save_pointers( fifo_handle_t fifo)
+static int32_t save_controls( fifo_handle_t fifo)
 {
 	esp_err_t err = ESP_OK;
 
@@ -70,20 +76,8 @@ static int32_t save_pointers( fifo_handle_t fifo)
 
 	if( ESP_OK == err )
 	{
-		err = NVS_Set( fifo->headKey, &fifo->head, NULL );			// Update head in NVS
-		IotLogDebug( "save_pointers, head = %d", fifo->head );
-	}
-
-	if( ESP_OK == err )
-	{
-		err = NVS_Set( fifo->tailKey, &fifo->tail, NULL );			// Update tail in NVS
-		IotLogDebug( "save_pointers, tail = %d", fifo->tail );
-	}
-
-	if( ESP_OK == err )
-	{
-		err = NVS_Set( fifo->fullKey, &fifo->full, NULL );			// Update full flag in NVS
-		IotLogDebug( "save_pointers, full = %d, err = %d", fifo->full, err );
+		err = NVS_Set( fifo->controlsKey, &fifo->controls, NULL );			// Update controls in NVS
+		IotLogDebug( "save_controls, head = %d, tail = %d, full = %d", fifo->head, fifo->tail, fifo->full );
 	}
 
 	return err;
@@ -121,7 +115,7 @@ static int32_t advance_pointer( fifo_handle_t fifo )
 		fifo->head = (fifo->head + 1) % fifo->max;
 		fifo->full = (fifo->head == fifo->tail) ? FIFO_FULL : FIFO_NOT_FULL;
 		IotLogDebug( "advance_pointer, head = %d, tail = %d, full = %d", fifo->head, fifo->tail, fifo->full );
-		err = save_pointers( fifo );
+		err = save_controls( fifo );
 	}
 
 	return err;
@@ -153,7 +147,7 @@ static int32_t retreat_pointer( fifo_handle_t fifo )
 	{
 		fifo->full = FIFO_NOT_FULL;
 		fifo->tail = (fifo->tail + 1) % fifo->max;
-		err = save_pointers( fifo );
+		err = save_controls( fifo );
 	}
 
 	return	err;
@@ -218,15 +212,13 @@ static bool formatKey( fifo_handle_t fifo, const size_t index )
  * @param[in] namespace		Namespace string
  * @param[in] keyPrefix		NVS access Key Prefix, string
  * @param[in] nItems		Number of items FIFO can hold
- * @param[in] headKey		NVS key for storing head pointer
- * @param[in] tailKey		NVS key for storing tail pointer
- * @param[in] fullKey		NVS key for storing full flag
+ * @param[in] controlKey	NVS key for storing fifo control data
  * @param[in] maxKey		NVS key for storing max pointer
  *
  * @return		FIFO handle, NULL if error encountered during initialization
  */
 /************************************************************************/
-fifo_handle_t fifo_init(const NVS_Partitions_t partition, const char * namespace, const char *keyPrefix, const uint16_t nItems, NVS_Items_t headKey, NVS_Items_t tailKey, NVS_Items_t fullKey, NVS_Items_t maxKey )
+fifo_handle_t fifo_init(const NVS_Partitions_t partition, const char * namespace, const char *keyPrefix, const uint16_t nItems, NVS_Items_t controlsKey, NVS_Items_t maxKey )
 {
 	esp_err_t	err = ESP_OK;
 
@@ -243,9 +235,7 @@ fifo_handle_t fifo_init(const NVS_Partitions_t partition, const char * namespace
 
 	fifo_handle_t fifo = ( fifo_handle_t ) buffer;
 
-	fifo->headKey = headKey;
-	fifo->tailKey = tailKey;
-	fifo->fullKey = fullKey;
+	fifo->controlsKey = controlsKey;
 	fifo->maxKey = maxKey;
 
 	fifo->entry.partition = partition;
@@ -279,41 +269,17 @@ fifo_handle_t fifo_init(const NVS_Partitions_t partition, const char * namespace
 	fifo->entry.type = NVS_TYPE_BLOB;																	/* FIFO items are Blobs */
 
 	/*
-	 * Restore FIFO Head index from NVS Storage, set to zero if not value not currently stored in NVS
+	 * Restore FIFO controls from NVS Storage, set to defaults if not value not currently stored in NVS
 	 */
 	if( ESP_OK == err)
 	{
-		err = NVS_Get( fifo->headKey, &fifo->head, NULL );
+		err = NVS_Get( fifo->controlsKey, &fifo->controls, NULL );
 		if( err != ESP_OK )
 		{
 			fifo->head = 0;
-			err = NVS_Set( fifo->headKey, &fifo->head, NULL );			// Update NVS
-		}
-	}
-
-	/*
-	 * Restore FIFO Tail index from NVS Storage, set to zero if not value not currently stored in NVS
-	 */
-	if( ESP_OK == err)
-	{
-		err = NVS_Get( fifo->tailKey, &fifo->tail, NULL );
-		if( err != ESP_OK )
-		{
 			fifo->tail = 0;
-			err = NVS_Set( fifo->tailKey, &fifo->tail, NULL );			// Update NVS
-		}
-	}
-
-	/*
-	 * Restore FIFO Full flag from NVS Storage, set to false if not value not currently stored in NVS
-	 */
-	if( ESP_OK == err)
-	{
-		err = NVS_Get( fifo->fullKey, &fifo->full, NULL );
-		if( err != ESP_OK )
-		{
 			fifo->full = FIFO_NOT_FULL;
-			err = NVS_Set( fifo->fullKey, &fifo->full, NULL );			// Update NVS
+			err = NVS_Set( fifo->controlsKey, &fifo->controls, NULL );			// Update NVS
 		}
 	}
 

@@ -15,6 +15,14 @@
 
 #define		FIFO_SIZE		500
 
+#define	PHASE_0			0
+#define	PHASE_1			1
+#define	PHASE_2			2
+#define	PHASE_3			3
+#define	TEST1_STEP_PUT	0
+#define	TEST1_STEP_GET	1
+
+
 const static char testRecordTemplate[] =
 		"{"
 			"\"Index\": %d,"
@@ -28,6 +36,22 @@ const static char testRecordTemplate[] =
 			"\"FreezeEvents\": 0"
 		"}";
 
+/**
+ * @brief	Test Control structure
+ *
+ * Maintain test control state so that it can be saved in NVS and restored,
+ * allowing testing to be resumed after a power cycle.
+ */
+typedef struct
+{
+	uint32_t	cycle;					/**< cycle count for complete test suite */
+	uint32_t	proc;					/**< Test procedure */
+	uint32_t	phase;					/**< Test phase */
+	uint32_t	step;					/**< Test step */
+	uint32_t	index;					/**< Test index */
+	bool		bComplete;				/**< Test complete flag */
+	uint32_t	error;					/**< Test error count */
+} testControl_t;
 
 /* Event FIFO Testing
  *
@@ -203,118 +227,236 @@ static int32_t fifo_empty_test( fifo_handle_t fifo )
  * 		g) Next record
  *
  */
-static int32_t fifo_test1( fifo_handle_t fifo, uint32_t startIndex, uint32_t count )
+static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t startIndex, uint32_t count )
 {
 	esp_err_t err = ESP_OK;
-	uint32_t index;
 
-	IotLogInfo( "fifo_test_1: start" );
-	err = fifo_empty_test( fifo );												// empty the FIFO before starting, unless resuming
-	IotLogInfo( "  emptied" );
-
-	for( index = startIndex; ( index < ( startIndex + count ) && ( ESP_OK == err ) ); ++index )
+	switch( pTest->phase )
 	{
-		IotLogInfo( "  index = %d, head = %d", index, fifo_getHead( fifo ) );
+		case PHASE_0:									// empty the FIFO before starting, unless resuming
+			IotLogInfo( "fifo_test_1: start" );
+			err = fifo_empty_test( fifo );
+			IotLogInfo( "  emptied" );
+			pTest->index = startIndex;					// initialize test index
+			pTest->step = TEST1_STEP_PUT;				// initialize test step
+			pTest->bComplete = false;					// initialize test complete flag
+			pTest->error = 0;							// Clear error count
+			++pTest->phase;								// Next phase
+			break;
 
-		if( ESP_OK == err )
-		{
-			IotLogDebug( "  fifo_test_1: write" );
-			err = put_test_data( fifo, index );									// Write record
-		}
-
-		if( ESP_OK == err )
-		{
-			IotLogDebug( "  fifo_test_1: check size" );
-			if( 1 != fifo_size( fifo ) )
+		case PHASE_1:
+			switch( pTest->step )
 			{
-				IotLogError( "  fifo_size" );
-				err = ESP_FAIL;
-			}
-		}
-		else
-		{
-			IotLogError( "  put_test_data: %d", err );
-		}
+				case TEST1_STEP_PUT:
+					IotLogInfo( "  index = %d, head = %d", pTest->index, fifo_getHead( fifo ) );
+					if( ESP_OK == err )
+					{
+						IotLogDebug( "  fifo_test_1: write" );
+						err = put_test_data( fifo, pTest->index );				// Write record
+					}
+					else
+					{
+						IotLogError( "  put_test_data: %d", err );
+						++pTest->error;											// increment error count
+					}
 
-		if( ESP_OK == err )
-		{
-			IotLogDebug( "  fifo_test_1: check full" );
-			if( fifo_full( fifo ) )
+					if( ESP_OK == err )
+					{
+						IotLogDebug( "  fifo_test_1: check full" );
+						if( fifo_full( fifo ) )
+						{
+							IotLogError( "  fifo_full error" );
+							err = ESP_FAIL;
+							++pTest->error;											// increment error count
+						}
+					}
+
+					if( ESP_OK == err )
+					{
+						IotLogDebug( "  fifo_test_1: check empty" );
+						if( fifo_empty( fifo ) )
+						{
+							IotLogError( "  fifo_empty error" );
+							err = ESP_FAIL;
+							++pTest->error;											// increment error count
+						}
+					}
+
+					if (ESP_OK == err )
+					{
+						pTest->step = 1;
+					}
+					break;
+
+				case TEST1_STEP_GET:
+					if( ESP_OK == err )
+					{
+						IotLogDebug( "  fifo_test_1: get/verify" );
+						err = get_verify_test_data( fifo, pTest->index );			// read/verify record
+					}
+
+					if( ESP_OK == err )
+					{
+						IotLogDebug( "  fifo_test_1: check size" );
+						if( 0 != fifo_size( fifo ) )
+						{
+							IotLogError( "  fifo_size" );
+							err = ESP_FAIL;
+							++pTest->error;											// increment error count
+						}
+					}
+
+					if( ESP_OK == err )
+					{
+						IotLogDebug( "  fifo_test_1: check full" );
+						if( fifo_full( fifo ) )
+						{
+							IotLogError( "  fifo_full error" );
+							err = ESP_FAIL;
+							++pTest->error;											// increment error count
+						}
+					}
+
+					if( ESP_OK == err )
+					{
+						IotLogDebug( "  fifo_test_1: check empty" );
+						if( false == fifo_empty( fifo ) )
+						{
+							IotLogError( "  fifo_empty error" );
+							err = ESP_FAIL;
+							++pTest->error;											// increment error count
+						}
+					}
+
+					if( ESP_OK == err )											/* Step passed */
+					{
+						if( pTest->index >= ( startIndex + count ) )			/* if phase is complete */
+						{
+							pTest->phase++;										/* increment phase */
+						}
+						else
+						{
+							pTest->index++;										/* increment index */
+							pTest->step = TEST1_STEP_PUT;						/* toggle test step */
+						}
+					}
+					break;
+
+				default:
+					break;
+			}
+			break;
+
+
+		case PHASE_2:												/* Test is complete */
+			IotLogInfo( "fifo_test1: complete" );
+			if( pTest->error )
 			{
-				IotLogError( "  fifo_full error" );
-				err = ESP_FAIL;
+				IotLogInfo( "  FAILED, error count = %d", pTest->error );
 			}
-		}
-
-		if( ESP_OK == err )
-		{
-			IotLogDebug( "  fifo_test_1: check empty" );
-			if( fifo_empty( fifo ) )
+			else
 			{
-				IotLogError( "  fifo_empty error" );
-				err = ESP_FAIL;
+				IotLogInfo("  PASSED" );
 			}
-		}
+			pTest->bComplete = true;
+			break;
 
-		if( ESP_OK == err )
-		{
-			IotLogDebug( "  fifo_test_1: get/verify" );
-			err = get_verify_test_data( fifo, index );							// read/verify record
-		}
-
-		if( ESP_OK == err )
-		{
-			IotLogDebug( "  fifo_test_1: check size" );
-			if( 0 != fifo_size( fifo ) )
-			{
-				IotLogError( "  fifo_size" );
-				err = ESP_FAIL;
-			}
-		}
-
-		if( ESP_OK == err )
-		{
-			IotLogDebug( "  fifo_test_1: check full" );
-			if( fifo_full( fifo ) )
-			{
-				IotLogError( "  fifo_full error" );
-				err = ESP_FAIL;
-			}
-		}
-
-		if( ESP_OK == err )
-		{
-			IotLogDebug( "  fifo_test_1: check empty" );
-			if( false == fifo_empty( fifo ) )
-			{
-				IotLogError( "  fifo_empty error" );
-				err = ESP_FAIL;
-			}
-		}
-		vTaskDelay( 500 / portTICK_PERIOD_MS );						// Add delay so log messaging can catch up
+		default:
+			break;
 	}
 	return err;
 }
 
+static void reset_test( testControl_t *pTest)
+{
+	pTest->proc = 0;
+	pTest->phase = 0;
+	pTest->index = 0;
+	pTest->step = 0;
+	pTest->error = 0;
+	pTest->bComplete = false;
+}
+
+/**
+ * @brief	Event FIFO test sequencer
+ *
+ * All tests are executed as single steps, the test being called multiple times until the test completes.
+ * All looping is performed in this upper level sequencer.
+ * Test parameters are maintained outside of the individual tests, and saved in NVS, allowing
+ * tests to be resumed after a power cycle event.
+ */
 void fifo_test( void )
 {
 	esp_err_t err = ESP_OK;
 	fifo_handle_t fifo;
+	testControl_t	test = { 0 };
+	bool bAllDone = false;
+	size_t size = sizeof( testControl_t );
 
-	IotLogInfo( "Starting event_fifo test" );
-
-	fifo = fifo_init( NVS_PART_EDATA, "EventRecords", "EVR", FIFO_SIZE, NVS_FIFO_HEAD, NVS_FIFO_TAIL, NVS_FIFO_FULL, NVS_FIFO_MAX );
+	fifo = fifo_init( NVS_PART_EDATA, "EventRecords", "EVR", FIFO_SIZE, NVS_FIFO_CONTROLS, NVS_FIFO_MAX );
 	if( NULL != fifo )
 	{
 		IotLogInfo( "Fifo Initialization complete" );
-		err = fifo_test1( fifo, 1234, 100 );
-		if( ESP_OK != err )
+		/* TODO: restore test controls from NVS */
+
+		/*
+		 * Restore FIFO Test parameters from NVS Storage, set to defaults if not value not currently stored in NVS
+		 */
+		if( ESP_OK == err)
 		{
-			IotLogError( " FIFO Test 1 Failed" );
+			err = NVS_Get( NVS_FIFO_TEST, &test, &size );
+			if( err != ESP_OK )
+			{
+				reset_test( &test );									// initialize test parameters
+				test.cycle = 1;											// set cycle count to one
+				test.bComplete = false;
+
+				size = sizeof( testControl_t );
+				err = NVS_Set( NVS_FIFO_TEST, &test, &size );			// Update NVS
+			}
 		}
-		else
+
+		if( ESP_OK == err )
 		{
-			IotLogInfo( " FIFO Test 1 Passed" );
+			if( ( 0 == test.proc ) && ( 0 == test.phase ) && ( 0 == test.index ) && ( 0 == test.step ) )
+			{
+				IotLogInfo( "Starting event_fifo test, cycle = %d", test.cycle );
+			}
+			else
+			{
+				IotLogInfo( "Restarting event_fifo test, cycle = %d", test.cycle );
+			}
+
+			while( !bAllDone )
+			{
+				switch( test.proc )
+				{
+					case 0:
+						fifo_test1( &test, fifo, 1234, 100 );				// Run fifo test #1
+						if( test.bComplete )								// When test is complete
+						{
+							++test.proc;									// move on to next test
+						}
+						break;
+
+					default:												// All tests complete
+						reset_test( &test );								// Reset test parameters so test suite can be re-run
+						test.cycle++;										// increment cycle count
+						bAllDone = true;									// terminate test loop
+						break;
+				}
+
+				/* Save test controls to NVS */
+				size = sizeof( testControl_t );
+				err = NVS_Set( NVS_FIFO_TEST, &test, &size );			// Update NVS
+				if( ESP_OK != err )
+				{
+					IotLogError( "fifo_test: error saving test parameters" );
+					break;													// exit test loop
+				}
+
+				vTaskDelay( 500 / portTICK_PERIOD_MS );                     // Add delay so log messaging can catch up
+			}
 		}
 	}
 }
