@@ -15,6 +15,8 @@
 
 #define		FIFO_SIZE		500
 
+#define		TEST_START_INDEX	0x471				/**< random start index */
+
 #define	PHASE_0			0
 #define	PHASE_1			1
 #define	PHASE_2			2
@@ -45,6 +47,7 @@ const static char testRecordTemplate[] =
 typedef struct
 {
 	uint32_t	cycle;					/**< cycle count for complete test suite */
+	uint32_t	startIndex;				/**< Test start index, roll from test to test, and cycle to cycle */
 	uint32_t	proc;					/**< Test procedure */
 	uint32_t	phase;					/**< Test phase */
 	uint32_t	step;					/**< Test step */
@@ -91,6 +94,16 @@ typedef struct
  *
  */
 
+/**
+ * @brief	Create Test Data Record
+ *
+ * Create a data record, in JSON format, using index.
+ * A buffer in allocated from the heap, and must be freed after the buffer is no
+ * longer needed.
+ *
+ * @param[in]	index	Record index, used for creating record
+ * @return		Pointer to buffer containing created record
+ */
 static char *test_data( uint32_t index )
 {
 	char *buffer;
@@ -115,6 +128,13 @@ static char *test_data( uint32_t index )
 	return buffer;
 }
 
+/**
+ * @brief	Write Record to FIFO
+ *
+ * @param[in]	fifo	FIFO handle
+ * @param[in]	index	Record index, used for creating record
+ * @return		ESP_OK on success
+ */
 static int32_t put_test_data( fifo_handle_t fifo, uint32_t index )
 {
 	esp_err_t err = ESP_OK;
@@ -138,6 +158,13 @@ static int32_t put_test_data( fifo_handle_t fifo, uint32_t index )
 	return err;
 }
 
+/**
+ * @brief	Get Record and Verify data against expected value
+ *
+ * @param[in]	fifo	FIFO handle
+ * @param[in]	index	Record index, used for data comparison
+ * @return		ESP_OK on success
+ */
 static int32_t get_verify_test_data( fifo_handle_t fifo, uint32_t index )
 {
 	esp_err_t err = ESP_OK;
@@ -171,9 +198,9 @@ static int32_t get_verify_test_data( fifo_handle_t fifo, uint32_t index )
 					err = ESP_FAIL;
 				}
 			}
-			vPortFree( readrecord );
+			vPortFree( readrecord );					// free read buffer
 		}
-		vPortFree( testrecord );
+		vPortFree( testrecord );						// free compare buffer
 	}
 	else
 	{
@@ -184,6 +211,15 @@ static int32_t get_verify_test_data( fifo_handle_t fifo, uint32_t index )
 
 }
 
+
+/**
+ * @brief	Empty the FIFO
+ *
+ * Read records until fifo_size is zero
+ *
+ * @param[in]	fifo	FIFO handle
+ * @return		ESP_OK on success
+ */
 static int32_t fifo_empty_test( fifo_handle_t fifo )
 {
 	esp_err_t err = ESP_OK;
@@ -200,24 +236,34 @@ static int32_t fifo_empty_test( fifo_handle_t fifo )
 	{
 		readrecord = pvPortMalloc( size );									// allocate a buffer
 
-		while( fifo_size( fifo ) && ( ESP_OK == err ) )						// while fifo is not empty, and there are no errors
+		if( NULL != readrecord )
 		{
-			IotLogInfo( "  size = %d", fifo_size( fifo ) );
-
-			err = fifo_get( fifo, readrecord, &size );						// read record
-			if( ESP_OK != err )
+			while( fifo_size( fifo ) && ( ESP_OK == err ) )						// while fifo is not empty, and there are no errors
 			{
-				IotLogError( " fifo_empty_test: error reading record" );
-			}
-		};
+				IotLogInfo( "  size = %d", fifo_size( fifo ) );
 
-		vPortFree( readrecord );											// free buffer
+				err = fifo_get( fifo, readrecord, &size );						// read record
+				if( ESP_OK != err )
+				{
+					IotLogError( " fifo_empty_test: error reading record" );
+				}
+			};
+
+			vPortFree( readrecord );											// free buffer
+		}
+		else
+		{
+			IotLogError( " fifo_empty_test: malloc failed" );
+			err = ESP_FAIL;
+		}
 	}
 	return err;
 }
 
 /**
- *  * 1.	Test complete FIFO
+ * @brief	FIFO Test #1 - Alternately write and read records
+ *
+ * Test complete FIFO
  * 		a) For record count = 2 x FIFO_SIZE
  * 		b) Write unique data
  * 		c) Verify fifo_size = 1, fifo_full = 0, fifo_empty = 0
@@ -226,6 +272,11 @@ static int32_t fifo_empty_test( fifo_handle_t fifo )
  * 		f) Compare data
  * 		g) Next record
  *
+ * param[in|out] 	pTest		Pointer to test control parameters
+ * param[in]		fifo		FIFO handle
+ * param[in]		startIndex	Starting record index, used for creating/verifying records
+ * param[in]		count		Number of records to Write/Read
+ * @return		ESP_OK on success
  */
 static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t startIndex, uint32_t count )
 {
@@ -254,10 +305,22 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 						IotLogDebug( "  fifo_test1: write" );
 						err = put_test_data( fifo, pTest->index );				// Write record
 					}
-					else
+
+					if( ESP_OK != err )
 					{
 						IotLogError( "  put_test_data: %d", err );
 						++pTest->error;											// increment error count
+					}
+
+					if( ESP_OK == err )
+					{
+						IotLogDebug( " fifo_test1: check size" );
+						if( 1 != fifo_size( fifo ) )							// expect size to be 1
+						{
+							IotLogError( "  fifo_size error" );
+							err = ESP_FAIL;
+							++pTest->error;										// increment error count
+						}
 					}
 
 					if( ESP_OK == err )
@@ -293,6 +356,16 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 					{
 						IotLogDebug( "  fifo_test1: get/verify" );
 						err = get_verify_test_data( fifo, pTest->index );			// read/verify record
+					}
+
+					if (ESP_OK == err )
+					{
+						++pTest->index;												// read complete, increment index
+					}
+					else
+					{
+						IotLogError( "  get_verify_test_data: %d", err );
+						++pTest->error;												// increment error count
 					}
 
 					if( ESP_OK == err )
@@ -336,7 +409,6 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 						}
 						else
 						{
-							pTest->index++;										/* increment index */
 							pTest->step = TEST1_STEP_PUT;						/* toggle test step */
 						}
 					}
@@ -394,6 +466,11 @@ static int32_t fifo_test1( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
  * 		h) Compare data
  * 		i) Next record
  *
+ * param[in|out] 	pTest		Pointer to test control parameters
+ * param[in]		fifo		FIFO handle
+ * param[in]		startIndex	Starting record index, used for creating/verifying records
+ * param[in]		count		Number of records to Write/Read
+ * @return		ESP_OK on success
  */
 static int32_t fifo_test2( testControl_t *pTest, fifo_handle_t fifo, uint32_t startIndex, uint32_t count )
 {
@@ -414,14 +491,18 @@ static int32_t fifo_test2( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 			break;
 
 		case PHASE_1:									// Write Records, no steps required
-			IotLogInfo( "  Write, index = %d, head = %d", pTest->index, fifo_getHead( fifo ) );
+			IotLogInfo( "  Write, index = %d, head = %d, size = %d", pTest->index, fifo_getHead( fifo ), fifo_size( fifo ) );
 			if( ESP_OK == err )
 			{
 				IotLogDebug( "  fifo_test2: write" );
 				err = put_test_data( fifo, pTest->index );				// Write record
 			}
 
-			if( ESP_OK != err )
+			if( ESP_OK == err )
+			{
+				++pTest->index;											// write completed, increment index
+			}
+			else
 			{
 				IotLogError( "  put_test_data: %d", err );
 				++pTest->error;											// increment error count
@@ -442,7 +523,7 @@ static int32_t fifo_test2( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 			if( ESP_OK == err )
 			{
 				IotLogDebug( "  fifo_test2: check size" );
-				nRecords = pTest->index - startIndex + 1;						// records written
+				nRecords = pTest->index - startIndex;						// records written
 
 				if( ( ( nRecords <= FIFO_SIZE ) && ( nRecords != fifo_size( fifo ) ) ) ||
 					( ( nRecords == FIFO_SIZE ) && ( FIFO_SIZE != fifo_size( fifo ) ) ) )
@@ -483,7 +564,7 @@ static int32_t fifo_test2( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 
 			if (ESP_OK == err )											/* iteration passed */
 			{
-				if( ++pTest->index >= ( startIndex + count ) )			/* increment index, if phase is complete */
+				if( pTest->index >= ( startIndex + count ) )			/* if phase is complete */
 				{
 					if( fifo_full( fifo ) )								/* if FIFO is full */
 					{
@@ -501,14 +582,18 @@ static int32_t fifo_test2( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 			break;
 
 		case PHASE_2:									// Read/Verify Records, no steps required
-			IotLogInfo( "  Get, index = %d, tail = %d", pTest->index, fifo_getTail( fifo ) );
+			IotLogInfo( "  Get, index = %d, tail = %d, size = %d", pTest->index, fifo_getTail( fifo ), fifo_size ( fifo ) );
 			if( ESP_OK == err )
 			{
 				IotLogDebug( "  fifo_test2: get/verify" );
 				err = get_verify_test_data( fifo, pTest->index );			// read/verify record
 			}
 
-			if( ESP_OK != err )
+			if( ESP_OK == err )
+			{
+				++pTest->index;												// read complete, increment index
+			}
+			else
 			{
 				IotLogError( "  get_verify_test_data: %d", err );
 				++pTest->error;												// increment error count
@@ -517,10 +602,10 @@ static int32_t fifo_test2( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 			if( ESP_OK == err )
 			{
 				/*
-				 * Check size, size = (startIndex + Count - pTest->index - 1)
+				 * Check size, size = (startIndex + Count - pTest->index)
 				 */
 				IotLogDebug( "  fifo_test2: check size" );
-				if( ( startIndex + count - pTest->index - 1 ) != fifo_size( fifo ) )
+				if( ( startIndex + count - pTest->index ) != fifo_size( fifo ) )
 				{
 					IotLogError( "  fifo_size" );
 					err = ESP_FAIL;
@@ -557,7 +642,7 @@ static int32_t fifo_test2( testControl_t *pTest, fifo_handle_t fifo, uint32_t st
 
 			if( ESP_OK == err )											/* Iteration passed */
 			{
-				if( ++pTest->index >= ( startIndex + count ) )			/* increment index, if phase is complete */
+				if( pTest->index >= ( startIndex + count ) )			/* if phase is complete */
 				{
 					pTest->phase++;										/* increment phase */
 				}
@@ -635,6 +720,7 @@ void fifo_test( void )
 			{
 				reset_test( &test );									// initialize test parameters
 				test.cycle = 1;											// set cycle count to one
+				test.startIndex = TEST_START_INDEX;						// initialize start index
 				test.bComplete = false;
 
 				size = sizeof( testControl_t );
@@ -658,20 +744,20 @@ void fifo_test( void )
 				switch( test.proc )
 				{
 					case 0:
-						fifo_test1( &test, fifo, 1234, 10 );				// Run fifo test #1
+						fifo_test1( &test, fifo, test.startIndex, ( FIFO_SIZE * 2 ) );		// Run fifo test #1
 						break;
 
 					case 1:
-						fifo_test2( &test, fifo, 2000, 10 );				// short run of test #2
+						fifo_test2( &test, fifo, test.startIndex, 10 );						// short run of test #2
 						break;
 
-//					case 2:
-//						fifo_test2( &test, fifo, 2000, FIFO_SIZE );			// test #2 - exactly fill FIFO
-//						break;
-//
-//					case 3:
-//						fifo_test2( &test, fifo, 2000, ( FIFO_SIZE + 15 ) );	// test #2 - over fill FIFO
-//						break;
+					case 2:
+						fifo_test2( &test, fifo, test.startIndex, FIFO_SIZE );				// test #2 - exactly fill FIFO
+						break;
+
+					case 3:
+						fifo_test2( &test, fifo, test.startIndex, ( FIFO_SIZE + 15 ) );		// test #2 - over fill FIFO
+						break;
 
 					default:												// All tests complete
 						reset_test( &test );								// Reset test parameters so test suite can be re-run
@@ -680,14 +766,15 @@ void fifo_test( void )
 						break;
 				}
 
-				if( test.bComplete )								// When test is complete
+				if( test.bComplete )										// When test is complete
 				{
+					test.startIndex = test.index;							// set start index for next test, to ending index of previous test
 					test.phase = 0;
 					test.index = 0;
 					test.step = 0;
 					test.error = 0;
 					test.bComplete = false;
-					++test.proc;									// move on to next test
+					++test.proc;											// move on to next test
 				}
 
 				/* Save test controls to NVS */
@@ -699,7 +786,7 @@ void fifo_test( void )
 					break;													// exit test loop
 				}
 
-				vTaskDelay( 500 / portTICK_PERIOD_MS );                     // Add delay so log messaging can catch up
+				vTaskDelay( 250 / portTICK_PERIOD_MS );                     // Add delay so log messaging can catch up
 			}
 		}
 	}
