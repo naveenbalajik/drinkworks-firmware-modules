@@ -15,7 +15,80 @@
 #define MAX_READ_CHAR_BUFF_SIZE 	40					///< Maximum data size for Read Local Characteristic command
 
 /**
- * @brief Enumerated SHCI Command Opcodes, common to ESP, BLE and WiFi modules
+ * @brief Enumerated SHCI Opcodes, consolidates Command and Event opcodes into one enumerated data type
+ *
+ * SHCI Commands are send by the Host processor and received by the ESP32.
+ * SHCI Events are send by the ESP32 and received by the Host processor.
+ * SHCI Commands and SHCI Event code should not overlap
+ */
+enum ShciOpcode
+{
+	eNoEventOpcode =										0x00,
+	eReadLocalInformation =									0x01,		/**< Command: */
+	eReadStatus =											0x03,		/**< Command: */
+	eReadDeviceName =										0x07,		/**< Command: */
+	eWriteDeviceName =										0x08,		/**< Command: */
+	eReadAllPairedDeviceInformation =						0x0C,		/**< Command: */
+
+	eWriteScanResponseData =								0x12,		/**< Command: */
+	eConnectionParameterUpdateRequest =						0x19,		/**< Command: */
+	eSetAdvertisingEnable =									0x1C,		/**< Command: */
+
+	eSendCharacteristicValue =								0x38,		/**< Command: */
+	eUpdateCharacteristicValue =							0x39,		/**< Command: */
+	eReadLocalCharacteristicValue =							0x3A,		/**< Command: */
+
+	eUserConfirmResponse =									0x41,		/**< Command: */
+
+	eCommunicationsInitialized =							0x50,		/**< Event: Communications channel has been initialized */
+
+	ePasskeyEntryRequest = 									0x60,		/**< Event: */
+	ePairingComplete = 										0x61,		/**< Event: */
+	ePasskeyConfirmRequest = 								0x62,		/**< Event: */
+
+	eAdvertisingReport = 									0x70,		/**< Event: */
+	eLeConnectionComplete = 								0x71,		/**< Event: */
+	eDisconnectionComplete = 								0x72,		/**< Event: */
+	eConnectionParameterUpdateNotify = 						0x73,		/**< Event: */
+
+	eCommandComplete =										0x80,		/**< Event: */
+	eStatusReport =											0x81,		/**< Event: */
+	eConfigureModeStatus =									0x8f,		/**< Event: */
+
+	eDiscoverAllPrimaryServiceResponse =					0x90,		/**< Event: */
+	eDiscoverSpecificPrimaryServiceCharacteristicResponse =	0x91,		/**< Event: */
+	eDiscoverAllCharacteristicDescriptorResponse =			0x92,		/**< Event: */
+	eClientWriteCharacteristicValue = 						0x98,		/**< Event: */
+	eReceivedTransparentData = 								0x9a,		/**< Event: */
+
+	eWiFiResetProvisioning = 								0xA0,		/**< Command: */
+	eWiFiReadStatus =										0xA1,		/**< Command: */
+
+	eWiFiStatus = 											0xB0,		/**< Event: */
+	eNetworkInitializedEvent = 								0xB1,		/**< Event: */
+	eWifiTestParameter =									0xB2,		/**< Command: */
+	eWifiTestStart = 										0xB3,		/**< Command: */
+	eWifiTestStop = 										0xB4,		/**< Command: */
+	eWifiTestStatus = 										0xB5,		/**< Event: */
+	eCaptureArm =											0xB6,		/**< Command: */
+	eCaptureRead =											0xB7,		/**< Command: */
+	eCaptureComplete = 										0xB8,		/**< Event: */
+	eDispenseComplete = 									0xB9,		/**< Event: */
+	eWifiConnectAP = 										0xBA,		/**< Command: */
+	eEventRecordWriteIndex = 								0xBB,		/**< Event: Update Event Record index (Model-A) */
+	eEventRecordData =										0xBC,		/**< Command: Send Event Record data (Model-A) */
+
+	eEspSetSerialNumber = 									0xC0		/**< Command: */
+
+};
+typedef uint8_t _shciOpcode_t;
+
+#ifdef	DEPRECIATED
+/**
+ * @brief Enumerated SHCI Command Opcodes
+ *
+ * SHCI Commands are send by the Host processor and received by the ESP32.
+ * SHCI Commands and SHCI Event code should not overlap
  */
 enum CommandOpcode 
 {
@@ -48,6 +121,39 @@ enum CommandOpcode
 
 };
 typedef uint8_t _CommandOpcode_t;
+
+/**
+ * @brief Enumerated SHCI Event OpCodes
+ *
+ */
+enum EventOpcode
+{
+	NoEventOpcode,													// 0x00
+	ePasskeyEntryRequest = 0x60,									// 0x60
+	ePairingComplete,												// 0x61
+	ePasskeyConfirmRequest,											// 0x62
+	AdvertisingReport = 0x70,										// 0x70
+	eLeConnectionComplete,											// 0x71
+	eDisconnectionComplete,											// 0x72
+	ConnectionParameterUpdateNotify,								// 0x73
+	eCommandComplete = 0x80,										// 0x80
+	eStatusReport,													// 0x81
+	ConfigureModeStatus = 0x8f,										// 0x8F
+	DiscoverAllPrimaryServiceResponse,								// 0x90
+	DiscoverSpecificPrimaryServiceCharacteristicResponse,			// 0x91
+	DiscoverAllCharacteristicDescriptorResponse,					// 0x92
+//????	CharacteristicValueReceived,								// 0x93
+	eClientWriteCharacteristicValue = 0x98,							// 0x98
+	ReceivedTransparentData = 0x9a,									// 0x9A
+	// All commands below are extensions to those supported by the BM7x Module, and are targeted for the ESP32 module
+	eWiFiStatus = 0xB0,
+	eNetworkInitializedEvent = 0xB1,
+	eWifiTestStatus = 0xB5,
+	eCaptureComplete = 0xB8,
+	eDispenseComplete = 0xB9
+};
+typedef uint8_t _eventOpcode_t;
+#endif		/* DEPRECIATED */
 
 /**
  * @brief Enumerated ESP Module Error Codes, common to ESP, BLE and WIFI modules
@@ -108,59 +214,13 @@ enum
 };
 typedef uint8_t _errorCodeType_t;
 
-/**
- * @brief Enumerated SHCI Event OpCodes, common to ESP, BLE and WiFi modules
- */
-enum EventOpcode 
-{
-	NoEventOpcode,													// 0x00
-	ePasskeyEntryRequest = 0x60,									// 0x60
-	ePairingComplete,												// 0x61
-	ePasskeyConfirmRequest,											// 0x62
-	AdvertisingReport = 0x70,										// 0x70
-	eLeConnectionComplete,											// 0x71
-	eDisconnectionComplete,											// 0x72
-	ConnectionParameterUpdateNotify,								// 0x73
-	eCommandComplete = 0x80,										// 0x80
-	eStatusReport,													// 0x81
-	ConfigureModeStatus = 0x8f,										// 0x8F
-	DiscoverAllPrimaryServiceResponse,								// 0x90
-	DiscoverSpecificPrimaryServiceCharacteristicResponse,			// 0x91
-	DiscoverAllCharacteristicDescriptorResponse,					// 0x92
-//????	CharacteristicValueReceived,								// 0x93
-	eClientWriteCharacteristicValue = 0x98,							// 0x98
-	ReceivedTransparentData = 0x9a,									// 0x9A
-	// All commands below are extensions to those supported by the BM7x Module, and are targeted for the ESP32 module
-	eWiFiStatus = 0xB0,
-	eNetworkInitializedEvent = 0xB1,
-	eWifiTestStatus = 0xB5,
-	eCaptureComplete = 0xB8,
-	eDispenseComplete = 0xB9
-};
-typedef uint8_t _eventOpcode_t;
 
 
 /**
  * @brief Callback called when an SHCI command is received
  */
-typedef void (* DwShciCommandCallback_t)( uint8_t *pData, uint16_t size );
+typedef void (* _shciCommandCallback_t)( uint8_t *pData, uint16_t size );
  
-/**
- * @brief SHCI Command List Element, links an SHCI command with a callback function.
- * List -> Table -> Element
- */
-typedef struct ShciCommandTableElement
-{
-    uint8_t	command;
-    DwShciCommandCallback_t callback;
-} ShciCommandTableElement_t;
-
-typedef struct _shciCommandTable
-{
-	ShciCommandTableElement_t * pTable;
-	uint8_t numEntries;
-} _shciCommandTable_t;
-
 
 /************************************************************/
 
@@ -174,6 +234,20 @@ typedef struct _shciCommandTable
 int shci_init(int uart_num);
 
 /**
+ * @brief	SHCI Communications Initialized
+ *
+ * This function should be called after shci_init(), and after all shci command handlers have been registered,
+ * to post eCommunicationsInitialized event to queue.
+ *
+ * Host can use this this event to detect that the ESP has reset, with minimal delay.
+ *
+ * No additional data is sent with this event.  Ideally the boot partition could be identified and that
+ * information relayed to the host, but no method of determining the boot partition (without modifying the
+ * bootloader) has been identified.
+ */
+void shci_communicationsInitialized( void );
+
+/**
  * @brief	Deinitialize SHCI - Delete the SHCI Task
  *
  * The SHCI task must be terminated if communications with host processor are to be aborted.
@@ -181,13 +255,23 @@ int shci_init(int uart_num);
 void shci_deinit( void);
 
 /**
- * @brief Register a list of commands with associated callback functions
+ * @brief	Register an SHCI command
  *
- * @param[in] pCommandTable Pointer to Command Table
- * @param[in] numEntries Number of entries in Command Table
- * @return true if Command Table was successfully registered, false if error registering table
+ * Callback function will be called when the command is received
+ *
+ * @param[in] command  	SHCI command
+ * @param[in] handler	Callback function
  */
-bool shci_RegisterCommandList( ShciCommandTableElement_t *pCommandTable, uint8_t numEntries );
+void shci_RegisterCommand( uint8_t command, _shciCommandCallback_t handler );
+
+/**
+ * @brief	Unregister an SHCI command
+ *
+ * Set Callback function to NULL, default action will be taken when the command is received
+ *
+ * @param[in] command  	SHCI command
+ */
+void shci_UnregisterCommand( uint8_t command );
 
 /**
  * @brief Post a Command Complete Event message to the Message Buffer
@@ -195,7 +279,7 @@ bool shci_RegisterCommandList( ShciCommandTableElement_t *pCommandTable, uint8_t
  * @param[in]	opCode	Op-code of the completing command
  * @param[in]	error	Error code for the completing command
  */
-void shci_postCommandComplete( _CommandOpcode_t opCode, _errorCodeType_t error);
+void shci_postCommandComplete( _shciOpcode_t opCode, _errorCodeType_t error);
 
 /**
  * @brief Post a response to be transmitted to Host using the SHCI Message Buffer
