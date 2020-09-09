@@ -1,0 +1,3 @@
+[submodule "src/mjson"]
+	path = src/mjson
+	url = https://github.com/cesanta/mjson
