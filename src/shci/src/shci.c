@@ -137,11 +137,11 @@ static bool _shciDispatchCommand( uint8_t opCode, uint8_t *pdata, uint16_t nByte
 	if( NULL != shciCommandTable[ opCode ] )
 	{
 		shciCommandTable[ opCode ]( pdata, nBytes );				/* dispatch registered command callback */
+		error = false;
 	}
 	else
 	{
 		IotLogInfo( "No callback found for command: %02X", opCode );
-		error = false;
 	}
 	return error;
 }
