@@ -44,14 +44,21 @@ typedef enum
 	NVS_FINAL_CERT,
 	NVS_FINAL_PRIVATE_KEY,
 	NVS_THING_NAME,
-	NVS_SERIAL_NUM
+	NVS_SERIAL_NUM,
+	NVS_FIFO_CONTROLS,
+	NVS_FIFO_MAX,
+	NVS_FIFO_TEST						/**< For test purposes only */
 } NVS_Items_t;
 
 int32_t NVS_Initialize( void );
 
 int32_t NVS_Get_Size_Of(NVS_Items_t nvsItem, uint32_t* size);
 
+int32_t NVS_pGet( const NVS_Entry_Details_t *pItem, void* pOutput, void* pSize );
+
 int32_t NVS_Get(NVS_Items_t nvsItem, void* pOutput, void* pSize);
+
+int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, void* pInput, void* pSize );
 
 int32_t NVS_Set(NVS_Items_t nvsItem, void* pInput, void* pSize);
 
