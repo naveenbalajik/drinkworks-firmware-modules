@@ -47,7 +47,8 @@ typedef enum
 	NVS_SERIAL_NUM,
 	NVS_FIFO_CONTROLS,
 	NVS_FIFO_MAX,
-	NVS_FIFO_TEST						/**< For test purposes only */
+	NVS_EVENT_RECORD
+//	NVS_FIFO_TEST						/**< For test purposes only */
 } NVS_Items_t;
 
 int32_t NVS_Initialize( void );

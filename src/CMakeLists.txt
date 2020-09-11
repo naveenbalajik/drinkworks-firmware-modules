@@ -3,7 +3,7 @@ add_subdirectory(nvs_utility)
 add_subdirectory(shci)
 add_subdirectory(image_processing)
 add_subdirectory(credential_storage_utility)
-
+add_subdirectory(event_records)
 
 # mjson is a submodule. To prevent modification to the repo
 # the files and compile definitions are added here

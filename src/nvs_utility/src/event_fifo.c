@@ -48,7 +48,7 @@ struct fifo_s
 	char key[ MAX_KEY_LENGTH ];
 };
 
-#define	MAX_KEY_SIZE	8					/**< Maximum Blob Key size, including null-terminator */
+//#define	MAX_KEY_SIZE	8					/**< Maximum Blob Key size, including null-terminator */
 /* ************************************************************************** */
 /* ************************************************************************** */
 /* Section: Local Functions                                                   */
