@@ -11,7 +11,6 @@
  * Created on: September 3, 2020
  * Author: Ian Whitehead
  */
-
 #include	<stdlib.h>
 #include	<stdio.h>
 #include	<stdint.h>
@@ -22,9 +21,12 @@
 #include	"bleInterface.h"
 #include	"freertos/task.h"
 #include	"event_records.h"
+#include	"bleGap.h"
 
 /* Debug Logging */
 #include "nvs_logging.h"
+
+extern int getUTC( char * buf, size_t size);
 
 
 #define	ISO8601_BUFF_SIZE	21				/**< Buffer size to hold ISO 8601 Date/Time string, including null-terminator */
@@ -565,6 +567,144 @@ static void fetchRecords( void )
 	}
 }
 
+static const char recordSeparator[] = ", ";
+static const char recordFooter[] = "]}}";
+#define	footerSize	( sizeof( recordFooter ) )
+#define	MAX_EVENT_RECORD_SIZE	256
+
+/**
+ * @brief	Read one or more FIFO records, format as a single JSON Object.
+ *
+ * Example format, extra whitespace added for clarity:
+ *
+ *	 {
+ *	 "serialNumber":"99AJ99AM2688",
+ *	 "requestType":"Formatted",
+ *	 "createdAt":"2020-09-02T17:56:16.664Z",
+ *	 "body":
+ *		 {
+ *		 "logs": [
+ *			{
+ *			  "Index": 266,
+ *			  "DateTime": "2019-02-22T10:35:12",
+ *			  "Status": 7,
+ *			  "CatalogID": 177,
+ *			  "BeverageID": 846,
+ *			  "CycleTime": 29.379910000000002,
+ *			  "PeakPressure": 3.7464768,
+ *			  "FirmwareVersion": 0.0,
+ *			  "FreezeEvents": 0
+ *			},
+ *			{
+ *			  "Index": 265,
+ *			  "DateTime": "2019-02-22T10:35:12",
+ *			  "Status": 6,
+ *			  "CatalogID": 176,
+ *			  "BeverageID": 847,
+ *			  "CycleTime": 29.379910000000002,
+ *			  "PeakPressure": 3.7464768,
+ *			  "FirmwareVersion": 0.0,
+ *			  "FreezeEvents": 0
+ *			}
+ *		]}
+ *	}
+ *
+ */
+static char * readRecords( int n )
+{
+	size_t	bufferSize;
+	size_t	recordSize;
+
+	char utc[ 28 ] = { 0 };
+	char sernum[13] = { 0 };
+	size_t length = sizeof( sernum );
+	// Get Serial Number from NV storage
+	bleGap_fetchSerialNumber(sernum, &length);
+
+	char *buffer;
+	char *record;
+
+	char *header = NULL;
+	size_t	headerSize;
+
+	/* Get Current Time, UTC */
+	getUTC( utc, sizeof( utc ) );
+
+	/* Format header */
+	headerSize = mjson_printf( &mjson_print_dynamic_buf, &header,
+			"{%Q:%Q, %Q:%Q, %Q:%Q, %Q:{ %Q: [",
+			"serialNumber",       sernum,
+			"requestType",        "Formatted",
+			"createdAt",          utc,
+			"body",
+			"logs"
+			);
+
+	/* Allocate a buffer sufficient to hold n records */
+	bufferSize = ( n * MAX_EVENT_RECORD_SIZE ) + headerSize + footerSize;
+	buffer = pvPortMalloc( bufferSize );
+
+	/* Copy header into buffer, then free header */
+	strcpy( buffer, header );
+	free( header );
+
+	// Allocate a buffer for a single record */
+	record = pvPortMalloc( MAX_EVENT_RECORD_SIZE );
+
+	/* Read n records into buffer, separate records with ", " */
+	while( n-- )
+	{
+		recordSize = MAX_EVENT_RECORD_SIZE;
+		fifo_get( _evtrec.fifoHandle, record, &recordSize );
+		IotLogInfo( "get record: %d bytes", recordSize );
+		record[ recordSize ] = '\0';							/* terminated record */
+		strcat( buffer, record );								/* Append record */
+
+		if( n )													/* for all but last record */
+		{
+			strcat( buffer, recordSeparator );					/* Append separator */
+		}
+	}
+
+	vPortFree( record );
+
+	/* Add footer */
+	strcat( buffer, recordFooter );							/* Append Footer */
+
+	return( buffer );
+}
+
+
+/**
+ * @brief	Push Event Records from FIFO to AWS
+ *
+ * If there are records in the FIFO, and an MQTT connection has been established:
+ * 		- Read records, up to a maximum count
+ * 		- Format records as a single JSON
+ * 		- Send records to MQTT topic
+ * 		- When callback received, on successful posting, update FIFO pointers
+ *
+ * 	After records have been sent, but before the callback is received, the
+ * 	eventRecords task should NOT BE BLOCKED.  Additional pushes can be blocked,
+ * 	but fetches should not be affected.
+ */
+static void pushRecords( void )
+{
+	static bool onetime = true;
+	char * jsonBuffer = NULL;
+
+	if( onetime && ( 4 < fifo_size( _evtrec.fifoHandle ) ) )
+	{
+		jsonBuffer = readRecords( 2 );
+		if( NULL != jsonBuffer )
+		{
+			printf( jsonBuffer );
+
+			vPortFree( jsonBuffer );					/* free buffer after if is processed */
+		}
+		onetime = false;
+	}
+}
 
 /**
  * @brief	Event Records Task
@@ -588,6 +728,8 @@ static void _eventRecordsTask(void *arg)
 	esp_err_t err;
 	size_t size;
 
+	vTaskDelay( 10000 / portTICK_PERIOD_MS );
+
 	IotLogInfo( "_eventRecordsTask" );
 
     while( 1 )
@@ -598,7 +740,7 @@ static void _eventRecordsTask(void *arg)
     	fetchRecords();
 
     	/* get Event Records from FIFO, push to AWS */
-//    	pushRecords();
+    	pushRecords();
 
     	/* Update NVS, if needed */
     	if( _evtrec.updateNvs )
