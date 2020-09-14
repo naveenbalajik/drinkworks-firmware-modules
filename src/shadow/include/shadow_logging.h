@@ -24,23 +24,23 @@
  */
 
 /**
- * @file credential_logging.h
- * @brief Sets the log level for Credentials module.
+ * @file shadow_logging.h
+ * @brief Sets the log level for Shadow module.
  */
 
-#ifndef _CREDENTIAL_LOGGING_H_
-#define _CREDENTIAL_LOGGING_H_
+#ifndef _SHADOW_LOGGING_H_
+#define _SHADOW_LOGGING_H_
 
 /* The config header is always included first. */
 #include "iot_config.h"
 
 /* Configure logs for module. The module will have a log level of:
- * - LOG_LEVEL_CREDENTIAL if defined.
- * - IOT_LOG_LEVEL_GLOBAL if defined and LOG_LEVEL_CREDENTIAL is undefined.
- * - IOT_LOG_NONE if neither LOG_LEVEL_CREDENTIAL nor IOT_LOG_LEVEL_GLOBAL are defined.
+ * - LOG_LEVEL_SHADOW if defined.
+ * - IOT_LOG_LEVEL_GLOBAL if defined and LOG_LEVEL_SHADOW is undefined.
+ * - IOT_LOG_NONE if neither LOG_LEVEL_SHADOW nor IOT_LOG_LEVEL_GLOBAL are defined.
  */
-#ifdef LOG_LEVEL_CREDENTIAL
-    #define LIBRARY_LOG_LEVEL        LOG_LEVEL_CREDENTIAL
+#ifdef LOG_LEVEL_SHADOW
+    #define LIBRARY_LOG_LEVEL        LOG_LEVEL_SHADOW
 #else
     #ifdef IOT_LOG_LEVEL_GLOBAL
         #define LIBRARY_LOG_LEVEL    IOT_LOG_LEVEL_GLOBAL
@@ -49,10 +49,10 @@
     #endif
 #endif
 
-/* Set the library name to print with CRED. */
-#define LIBRARY_LOG_NAME    ( "CRED" )
+/* Set the library name to print with SHADOW. */
+#define LIBRARY_LOG_NAME    ( "SHADOW" )
 
 /* Include the logging setup header. This enables the logs. */
 #include "iot_logging_setup.h"
 
-#endif /* ifndef _CREDENTIAL_LOGGING_H_ */
+#endif /* ifndef _SHADOW_LOGGING_H_ */
