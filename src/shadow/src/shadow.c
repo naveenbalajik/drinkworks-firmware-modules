@@ -8,12 +8,19 @@
 /* Shadow include. */
 #include "aws_iot_shadow.h"
 #include "shadow.h"
+#include "shadow_logging.h"
 
 /* Standard includes. */
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Platform includes. */
+#include "platform/iot_clock.h"
+
+/* NVS includes */
+#include "nvs_utility.h"
 
 /* Max thing name length */
 #define	MAX_THINGNAME_LEN	128
@@ -55,6 +62,7 @@ static bool _shadowInitialized = false;
  * @param[in] mqttConnection 	The MQTT connection used for Shadows.
  * @param[in] updateJSON		The shadow update in JSON format. Should not include the "reported" portion
  * @param[in] sizeJSON			Size of JSON string
+ * @param[in] pCallbackInfo		Callback info after shadow update ACK'd by AWS
  *
  * @return `EXIT_SUCCESS` if all Shadow updates were sent; `EXIT_FAILURE`
  * otherwise.
@@ -77,11 +85,16 @@ int updateReportedShadow(IotMqttConnection_t mqttConnection,
 
 	// Get thing name
 	/* Buffer to hold ThingName */
-	char thingNameBuffer[ MAX_THINGNAME_LEN ];
-	int thingLength = 0;
-	if(EXIT_SUCCESS != NVS_Get(NVS_THING_NAME, thingNameBuffer, thingLength)){
+	char thingNameBuffer[ MAX_THINGNAME_LEN ] ={0};
+	int thingLength = MAX_THINGNAME_LEN;
+	if(EXIT_SUCCESS != NVS_Get(NVS_THING_NAME, thingNameBuffer, &thingLength)){
 		IotLogError( "ERROR, unable to fetch thing name" );
 		status = EXIT_FAILURE;
+	}
+
+	/* If the null terminator is included in the thing length, remove it */
+	if(thingNameBuffer[thingLength - 1] == 0){
+		thingLength--;
 	}
 
 	if(status == EXIT_SUCCESS){
