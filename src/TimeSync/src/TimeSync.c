@@ -24,7 +24,7 @@
 
 /* AWS System includes. */
 //#include "iot_system_init.h"
-#include "iot_logging_task.h"
+//#include "iot_logging_task.h"
 
 #if !AFR_ESP_LWIP
 //#include "FreeRTOS_IP.h"
@@ -51,6 +51,8 @@
  * @ brief	How frequently to check RTC synchronization, in seconds
  */
 #define	CHECK_SYNC_TIME		( ( ( (23 * 24) + 59 ) * 60 ) + 55 )
+
+#ifdef	WORKING
 
 typedef	struct
 {
@@ -162,6 +164,8 @@ static void vCurrentTimeUpdate( const void *pData, const uint16_t size )
 	}
 }
 
+#endif
+
 /* ************************************************************************* */
 /* ************************************************************************* */
 /* **********        I N T E R F A C E   F U N C T I O N S        ********** */
@@ -174,6 +178,7 @@ static void vCurrentTimeUpdate( const void *pData, const uint16_t size )
  */
 int getUTC( char * buf, size_t size)
 {
+#ifdef	WORKING
 	int err;
 	struct timeval tv;
 
@@ -186,6 +191,9 @@ int getUTC( char * buf, size_t size)
 		IotLogInfo( "getUTC: %s", buf);
 	}
 	return err;
+#else
+	return -1;
+#endif
 }
 
 /**
@@ -193,6 +201,7 @@ int getUTC( char * buf, size_t size)
  */
 void TimeSync_init( void )
 {
+#ifdef	WORKING
 	sntp_setoperatingmode(SNTP_OPMODE_POLL);
 	sntp_setservername(0, "pool.ntp.org");
 	sntp_init();
@@ -200,5 +209,5 @@ void TimeSync_init( void )
 
 	/* Register callback for Current Time update */
 	bleInterface_registerUpdateCB( eCurrentTimeIndex, &vCurrentTimeUpdate );
-
+#endif
 }
