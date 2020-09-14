@@ -491,7 +491,7 @@ static void vUpdateEventRecordData( uint8_t *pData, uint16_t size )
 /**
  * @brief	Dispense Record Count update handler
  *
- * This handler will be call whenever the Dispense Record Count BLE characteristic value
+ * This handler will be called whenever the Dispense Record Count BLE characteristic value
  * is updated.
  *
  * NOTE: RecordCount is actually the index following the last record written.
