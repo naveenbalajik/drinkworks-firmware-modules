@@ -83,6 +83,7 @@ static const NVS_Entry_Details_t NVS_Items[] =
 	[ NVS_FIFO_CONTROLS ]     = { 	.type = NVS_TYPE_U32,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoControls" },
 	[ NVS_FIFO_MAX ]          = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoMax" },
 	[ NVS_EVENT_RECORD ]      = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "EventRecord" },
+	[ NVS_LAST_PUB_INDEX ]   = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "LastPubIndex" },
 	/* Following entry is only needed if running the EventFifo Unit Test */
 	//	[ NVS_FIFO_TEST ]          = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "Fifotest" },			/**< For test purposes only */
 };

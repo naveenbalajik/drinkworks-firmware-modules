@@ -36,6 +36,8 @@ int32_t fifo_put( fifo_handle_t fifo, const void* blob, size_t length);
 
 int32_t fifo_get( fifo_handle_t fifo, void* blob, size_t *pLength );
 
+int32_t fifo_commitRead( fifo_handle_t fifo, bool commit );
+
 uint16_t fifo_getHead( fifo_handle_t fifo);
 
 uint16_t fifo_getTail( fifo_handle_t fifo);

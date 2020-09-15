@@ -15,7 +15,7 @@
 #include "bleInterface.h"
 #include "bleInterface_internal.h"
 #include "bleFunction.h"
-#include "app_logging.h"
+#include "TimeSync_logging.h"
 #include "nvs_utility.h"
 //#include "sntp.h"
 #include "../../../../freertos/vendors/espressif/esp-idf/components/lwip/include/apps/sntp/sntp.h"
@@ -166,6 +166,24 @@ static void vCurrentTimeUpdate( const void *pData, const uint16_t size )
 /* **********        I N T E R F A C E   F U N C T I O N S        ********** */
 /* ************************************************************************* */
 /* ************************************************************************* */
+
+/**
+ * @brief	Get Time value, seconds since Epoc 1/1/1970 00:00:00
+ *
+ * @return	Time value, seconds since Epoc 1/1/1970 00:00:00
+ */
+time_t getTimeValue( void )
+{
+	int err;
+	struct timeval tv;
+
+	err = gettimeofday( &tv, NULL);
+	if( 0 == err )
+	{
+		return tv.tv_sec;
+	}
+	return -1;
+}
 
 /**
  * @brief	Get Current UTC Time, formatted per ISO 8601

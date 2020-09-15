@@ -11,6 +11,13 @@
 #include	<time.h>
 
 /**
+ * @brief	Get Time value, seconds since Epoc 1/1/1970 00:00:00
+ *
+ * @return	Time value, seconds since Epoc 1/1/1970 00:00:00
+ */
+time_t getTimeValue( void );
+
+/**
  * @brief	Get Current UTC Time, formatted per ISO 8601
  * @return 0 on success
  */

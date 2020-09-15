@@ -22,9 +22,12 @@
 #include	"freertos/task.h"
 #include	"event_records.h"
 #include	"bleGap.h"
+#include	"mqtt.h"
+#include	"TimeSync.h"
+#include	"nvs_utility.h"
 
 /* Debug Logging */
-#include "nvs_logging.h"
+#include "event_record_logging.h"
 
 extern int getUTC( char * buf, size_t size);
 
@@ -130,6 +133,15 @@ static _recordStatusEntry_t recordStatusTable[] =
 };
 */
 
+typedef enum
+{
+	ePublishRead,
+	ePublishWaitComplete,
+	ePublishWaitShadowUpdate
+} _publishStates_t;
+
+
+
 /**
  * @brief Drinkworks Dispense Record Data characteristic format
  */
@@ -163,24 +175,38 @@ typedef struct
 
 #define	EVENT_RECORD_TASK_PRIORITY	( 5 )
 
+static const char recordSeparator[] = ", ";
+static const char recordFooter[] = "]}}";
+#define	footerSize	( sizeof( recordFooter ) )
+#define	MAX_EVENT_RECORD_SIZE	256
+#define	MAX_RECORDS_PER_MESSAGE	10
+
 /**
  * @brief	Event Record control structure
  */
 typedef struct
 {
-	TaskHandle_t	taskHandle;													/**< handle for Event Record Task */
-	fifo_handle_t	fifoHandle;													/**< FIFO handle */
+	TaskHandle_t		taskHandle;												/**< handle for Event Record Task */
+	fifo_handle_t		fifoHandle;												/**< FIFO handle */
 
 	struct event_record_nvs_s
 	{
-		int32_t		lastReceivedIndex;											/**< Record Index received in last Event Record */
-		int32_t		nextRequestIndex;											/**< Record Index to be used for next request */
+		int32_t			lastReceivedIndex;										/**< Record Index received in last Event Record */
+		int32_t			nextRequestIndex;										/**< Record Index to be used for next request */
 	} nvs;																		/**< Control items to be stored in NVS, as a blob */
 
-	bool			updateNvs;													/**< true: nvs items need to be saved in NVS */
-	uint32_t		lastReportedIndex;											/**< last Record Index reported by Host */
-	int32_t  		lastRequestIndex;											/**< Record Index used for last request */
-	NVS_Items_t		key;														/**< NVS key to save Event Record nvs items */
+	bool				updateNvs;												/**< true: nvs items need to be saved in NVS */
+	uint32_t			lastReportedIndex;										/**< last Record Index reported by Host */
+	int32_t  			lastRequestIndex;										/**< Record Index used for last request */
+	NVS_Items_t			key;													/**< NVS key to save Event Record nvs items */
+	time_t				contextTime;											/**< Time value used as context for MQTT callback */
+	_publishStates_t	publishState;											/**< Publish Event Record state-machine state */
+	bool				publishComplete;										/**< Flag set to true when MQTT publish completes */
+	bool				publishSuccess;											/**< Flag set to true when MQTT publish is successful */
+	bool				shadowUpdateComplete;									/**< Flag set to true when Shadow Update completes */
+	bool				shadowUpdateSuccess;									/**< Flag set to true when Shadow Update is successful */
+	int32_t				highestReadIndex;										/**< Highest Record Index value read from FIFO */
+	int32_t				lastPublishedIndex;										/**< Last/Highest Record Index successfully published, stored in NVS */
 } event_records_t;
 
 
@@ -189,8 +215,20 @@ static event_records_t _evtrec =
 	.updateNvs = false,
 	.lastReportedIndex = 0,
 	.lastRequestIndex = -1,
+	.publishState = ePublishRead,
+	.highestReadIndex = -1,
 };
 
+/**
+ * @brief	MQTT topics for Event Records (develop and production)
+ */
+const char EventRecordPublishTopicDevelop[] = "Homebar-event-record-devel";
+const char EventRecordPublishTopicPoduction[] = "Homebar-event-record-prod";
+
+/**
+ * @brief	Shadow variable for index of last published event record
+ */
+const char shadowLastPublishedIndex[] = "LastPublishedIndex";
 
 /**
  * @brief	Format Date/Time of Dispense Record using ISO 8601 standard
@@ -567,13 +605,11 @@ static void fetchRecords( void )
 	}
 }
 
-static const char recordSeparator[] = ", ";
-static const char recordFooter[] = "]}}";
-#define	footerSize	( sizeof( recordFooter ) )
-#define	MAX_EVENT_RECORD_SIZE	256
-
 /**
  * @brief	Read one or more FIFO records, format as a single JSON Object.
+ *
+ *	A buffer is allocated from the heap, and record(s) written to buffer.
+ *	Caller must release buffer after processing it.
  *
  * Example format, extra whitespace added for clarity:
  *
@@ -609,6 +645,8 @@ static const char recordFooter[] = "]}}";
  *		]}
  *	}
  *
+ *	@param[in]	n	Number of records to read from FIFO
+ *	@return		Pointer to allocated buffer, null-terminated
  */
 static char * readRecords( int n )
 {
@@ -626,6 +664,7 @@ static char * readRecords( int n )
 
 	char *header = NULL;
 	size_t	headerSize;
+	double value;
 
 	/* Get Current Time, UTC */
 	getUTC( utc, sizeof( utc ) );
@@ -657,6 +696,18 @@ static char * readRecords( int n )
 		recordSize = MAX_EVENT_RECORD_SIZE;
 		fifo_get( _evtrec.fifoHandle, record, &recordSize );
 		IotLogInfo( "get record: %d bytes", recordSize );
+
+		/* parse json record for index value */
+		value = 0;
+		if( mjson_get_number( record, recordSize, "$.Index", &value ) )
+		{
+			int32_t index = ( int32_t ) value;
+			if( index > _evtrec.highestReadIndex )
+			{
+				_evtrec.highestReadIndex = index;
+				IotLogInfo( "Highest FIFO Read Index = %d", _evtrec.highestReadIndex );
+			}
+		}
 		record[ recordSize ] = '\0';							/* terminated record */
 		strcat( buffer, record );								/* Append record */
 
@@ -674,9 +725,71 @@ static char * readRecords( int n )
 	return( buffer );
 }
 
+/**
+ * @brief	Event Record Publish Complete Callback
+ *
+ * This function is called when the MQTT message publish completes.
+ * The param structure contains a results field; value IOT_MQTT_SUCCESS indicates message was successfully published.
+ * If message is successfully published and the context reference matches the value used when sending the message,
+ * the FIFO read(s) can be committed.
+ *
+ * @param[in]	reference	Pointer to context reference - a TimeValue is used
+ * @param[in]	param		Pointer to callback parameter structure
+ */
+static void vEventRecordPublishComplete(void * reference, IotMqttCallbackParam_t * param )
+{
+	time_t *context = reference;
+
+	_evtrec.publishComplete = true;
+
+	if( ( IOT_MQTT_SUCCESS == param->u.operation.result ) && ( *context == _evtrec.contextTime ) )
+	{
+		IotLogInfo( "EventRecord: Publish Complete success" );
+		_evtrec.publishSuccess = true;
+	}
+	else
+	{
+		IotLogInfo( "EventRecord: Publish Complete failed: result = %d, context received = %d, expected = %d",
+				param->u.operation.result,
+				*context,
+				_evtrec.contextTime );
+	}
+}
 
 /**
- * @brief	Push Event Records from FIFO to AWS
+ * @brief	Event Record Shadow Update Complete Callback
+ *
+ * This function is called when the Shadow Update completes.
+ * The param structure contains a results field; value AWS_IOT_SHADOW_SUCCESS indicates shadow was successfully updated.
+ * If shadow is successfully updated and the context reference matches the value used when sending the update request,
+ * the LastPublishIndex will be updated on AWS.
+ *
+ * @param[in]	reference	Pointer to context reference - a TimeValue is used
+ * @param[in]	param		Pointer to callback parameter structure
+ */
+static void vEventRecordShadowUpdateComplete( void * reference, AwsIotShadowCallbackParam_t * param)
+{
+	time_t *context = reference;
+
+	_evtrec.shadowUpdateComplete = true;
+
+	if( ( AWS_IOT_SHADOW_SUCCESS == param->u.operation.result ) && ( *context == _evtrec.contextTime ) )
+	{
+		IotLogInfo( "EventRecord: Shadow Update success" );
+		_evtrec.shadowUpdateSuccess = true;
+	}
+	else
+	{
+		IotLogInfo( "EventRecord: Shadow Update failed: result = %d, context received = %d, expected = %d",
+				param->u.operation.result,
+				*context,
+				_evtrec.contextTime );
+	}
+
+}
+
+/**
+ * @brief	Publish Event Records from FIFO to AWS
  *
  * If there are records in the FIFO, and an MQTT connection has been established:
  * 		- Read records, up to a maximum count
@@ -688,21 +801,125 @@ static char * readRecords( int n )
  * 	eventRecords task should NOT BE BLOCKED.  Additional pushes can be blocked,
  * 	but fetches should not be affected.
  */
-static void pushRecords( void )
+static void publishRecords( const char *topic )
 {
+	IotMqttCallbackInfo_t publishCallback = IOT_MQTT_CALLBACK_INFO_INITIALIZER;
+	AwsIotShadowCallbackInfo_t shadowCallback = AWS_IOT_SHADOW_DOCUMENT_INFO_INITIALIZER;
+
 	static bool onetime = true;
 	char * jsonBuffer = NULL;
+	uint16_t	nRecords;
+	int	n;
+	esp_err_t err = ESP_OK;
 
-	if( onetime && ( 4 < fifo_size( _evtrec.fifoHandle ) ) )
+	switch( _evtrec.publishState )
 	{
-		jsonBuffer = readRecords( 2 );
-		if( NULL != jsonBuffer )
-		{
-			printf( jsonBuffer );
+		case ePublishRead:
+			if( mqtt_IsConnected() )
+			{
+				nRecords = fifo_size( _evtrec.fifoHandle );
+				if( 0 < nRecords )
+				{
+					/* Limit number of records per message */
+					nRecords = ( MAX_RECORDS_PER_MESSAGE < nRecords ) ? MAX_RECORDS_PER_MESSAGE : nRecords;
 
-			vPortFree( jsonBuffer );					/* free buffer after if is processed */
-		}
-		onetime = false;
+					jsonBuffer = readRecords( nRecords );
+					if( NULL != jsonBuffer )
+					{
+						IotLogDebug( jsonBuffer );				/* Log message will likely be truncated */
+
+						/* Set callback function */
+						publishCallback.function = vEventRecordPublishComplete;
+
+						/* Clear flags */
+						_evtrec.publishComplete = false;
+						_evtrec.publishSuccess = false;
+
+						/* Use Time Value as context */
+						_evtrec.contextTime =  getTimeValue();
+						publishCallback.pCallbackContext = &_evtrec.contextTime;
+
+						mqtt_SendMsgToTopic( topic, strlen( topic ), jsonBuffer, strlen( jsonBuffer ), &publishCallback );
+
+						vPortFree( jsonBuffer );					/* free buffer after if is processed */
+
+						_evtrec.publishState = ePublishWaitComplete;
+					}
+				}
+			}
+			break;
+
+		case ePublishWaitComplete:
+			/* Wait for MQTT publish to complete */
+			if( _evtrec.publishComplete )
+			{
+				/* If successful, commit FIFO Read(s), and record Last Published Index */
+				if( _evtrec.publishSuccess )
+				{
+					IotLogInfo( "publishRecords success - commit FIFO Read(s)" );
+					fifo_commitRead( _evtrec.fifoHandle, true );
+
+					/* Save Last Published Index in NVS */
+					_evtrec.lastPublishedIndex = _evtrec.highestReadIndex;
+					NVS_Set( NVS_LAST_PUB_INDEX, &_evtrec.lastPublishedIndex, NULL );
+
+					/* Format Shadow update */
+					n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%d}", shadowLastPublishedIndex, _evtrec.lastPublishedIndex );
+					IotLogInfo( "shadow update: %s", jsonBuffer );
+
+					/* set callback function */
+					shadowCallback.function = vEventRecordShadowUpdateComplete;
+
+					/* Clear flags */
+					_evtrec.shadowUpdateComplete = false;
+					_evtrec.shadowUpdateSuccess = false;
+
+					/* Use Time Value as context */
+					_evtrec.contextTime =  getTimeValue();
+					shadowCallback.pCallbackContext = &_evtrec.contextTime;
+
+					/* Update Shadow */
+//					err =  updateReportedShadow( &jsonBuffer, n, &shadowCallback );
+					vPortFree( jsonBuffer );
+
+					if( ESP_OK != err )
+					{
+						IotLogError( "Error updating event record shadow" );
+						_evtrec.publishState = ePublishRead;
+					}
+					else
+					{
+						_evtrec.publishState = ePublishRead;
+//						_evtrec.publishState = ePublishWaitShadowUpdate;
+					}
+				}
+				else
+				{
+					IotLogError(" Error publishing Event Record(s) - Abort FIFO read" );
+					fifo_commitRead( _evtrec.fifoHandle, false );
+					_evtrec.publishState = ePublishRead;
+				}
+			}
+			break;
+
+		case ePublishWaitShadowUpdate:
+			if( _evtrec.shadowUpdateComplete )
+			{
+				if( _evtrec.shadowUpdateSuccess )
+				{
+					IotLogInfo( "Shadow Update: %s = %d success", shadowLastPublishedIndex, _evtrec.lastPublishedIndex );
+				}
+				else
+				{
+					IotLogError( "Shadow Update: fail");
+				}
+				_evtrec.publishState = ePublishRead;
+			}
+			break;
+
+		default:
+			_evtrec.publishState = ePublishRead;
+			break;
 	}
 }
 
@@ -740,7 +957,7 @@ static void _eventRecordsTask(void *arg)
     	fetchRecords();
 
     	/* get Event Records from FIFO, push to AWS */
-    	pushRecords();
+    	publishRecords( EventRecordPublishTopicDevelop );
 
     	/* Update NVS, if needed */
     	if( _evtrec.updateNvs )

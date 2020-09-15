@@ -31,21 +31,22 @@ struct fifo_s
 	{
 		struct
 		{
-			uint32_t head : 15;					/**< Head Index, elements are added at this location */
-			uint32_t full : 1;					/**< flag, true when buffer is full */
-			uint32_t tail : 15;					/**< Tail Index, elements are removed at this location */
-			uint32_t : 1;						/**< spare bit */
+			uint32_t 	head : 15;							/**< Head Index, elements are added at this location */
+			uint32_t	full : 1;							/**< flag, true when buffer is full */
+			uint32_t	tail : 15;							/**< Tail Index, elements are removed at this location */
+			uint32_t 		 : 1;							/**< spare bit */
 		};
-		uint32_t	controls;					/**< All fifo control items consolidated into 32-bit item */
+		uint32_t		controls;							/**< All fifo control items consolidated into 32-bit item */
 	};
-	uint16_t max;								/**< Size of the buffer */
+	uint32_t			activeTail;							/**< Tail value used for FIFO access, original tail will only be updated on a read commit */
+	uint16_t 			max;								/**< Size of the buffer */
 	NVS_Entry_Details_t entry;
-	NVS_Items_t	controlsKey;
-	NVS_Items_t	maxKey;
+	NVS_Items_t			controlsKey;
+	NVS_Items_t			maxKey;
 
-	char namespace[ MAX_NAMESPACE_LENGTH ];
-	char keyPrefix[ MAX_KEYPREFIX_LENGTH ];
-	char key[ MAX_KEY_LENGTH ];
+	char 				namespace[ MAX_NAMESPACE_LENGTH ];
+	char 				keyPrefix[ MAX_KEYPREFIX_LENGTH ];
+	char 				key[ MAX_KEY_LENGTH ];
 };
 
 //#define	MAX_KEY_SIZE	8					/**< Maximum Blob Key size, including null-terminator */
@@ -99,6 +100,7 @@ static int32_t save_controls( fifo_handle_t fifo)
 static int32_t advance_pointer( fifo_handle_t fifo )
 {
 	esp_err_t err;
+	int32_t	tempTail;
 
 	if( fifo == NULL )
 	{
@@ -109,7 +111,12 @@ static int32_t advance_pointer( fifo_handle_t fifo )
 	{
 		if( fifo->full )
 		{
-			fifo->tail = (fifo->tail + 1) % fifo->max;
+			tempTail = fifo->tail;											// stash tail value
+			fifo->tail = (fifo->tail + 1) % fifo->max;						// increment tail
+			if( fifo->activeTail == tempTail )								// if tail value were previously equal
+			{
+				fifo->activeTail = fifo->tail;								// keep active tail in sync
+			}
 		}
 
 		fifo->head = (fifo->head + 1) % fifo->max;
@@ -136,7 +143,7 @@ static int32_t advance_pointer( fifo_handle_t fifo )
 /************************************************************************/
 static int32_t retreat_pointer( fifo_handle_t fifo )
 {
-	esp_err_t err;
+	esp_err_t err = ESP_OK;
 
 	if( fifo == NULL )
 	{
@@ -145,9 +152,10 @@ static int32_t retreat_pointer( fifo_handle_t fifo )
 	}
 	else
 	{
-		fifo->full = FIFO_NOT_FULL;
-		fifo->tail = (fifo->tail + 1) % fifo->max;
-		err = save_controls( fifo );
+//		fifo->full = FIFO_NOT_FULL;
+//		fifo->tail = (fifo->tail + 1) % fifo->max;
+		fifo->activeTail = (fifo->activeTail + 1) % fifo->max;
+//		err = save_controls( fifo );
 	}
 
 	return	err;
@@ -278,6 +286,7 @@ fifo_handle_t fifo_init(const NVS_Partitions_t partition, const char * namespace
 		{
 			fifo->head = 0;
 			fifo->tail = 0;
+			fifo->activeTail = 0;
 			fifo->full = FIFO_NOT_FULL;
 			err = NVS_Set( fifo->controlsKey, &fifo->controls, NULL );			// Update NVS
 		}
@@ -323,6 +332,7 @@ void fifo_reset( fifo_handle_t fifo )
 	{
 		fifo->head = 0;
 		fifo->tail = 0;
+		fifo->activeTail = 0;
 		fifo->full = FIFO_NOT_FULL;
 	}
 }
@@ -398,6 +408,10 @@ uint16_t fifo_capacity( fifo_handle_t fifo )
 /**
  * @brief	FIFO Size
  *
+ *	Return the number of elements in the FIFO.
+ *	This function is intended to be used to determine how many elements there
+ *	are to be Read (fifo_get()) and thus the activeTail index is used.
+ *
  * @param[in] fifo	FIFO handle
  * @return	Number of elements used in FIFO
  */
@@ -415,13 +429,13 @@ uint16_t fifo_size( fifo_handle_t fifo )
 	{
 		if( FIFO_NOT_FULL == fifo->full )
 		{
-			if( fifo->head >= fifo->tail )
+			if( fifo->head >= fifo->activeTail )
 			{
-				size = ( fifo->head - fifo->tail );
+				size = ( fifo->head - fifo->activeTail );
 			}
 			else
 			{
-				size = ( fifo->max + fifo->head - fifo->tail );
+				size = ( fifo->max + fifo->head - fifo->activeTail );
 			}
 		}
 	}
@@ -522,6 +536,33 @@ int32_t fifo_get( fifo_handle_t fifo, void* blob, size_t *pLength )
 	}
 
 	return err;
+}
+
+/************************************************************************/
+/**
+ * @brief	Commit FIFO Read
+ *
+ * @param[in]		fifo	FIFO handle
+ * @param[in]		commit	If true, commit read, if false abort read
+ * @return
+ * 	- ESP_OK if FIFO controls saved without error
+ * 	- ESP_FAIL if error saving FIFO controls
+ */
+/************************************************************************/
+int32_t fifo_commitRead( fifo_handle_t fifo, bool commit )
+{
+	esp_err_t	err = ESP_OK;
+
+	if( commit )
+	{
+		fifo->full = FIFO_NOT_FULL;
+		fifo->tail = fifo->activeTail;
+	}
+	else
+	{
+		fifo->activeTail = fifo->tail;						// abort read, restore tail to activeTail
+	}
+	err = save_controls( fifo );
 }
 
 /**
