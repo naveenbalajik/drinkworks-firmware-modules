@@ -25,6 +25,7 @@
 #include	"mqtt.h"
 #include	"TimeSync.h"
 #include	"nvs_utility.h"
+#include	"shadow.h"
 
 /* Debug Logging */
 #include "event_record_logging.h"
@@ -806,7 +807,6 @@ static void publishRecords( const char *topic )
 	IotMqttCallbackInfo_t publishCallback = IOT_MQTT_CALLBACK_INFO_INITIALIZER;
 	AwsIotShadowCallbackInfo_t shadowCallback = AWS_IOT_SHADOW_DOCUMENT_INFO_INITIALIZER;
 
-	static bool onetime = true;
 	char * jsonBuffer = NULL;
 	uint16_t	nRecords;
 	int	n;

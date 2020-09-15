@@ -190,7 +190,7 @@ static bool formatKey( fifo_handle_t fifo, const size_t index )
 		if( (0 < n) && ( sizeof( fifo->key ) > n ) )				// If n is non-negative and less than buffer size
 		{
 			fifo->entry.nvsKey = fifo->key;
-			IotLogDebug( "formatKey: %s", fifo->entry.nvsKey );
+			IotLogInfo( "formatKey: %s", fifo->entry.nvsKey );
 			return true;											// string completely written
 		}
 		else
@@ -289,6 +289,10 @@ fifo_handle_t fifo_init(const NVS_Partitions_t partition, const char * namespace
 			fifo->activeTail = 0;
 			fifo->full = FIFO_NOT_FULL;
 			err = NVS_Set( fifo->controlsKey, &fifo->controls, NULL );			// Update NVS
+		}
+		else
+		{
+			fifo->activeTail = fifo->tail;
 		}
 	}
 
@@ -519,9 +523,9 @@ int32_t fifo_get( fifo_handle_t fifo, void* blob, size_t *pLength )
 		err = ESP_FAIL;
 	}
 
-	if( ( ESP_OK == err ) && !formatKey( fifo, fifo->tail ) )
+	if( ( ESP_OK == err ) && !formatKey( fifo, fifo->activeTail ) )
 	{
-		IotLogError( "fifo_put: key format error" );
+		IotLogError( "fifo_get: key format error" );
 		err = ESP_FAIL;
 	}
 
@@ -563,6 +567,8 @@ int32_t fifo_commitRead( fifo_handle_t fifo, bool commit )
 		fifo->activeTail = fifo->tail;						// abort read, restore tail to activeTail
 	}
 	err = save_controls( fifo );
+
+	return err;
 }
 
 /**
