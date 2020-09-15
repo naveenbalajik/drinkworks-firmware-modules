@@ -22,6 +22,10 @@
 /* NVS includes */
 #include "nvs_utility.h"
 
+/* Mqtt includes */
+#include "mqtt.h"
+
+
 /* Max thing name length */
 #define	MAX_THINGNAME_LEN	128
 
@@ -59,7 +63,6 @@ static bool _shadowInitialized = false;
  * The "state" and "reported" portions of the shadow update are provided by the function. They should not
  * be passed to the function as part of the update JSON
  *
- * @param[in] mqttConnection 	The MQTT connection used for Shadows.
  * @param[in] updateJSON		The shadow update in JSON format. Should not include the "reported" portion
  * @param[in] sizeJSON			Size of JSON string
  * @param[in] pCallbackInfo		Callback info after shadow update ACK'd by AWS
@@ -67,10 +70,9 @@ static bool _shadowInitialized = false;
  * @return `EXIT_SUCCESS` if all Shadow updates were sent; `EXIT_FAILURE`
  * otherwise.
  */
-int updateReportedShadow(IotMqttConnection_t mqttConnection,
-        				const char * updateJSON,
-						int	sizeJSON,
-						const AwsIotShadowCallbackInfo_t * pCallbackInfo)
+int updateReportedShadow(const char * updateJSON,
+							int	sizeJSON,
+							const AwsIotShadowCallbackInfo_t * pCallbackInfo)
 {
 	int status = EXIT_SUCCESS;
 	int updateDocumentLength = 0;
@@ -97,20 +99,27 @@ int updateReportedShadow(IotMqttConnection_t mqttConnection,
 		thingLength--;
 	}
 
+	/* Ensure that we are connected to the AWS server */
+	IotMqttConnection_t mqttConnection;
+	if(status == EXIT_SUCCESS){
+		status = mqtt_GetMqtt(&mqttConnection);
+	}
+
 	if(status == EXIT_SUCCESS){
 		/* Set the common members of the Shadow update document info. */
 		updateDocument.pThingName = thingNameBuffer;
 		updateDocument.thingNameLength = thingLength;
 	    updateDocument.u.update.pUpdateDocument = pUpdateDocument;
 	    updateDocument.u.update.updateDocumentLength = updateDocumentLength;
-	}
 
-	if(status == EXIT_SUCCESS){
 		updateStatus = AwsIotShadow_Update( mqttConnection,
 												 &updateDocument,
 												 AWS_IOT_SHADOW_FLAG_KEEP_SUBSCRIPTIONS,
 												 pCallbackInfo,
 												 NULL);
+	}
+	else{
+		IotLogError("Error updating shadow. No MQTT Connection");
 	}
 
 	if( updateStatus != AWS_IOT_SHADOW_STATUS_PENDING )
