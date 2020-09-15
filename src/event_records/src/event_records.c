@@ -879,7 +879,7 @@ static void publishRecords( const char *topic )
 					shadowCallback.pCallbackContext = &_evtrec.contextTime;
 
 					/* Update Shadow */
-//					err =  updateReportedShadow( &jsonBuffer, n, &shadowCallback );
+					err =  updateReportedShadow( jsonBuffer, n, &shadowCallback );
 					vPortFree( jsonBuffer );
 
 					if( ESP_OK != err )
@@ -889,8 +889,7 @@ static void publishRecords( const char *topic )
 					}
 					else
 					{
-						_evtrec.publishState = ePublishRead;
-//						_evtrec.publishState = ePublishWaitShadowUpdate;
+						_evtrec.publishState = ePublishWaitShadowUpdate;
 					}
 				}
 				else
