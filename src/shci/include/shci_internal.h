@@ -24,7 +24,7 @@
 
 #define BUF_SIZE (1024)
 
-#define	SHCI_STACK_SIZE    ( 2048 )
+#define	SHCI_STACK_SIZE    ( 4096 )
 
 #define	SHCI_TASK_PRIORITY	( 20 )
 
