@@ -50,6 +50,7 @@
 #define MIN_POS_HT							20
 #define MIN_BAR_DISTANCE					10
 #define DRINKWORKS_TRUSTMARK_THRESHOLD		900
+#define NO_POD_PIXEL_AVG_THRES				33
 
 #define ONE_BAR_THRES				0.125
 #define TWO_BAR_THRES				0.208
@@ -400,7 +401,7 @@ static img_proces_err_t _determineStartStopRow(Image_Proces_Frame_t* img, uint32
 }
 
 void _scaleBufferUINT32(uint32_t* buf, uint32_t len, uint32_t maxVal){
-	uint32_t i, maxFound = 0;
+	uint32_t i, maxFound = 1;
 	for(i=0; i<len; i++){
 		if(buf[i] > maxFound){
 			maxFound = buf[i];
@@ -1077,7 +1078,7 @@ uint32_t CalcID(int32_t* distances)
 	}
 
 	//****** Determine individual bar distances by ratio comparison to total barcode ******//
-	for (i = 0; distances[i] != 0 && i<BARCODE_BITS; i++) {									// For each gap distance
+	for (i = 0; distances[i] != 0 && i<BARCODE_BITS && totalDistance; i++) {									// For each gap distance
 		barcodeRatio = ((double)distances[i]) / totalDistance;								// Divide the gap distance by the total barcode distance
 																												// The following if else statements determine the number of bits of the current segment based upon a comparison between the segment ratio and different barcode ratios
 		if (barcodeRatio < ONE_BAR_THRES) {
@@ -1289,6 +1290,28 @@ static img_proces_err_t _decodeBarcode(BarcodeRegion_t* bcode){
 	return err;
 }
 
+static void _checkForPod(Image_Proces_Frame_t* img){
+	uint32_t i;
+	uint32_t pixelSum = 0;
+	// Take the sum of every 4 pixels in the image
+	for(i=0; i<img->fb.len; i+=4){
+		pixelSum+= img->fb.buf[i];
+	}
+
+	// Take average of pixel sum
+	if(img->fb.len/4){
+		pixelSum/=(img->fb.len/4);
+	}
+
+	// Compare to no pod threshold to determine if pod is in PM or not
+	if(pixelSum <= NO_POD_PIXEL_AVG_THRES){
+		img->result.podDetected = 0;
+	}
+	else{
+		img->result.podDetected = 1;
+	}
+}
+
 void _resetBarcodeResults(Image_Proces_Frame_t* img){
 	imageProces_CleanupFrame(img);
 
@@ -1305,8 +1328,8 @@ img_proces_err_t imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img){
 	uint32_t currentScanRow = 0;
 	_resetBarcodeResults(img);
 
-	// NEED TO ADD THIS FUNCTIONALITY
-	//err = _checkForPod(img);
+	// Check if a pod is in the PM
+	_checkForPod(img);
 
 	// Calculate the row average from the frame buffer
 	err = _calcImgRegionAvg(&(img->rowAvg), &(img->fb));
