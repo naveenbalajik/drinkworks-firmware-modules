@@ -6,6 +6,7 @@ add_subdirectory(credential_storage_utility)
 add_subdirectory(event_records)
 add_subdirectory(TimeSync)
 add_subdirectory(shadow)
+add_subdirectory(mqtt)
 
 # mjson is a submodule. To prevent modification to the repo
 # the files and compile definitions are added here
