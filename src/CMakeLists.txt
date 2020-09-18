@@ -1,12 +1,6 @@
-add_subdirectory(fleetProvisioning)
-add_subdirectory(nvs_utility)
-add_subdirectory(shci)
-add_subdirectory(image_processing)
-add_subdirectory(credential_storage_utility)
-add_subdirectory(event_records)
-add_subdirectory(TimeSync)
-add_subdirectory(shadow)
-add_subdirectory(mqtt)
+#
+# Intent is that individual modules, required by project, and included in that projects root CMakeLists.txt file
+#
 
 # mjson is a submodule. To prevent modification to the repo
 # the files and compile definitions are added here
