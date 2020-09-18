@@ -37,7 +37,6 @@
 /* Shadow include. */
 #include "aws_iot_shadow.h"
 #include "shadow.h"
-#include "shadow_updates.h"
 
 /**
  * @brief The keep-alive interval used for this demo.
@@ -122,6 +121,9 @@ static bool	_mqttConnected = false;
 * @brief Pointer to the current MQTT connection context.
 */
 static IotMqttConnection_t		_pCurrentMqttConnection = NULL;
+
+static _mqttConnectedCallback_t _connectedCallback = NULL;
+static const void * _callbackParams = NULL;
 
 /**
  * @brief Disconnect callback for the loss of an MQTT connection. Tracks the connected parameters
@@ -412,9 +414,35 @@ esp_err_t mqtt_establishMqttConnection(
 
 		err = _updateShadowConnected(pIdentifier);
 
-		shadowUpdates_SendCurrentShadow();
+		_connectedCallback(_callbackParams);
+		//shadowUpdates_SendCurrentShadow();
 
 	}
 
 	return err;
+}
+
+
+esp_err_t	mqtt_Init(_mqttConnectedCallback_t callback, const void * pParams)
+{
+	esp_err_t err = ESP_OK;
+
+	if( IotMqtt_Init()  != IOT_MQTT_SUCCESS )
+	{
+		IotLogError( "Failed to initialize MQTT Library." );
+		err = ESP_FAIL;
+	}
+
+	if(err == ESP_OK)
+	{
+		if(callback != NULL){
+			_connectedCallback = callback;
+		}
+		if(pParams != NULL){
+			_callbackParams = pParams;
+		}
+	}
+
+	return err;
+
 }

@@ -18,6 +18,11 @@
 
 
 /**
+ * @brief Callback called when MQTT connects to broker
+ */
+typedef void (* _mqttConnectedCallback_t)(const void * pParams);
+
+/**
  * @brief	Check if MQTT is connected to AWS
  *
  * @return true if actively connected to AWS
@@ -71,5 +76,7 @@ esp_err_t mqtt_establishMqttConnection(		void * pNetworkServerInfo,
 											const char * pIdentifier,
 											IotMqttConnection_t * pMqttConnection );
 
+
+esp_err_t	mqtt_Init(_mqttConnectedCallback_t callback, const void * pParams);
 
 #endif /* _MQTT_H_ */
