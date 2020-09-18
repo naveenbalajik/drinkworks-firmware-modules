@@ -415,14 +415,29 @@ esp_err_t mqtt_establishMqttConnection(
 		err = _updateShadowConnected(pIdentifier);
 
 		_connectedCallback(_callbackParams);
-		//shadowUpdates_SendCurrentShadow();
 
 	}
 
 	return err;
 }
 
+/**
+ * @brief	Deinitialization function for the MQTT library. Frees resources associated with the mqtt library
+ */
+void	mqtt_Cleanup(void)
+{
+	IotMqtt_Cleanup();
+}
 
+/**
+ * @brief	Initialize the MQTT library and set a callback that triggers on a connection with the MQTT broker
+ *
+ * @param[in]   callback	Callback function forwhen an MQTT connection is successful
+ * @param[in]	pParams		Parameters to pass to the callback function
+ *
+ * @return `EXIT_SUCCESS` if the mqtt library is successfully initialized; `EXIT_FAILURE`
+ * otherwise.
+ */
 esp_err_t	mqtt_Init(_mqttConnectedCallback_t callback, const void * pParams)
 {
 	esp_err_t err = ESP_OK;
