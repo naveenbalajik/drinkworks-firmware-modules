@@ -390,7 +390,7 @@ static void vOtaStatusUpdate( const void *pData, const uint16_t size )
 	{
 		if( ( pStat->Generic.status == otaStatusTable[ i ].opcode ) && ( pStat->Generic.length == otaStatusTable[ i ].length ) )
 		{
-			IotLogInfo( "Found Status Entry, length matches ");
+			IotLogDebug( "Found Status Entry, length matches ");
 			/* Calculate CRC on received packet */
 			crc = crc16_ccitt_compute( ( uint8_t * )pStat, ( pStat->Generic.length ) );
 			if( crc )
@@ -402,7 +402,7 @@ static void vOtaStatusUpdate( const void *pData, const uint16_t size )
 			{
 				if( pStat->Generic.status == _hostota.expectedStatus )
 				{
-					IotLogInfo( "Expected Status Received ");
+					IotLogDebug( "Expected Status Received ");
 
 					switch( pStat->Generic.status )
 					{
@@ -410,7 +410,7 @@ static void vOtaStatusUpdate( const void *pData, const uint16_t size )
 							/* Verify UID and use Next Write address */
 							if( pStat->Init.uid == _hostota.uid )
 							{
-								IotLogInfo( "UID matches, address = %08X", pStat->Init.nextAddr );
+								IotLogDebug( "UID matches, address = %08X", pStat->Init.nextAddr );
 								_hostota.startAddress = pStat->Init.nextAddr;
 							}
 							else
@@ -424,7 +424,7 @@ static void vOtaStatusUpdate( const void *pData, const uint16_t size )
 							/* Verify Address */
 							if( SwapFourBytes( pStat->Data.Addr ) == _hostota.targetAddress )
 							{
-								IotLogInfo( "Target Address matches" );
+								IotLogDebug( "Target Address matches" );
 							}
 							else
 							{
@@ -456,16 +456,34 @@ static void vOtaStatusUpdate( const void *pData, const uint16_t size )
 	}
 }
 
+/**
+ * @brief	Print SHA256 hash value as a string with a tag - Debug Only
+ *
+ * buffer size:
+ * 	Const tag length = 6
+ * 	If max tag length = 9
+ * 	Hash length = 32 * 3 = 96
+ * 	terminator = 1
+ * 	Total length = 6 + 9 + 96 + 1 = 112
+ *
+ */
 static void printsha256( const char *tag, sha256_t *sha)
 {
 	int i;
+	int n;
+	int index = 0;
+	char buffer[ 120 ];
+	int	remaining = sizeof( buffer );
 
-	printf( "SHA256%s: ", tag );
+	n = snprintf( &buffer[ index ], remaining, "SHA256%s: ", tag );
 	for (i = 0; i < 32; ++i)
 	{
-		printf( "%02x", sha->x[ i ] );
+		index += n;
+		remaining -= n;
+		n = snprintf( &buffer[ index], remaining, "%02x", sha->x[ i ] );
 	}
-	printf("\n");
+
+	IotLogDebug( buffer );
 }
 
 
@@ -492,7 +510,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			break;
 
 		case mzXfer_Init:
-			IotLogInfo( "mzXfer_Init" );
+			IotLogDebug( "mzXfer_Init" );
 			/* Allocate a command buffer */
 			_hostota.pCommand_mzXfer = pvPortMalloc( sizeof( _otaCommand_t ) );
 
@@ -524,7 +542,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			break;
 
 		case mzXfer_Erase:
-			IotLogInfo( "mzXfer_Erase" );
+			IotLogDebug( "mzXfer_Erase" );
 			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
 			_hostota.pCommand_mzXfer->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
@@ -556,7 +574,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			break;
 
 		case mzXfer_Data:
-			IotLogInfo( "mzXfer_Data" );
+			IotLogDebug( "mzXfer_Data" );
 			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
 			_hostota.pCommand_mzXfer->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
@@ -565,7 +583,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 
 			/* Read a chunk of Image from Flash */
 			size = ( OTA_PKT_DLEN < remaining ) ? OTA_PKT_DLEN : remaining;
-			printf( "read data %d bytes\n", size );
+//			printf( "read data %d bytes\n", size );
 			bootloader_flash_read( imageAddress, _hostota.pCommand_mzXfer->Data.buffer, size, true );
 
 			if( OTA_PKT_DLEN == size )				/* Full data command */
@@ -611,7 +629,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 				imageAddress += size;
 				remaining -= size;
 
-				printf("DataACK, targetAddress = %08X, remaining = %08X", _hostota.targetAddress, remaining );
+				IotLogDebug( "DataACK, targetAddress = %08X, remaining = %08X", _hostota.targetAddress, remaining );
 				/* When remaining bytes is zero, transfer is complete */
 				_hostota.mzXfer_state = remaining ? mzXfer_Data : mzXfer_Verify;
 			}
@@ -619,7 +637,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 
 
 		case mzXfer_Verify:
-			printf("mzXfer_Verify");
+			IotLogDebug( "mzXfer_Verify");
 			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
 			_hostota.pCommand_mzXfer->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
@@ -741,26 +759,26 @@ static void _hostOtaTask(void *arg)
 				json = (char *) pBuffer;
 				json_length = strlen( json );
 
-				printf( "JSON[%d] = %s\n", json_length, json );
+				IotLogDebug( "JSON[%d] = %s\n", json_length, json );
 
 				mjson_get_number( json, json_length, "$.PaddingBoundary", &value );
 				_hostota.PaddingBoundary = ( uint32_t ) value;
-				printf( "  PaddingBoundary = %d\n", _hostota.PaddingBoundary );
+				IotLogDebug( "  PaddingBoundary = %d\n", _hostota.PaddingBoundary );
 
 				mjson_get_number( json, json_length, "$.LoadAddress", &value );
 				_hostota.LoadAddress = ( uint32_t ) value;
-				printf( "  LoadAddress = 0x%08X\n", _hostota.LoadAddress );
+				IotLogDebug( "  LoadAddress = 0x%08X\n", _hostota.LoadAddress );
 
 				mjson_get_number( json, json_length, "$.ImageSize", &value );
 				_hostota.ImageSize = ( uint32_t ) value;
-				printf( "  ImageSize = 0x%08X\n", _hostota.ImageSize );
+				IotLogDebug( "  ImageSize = 0x%08X\n", _hostota.ImageSize );
 
 				mjson_get_number( json, json_length, "$.Offset", &value );
 				_hostota.Offset = ( uint32_t ) value;
-				printf( "  Offset = 0x%08X\n", _hostota.Offset );
+				IotLogDebug( "  Offset = 0x%08X\n", _hostota.Offset );
 
 				mjson_get_number( json, json_length, "$.Version_MZ", &_hostota.Version_MZ );
-				printf( "  Version_MZ = %f\n", _hostota.Version_MZ );
+				IotLogDebug( "  Version_MZ = %f\n", _hostota.Version_MZ );
 
 				mjson_get_base64(json, json_length, "$.SHA256Plain", &_hostota.sha256Plain, sizeof( sha256_t ) );
 				printsha256( "Plain", &_hostota.sha256Plain );
