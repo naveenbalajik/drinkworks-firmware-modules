@@ -36,6 +36,8 @@
 #include	"../../../../freertos/libraries/3rdparty/mbedtls/include/mbedtls/sha256.h"
 #include	"crc16_ccitt.h"
 
+#include	"shadow_updates.h"
+
 /* Debug Logging */
 #include "host_ota_logging.h"
 
@@ -301,6 +303,7 @@ typedef struct
 	double				Version_MZ;
 	sha256_t			sha256Plain;
 	sha256_t			sha256Encrypted;
+	double				currentVersion_MZ;										/**< Currently installed/running MZ firmware version */
 	_mzXfer_state_t		mzXfer_state;
 	_otaCommand_t		*pCommand_mzXfer;
 	_otaOpcode_t		expectedStatus;
@@ -745,6 +748,11 @@ static void _hostOtaTask(void *arg)
     	switch( _hostota.state )
     	{
 			case eHostOtaIdle:
+
+				/* Get currently running MZ firmware version */
+				_hostota.currentVersion_MZ = shadowUpdate_getFirmwareVersion_MZ();
+				IotLogInfo( "host ota: current MZ version = %5.2f", _hostota.currentVersion_MZ );
+
 				/* hardwrire partition for initial development */
 				_hostota.partition = esp_partition_find_first( 0x44, 0x57, "pic_fw" );
 				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
