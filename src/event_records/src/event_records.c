@@ -89,26 +89,25 @@ typedef	uint8_t	_recordStatus_t;
 /*
  * @brief	Look-up table to convert enumerated Dispense Record Status values to text strings
  *
- * ### Currently unused ###
- *
+ */
 typedef struct
 {
 	const _recordStatus_t	status;
 	const char *text;
 } _recordStatusEntry_t;
 
-static _recordStatusEntry_t recordStatusTable[] =
+const static _recordStatusEntry_t recordStatusTable[] =
 {
-		{ eNoError,								"No Error" },
-		{ eUnknown_Error,						"Unknown Error" },
-		{ eTop_of_Tank_Error,					"Top-of-Tank Error" },
-		{ eCarbonator_Fill_Timeout_Error,		"Carbonator Fill Timeout Error" },
-		{ eOver_Pressure_Error,					"Over Pressure Error" },
-		{ eCarbonation_Timeout_Error,			"Carbonation Timeout Error" },
-		{ eError_Recovery_Brew,					"Error Recovery Brew" },
-		{ eHandle_Lift_Error,					"Handle Lift Error" },
-		{ ePuncture_Mechanism_Error,			"Puncture Mechanism Error" },
-		{ eCarbonation_Mechanism_Error,			"Carbonation Mechanism Error" },
+		{ eNoError,								"Dispense Completed" },
+		{ eUnknown_Error,						"Error: Unknown" },
+		{ eTop_of_Tank_Error,					"Error: Top-of-Tank" },
+		{ eCarbonator_Fill_Timeout_Error,		"Error: Carbonator Fill Timeout" },
+		{ eOver_Pressure_Error,					"Error: Over Pressure" },
+		{ eCarbonation_Timeout_Error,			"Error: Carbonation Timeout" },
+		{ eError_Recovery_Brew,					"Error: Recovery Brew" },
+		{ eHandle_Lift_Error,					"Error: Handle Lift" },
+		{ ePuncture_Mechanism_Error,			"Error: Puncture Mechanism" },
+		{ eCarbonation_Mechanism_Error,			"Error: Carbonation Mechanism" },
 		{ eCleaning_Cycle_Completed,			"Cleaning Cycle Completed" },
 		{ eRinsing_Cycle_Completed,				"Rinsing Cycle Completed" },
 		{ eCO2_Module_Attached,					"CO2 Cylinder Attached" },
@@ -116,23 +115,22 @@ static _recordStatusEntry_t recordStatusTable[] =
 		{ eFirmware_Update_Failed,				"Firmware Update Failed" },
 		{ eDrain_Cycle_Complete,				"Drain Cycle Complete" },
 		{ eFreezeEventUpdate,					"Freeze Event Update" },
-		{ eCritical_Error_OverTemp,				"Critical Error OverTemp" },
-		{ eCritical_Error_PuncMechFail,			"Critical Error PuncMechFail" },
-		{ eCritical_Error_TrickleFillTmout,		"Critical Error TrickleFillTmout" },
-		{ eCritical_Error_ClnRinCWTFillTmout,	"Critical Error ClnRinCWTFillTmout" },
-		{ eCritical_Error_ExtendedOPError,		"Critical Error ExtendedOPError" },
-		{ eCritical_Error_BadMemClear,			"Critical Error BadMemClear" },
-		{ eBLE_ModuleReset,						"BLE ModuleReset" },
-		{ eBLE_IdleStatus,						"BLE IdleStatus" },
-		{ eBLE_StandbyStatus,					"BLE StandbyStatus" },
-		{ eBLE_ConnectedStatus,					"BLE ConnectedStatus" },
-		{ eBLE_HealthTimeout,					"BLE HealthTimeout" },
-		{ eBLE_ErrorState,						"BLE ErrorState" },
-		{ eBLE_MultiConnectStat,				"BLE MultiConnectStat" },
-		{ eBLE_MaxCriticalTimeout,				"BLE MaxCriticalTimeout" },
+		{ eCritical_Error_OverTemp,				"Critical Error: OverTemp" },
+		{ eCritical_Error_PuncMechFail,			"Critical Error: PuncMechFail" },
+		{ eCritical_Error_TrickleFillTmout,		"Critical Error: TrickleFillTmout" },
+		{ eCritical_Error_ClnRinCWTFillTmout,	"Critical Error: ClnRinCWTFillTmout" },
+		{ eCritical_Error_ExtendedOPError,		"Critical Error: ExtendedOPError" },
+		{ eCritical_Error_BadMemClear,			"Critical Error: BadMemClear" },
+		{ eBLE_ModuleReset,						"BLE: ModuleReset" },
+		{ eBLE_IdleStatus,						"BLE: IdleStatus" },
+		{ eBLE_StandbyStatus,					"BLE: StandbyStatus" },
+		{ eBLE_ConnectedStatus,					"BLE: ConnectedStatus" },
+		{ eBLE_HealthTimeout,					"BLE: HealthTimeout" },
+		{ eBLE_ErrorState,						"BLE: ErrorState" },
+		{ eBLE_MultiConnectStat,				"BLE: MultiConnectStat" },
+		{ eBLE_MaxCriticalTimeout,				"BLE: MaxCriticalTimeout" },
 		{ eUnknownStatus,						"Unknown Status" }
 };
-*/
 
 typedef enum
 {
@@ -230,6 +228,27 @@ const char EventRecordPublishTopicPoduction[] = "Homebar-event-record-prod";
  * @brief	Shadow variable for index of last published event record
  */
 const char shadowLastPublishedIndex[] = "LastPublishedIndex";
+
+/**
+ * @brief	Look-up text for status value
+ *
+ * @param[in]	Status value
+ * @return		Pointer to textual string
+ */
+static const char * statusText( uint8_t status)
+{
+	int i;
+
+	for( i = 0; 1 ; ++i )
+	{
+		/* terminate search on match or reaching end of list */
+		if( ( eUnknownStatus == status ) || ( recordStatusTable[ i ].status == status ) )
+		{
+			break;
+		}
+	}
+	return( recordStatusTable[ i ].text );
+}
 
 /**
  * @brief	Format Date/Time of Dispense Record using ISO 8601 standard
@@ -363,10 +382,11 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( CWT_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%f}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
+						"StatusText",      statusText( pDispenseRecord->Status ),
 						"CatalogID",       pDispenseRecord->PodId,
 						"BeverageID",      pDispenseRecord->SKUId,
 						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
@@ -377,10 +397,11 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			else
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%d, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
+						"StatusText",      statusText( pDispenseRecord->Status ),
 						"CatalogID",       pDispenseRecord->PodId,
 						"BeverageID",      pDispenseRecord->SKUId,
 						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
@@ -395,10 +416,11 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( FIRMWARE_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
+						"StatusText",      statusText( pDispenseRecord->Status ),
 						"FirmwareVersion", ( ( ( double ) pDispenseRecord->FirmwareVersion ) / 100 )
 						);
 			}
@@ -409,10 +431,11 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( FREEZE_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%d}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
+						"StatusText",      statusText( pDispenseRecord->Status ),
 						"FreezeEvents",    pDispenseRecord->FreezeEvents
 						);
 			}
@@ -421,10 +444,11 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 		/* Extended Pressure */
 		case	eCritical_Error_ExtendedOPError:
 			mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%f}",
+					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f}",
 					"Index",           pDispenseRecord->index,
 					"DateTime",        DateTimeString,
 					"Status",          pDispenseRecord->Status,
+					"StatusText",      statusText( pDispenseRecord->Status ),
 					"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure )
 					);
 			break;
@@ -434,10 +458,11 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( CWT_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
+						"StatusText",      statusText( pDispenseRecord->Status ),
 						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature)
 						);
 			}
@@ -467,10 +492,11 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 		case	eBLE_MultiConnectStat:
 		case	eBLE_MaxCriticalTimeout:
 			mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-					"{%Q:%d, %Q:%Q, %Q:%d}",
+					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q}",
 					"Index",           pDispenseRecord->index,
 					"DateTime",        DateTimeString,
-					"Status",          pDispenseRecord->Status
+					"Status",          pDispenseRecord->Status,
+					"StatusText",      statusText( pDispenseRecord->Status )
 					);
 			break;
 
