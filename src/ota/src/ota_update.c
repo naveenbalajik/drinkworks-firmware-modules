@@ -65,6 +65,10 @@
 
 #include "application.h"
 
+/* TODO - make callback of a generic type? */
+typedef void (* _userCreateFileForRxCallback_t)( bool );
+
+extern uint32_t prvPAL_RegisterUserCreateFileForRxCallback( _userCreateFileForRxCallback_t handler);
 
 static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 
@@ -127,6 +131,8 @@ static const char * _pStateStr[ eOTA_AgentState_All ] =
     "Stopped"
 };
 
+static bool bPICupdate = false;
+static IotSemaphore_t	*pHostUpdateComplete = NULL;
 
 /**
  * @brief Delay before retrying network connection up to a maximum interval.
@@ -153,6 +159,12 @@ static void _connectionRetryDelay( void )
 
     /* Delay for the calculated time interval .*/
     IotClock_SleepMs( retryIntervalwithJitter * 1000 );
+}
+
+static void vCreateFileForRx( bool bUseDwFunctions )
+{
+	IotLogInfo("vCreateFileForRx: %s", bUseDwFunctions ? "true" : "false" );
+	bPICupdate = bUseDwFunctions;
 }
 
 /**
@@ -210,6 +222,9 @@ static void vRunOTAUpdate(		void * pNetworkServerInfo,
 						   ( const uint8_t * ) ( pIdentifier ),
 						   App_OTACompleteCallback,
 						   ( TickType_t ) ~0 );
+
+			/* Register a handler for CreateFileForRx */
+			prvPAL_RegisterUserCreateFileForRxCallback( vCreateFileForRx );
 
 			while( ( ( eState = OTA_GetAgentState() ) != eOTA_AgentState_Stopped ) && mqtt_IsConnected() )
 			{
@@ -286,7 +301,16 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
         /* OTA job is completed. so delete the network connection. */
         mqtt_disconnectMqttConnection();
 
-        OTA_ActivateNewImage();
+        /* TODO - For non ESP32 updates need to do something different than activating the image INW */
+        if( bPICupdate )
+        {
+        	IotLogInfo( "PIC Update ... what now?" );
+        	IotSemaphore_Post( pHostUpdateComplete );
+        }
+        else
+        {
+        	OTA_ActivateNewImage();
+        }
 
         /* We should never get here as new image activation must reset the device.*/
         IotLogError( "New image activation failed.\r\n" );
@@ -337,7 +361,8 @@ int OTAUpdate_startTask( 	void * pNetworkServerInfo,
 							IotMqttConnection_t * pMqttConnection,
                             const char * pIdentifier,
                             void * pNetworkCredentialInfo,
-                            const IotNetworkInterface_t * pNetworkInterface )
+                            const IotNetworkInterface_t * pNetworkInterface,
+							IotSemaphore_t *pSemaphore )
 {
     int xRet = EXIT_SUCCESS;
 
@@ -346,6 +371,9 @@ int OTAUpdate_startTask( 	void * pNetworkServerInfo,
     	IotLogError( "There are no networks configured for the OTA Update Task." );
         xRet = EXIT_FAILURE;
     }
+
+    /* Save the Semaphore */
+    pHostUpdateComplete = pSemaphore;
 
     vRunOTAUpdate(pNetworkServerInfo, pMqttConnection, pNetworkInterface, pNetworkCredentialInfo, pIdentifier );
 

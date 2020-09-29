@@ -8,9 +8,10 @@
 #ifndef	HOST_OTA_H
 #define	HOST_OTA_H
 
-#include	"host_ota.h"
-#include	"nvs_utility.h"
+#include	<stdint.h>
 
-int32_t host_ota_init( void );
+int32_t hostOta_init( void );
+
+IotSemaphore_t *hostOta_getSemaphore( void );
 
 #endif		/*	HOST_OTA_H	*/

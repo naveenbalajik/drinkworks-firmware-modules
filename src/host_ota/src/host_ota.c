@@ -32,6 +32,7 @@
 #include	"nvs_utility.h"
 #include	"shadow.h"
 #include	"esp_partition.h"
+#include	"platform/iot_threads.h"
 #include	"../../../../freertos/vendors/espressif/esp-idf/components/bootloader_support/include_bootloader/bootloader_flash.h"
 #include	"../../../../freertos/libraries/3rdparty/mbedtls/include/mbedtls/sha256.h"
 #include	"crc16_ccitt.h"
@@ -62,6 +63,8 @@ typedef enum
 	eHostOtaIdle,
 	eHostOtaParseJSON,
 	eHostOtaVerifyImage,
+	eHostOtaVersionCheck,
+	eHostOtaPendUpdate,
 	eHostOtaTransfer,
 	eHostOtaActivate,
 	eHostOtaError
@@ -312,6 +315,7 @@ typedef struct
 	uint32_t			startAddress;
 	uint16_t			uid;
 	bool				bStartTransfer;
+	IotSemaphore_t		iotUpdateSemaphore;
 } host_ota_t;
 
 
@@ -734,6 +738,13 @@ static void _hostOtaTask(void *arg)
     size_t remaining;
     sha256_t	hash;
 	mbedtls_sha256_context ctx;
+	int mjson_stat;
+
+	/* Create semaphore to wait for Image Download from AWS IoT */
+	if( IotSemaphore_Create( &_hostota.iotUpdateSemaphore, 0, 1 ) == false )
+	{
+		IotLogError("Failed to create semaphore");
+	}
 
 
 	vTaskDelay( 10000 / portTICK_PERIOD_MS );
@@ -753,7 +764,7 @@ static void _hostOtaTask(void *arg)
 				_hostota.currentVersion_MZ = shadowUpdate_getFirmwareVersion_MZ();
 				IotLogInfo( "host ota: current MZ version = %5.2f", _hostota.currentVersion_MZ );
 
-				/* hardwrire partition for initial development */
+				/* hardwire partition for initial development */
 				_hostota.partition = esp_partition_find_first( 0x44, 0x57, "pic_fw" );
 				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
 
@@ -769,36 +780,66 @@ static void _hostOtaTask(void *arg)
 
 				IotLogDebug( "JSON[%d] = %s\n", json_length, json );
 
-				mjson_get_number( json, json_length, "$.PaddingBoundary", &value );
-				_hostota.PaddingBoundary = ( uint32_t ) value;
-				IotLogDebug( "  PaddingBoundary = %d\n", _hostota.PaddingBoundary );
+				mjson_stat = mjson_get_number( json, json_length, "$.PaddingBoundary", &value );
+				if( 0 != mjson_stat )
+				{
+					_hostota.PaddingBoundary = ( uint32_t ) value;
+					IotLogDebug( "  PaddingBoundary = %d\n", _hostota.PaddingBoundary );
 
-				mjson_get_number( json, json_length, "$.LoadAddress", &value );
+					mjson_stat = mjson_get_number( json, json_length, "$.LoadAddress", &value );
+				}
+
+				if( 0 != mjson_stat )
+				{
 				_hostota.LoadAddress = ( uint32_t ) value;
-				IotLogDebug( "  LoadAddress = 0x%08X\n", _hostota.LoadAddress );
+					IotLogDebug( "  LoadAddress = 0x%08X\n", _hostota.LoadAddress );
 
-				mjson_get_number( json, json_length, "$.ImageSize", &value );
-				_hostota.ImageSize = ( uint32_t ) value;
-				IotLogDebug( "  ImageSize = 0x%08X\n", _hostota.ImageSize );
+					mjson_stat = mjson_get_number( json, json_length, "$.ImageSize", &value );
+				}
 
-				mjson_get_number( json, json_length, "$.Offset", &value );
-				_hostota.Offset = ( uint32_t ) value;
-				IotLogDebug( "  Offset = 0x%08X\n", _hostota.Offset );
+				if( 0 != mjson_stat )
+				{
+					_hostota.ImageSize = ( uint32_t ) value;
+					IotLogDebug( "  ImageSize = 0x%08X\n", _hostota.ImageSize );
 
-				mjson_get_number( json, json_length, "$.Version_MZ", &_hostota.Version_MZ );
-				IotLogDebug( "  Version_MZ = %f\n", _hostota.Version_MZ );
+					mjson_stat = mjson_get_number( json, json_length, "$.Offset", &value );
+				}
 
-				mjson_get_base64(json, json_length, "$.SHA256Plain", &_hostota.sha256Plain, sizeof( sha256_t ) );
-				printsha256( "Plain", &_hostota.sha256Plain );
+				if( 0 != mjson_stat )
+				{
+					_hostota.Offset = ( uint32_t ) value;
+					IotLogDebug( "  Offset = 0x%08X\n", _hostota.Offset );
 
-				mjson_get_base64(json, json_length, "$.SHA256Encrypted", &_hostota.sha256Encrypted, sizeof( sha256_t ) );
-				printsha256( "Encrypted", &_hostota.sha256Encrypted );
+					mjson_stat = mjson_get_number( json, json_length, "$.Version_MZ", &_hostota.Version_MZ );
+				}
 
-				_hostota.state = eHostOtaVerifyImage;
+				if( 0 != mjson_stat )
+				{
+					IotLogDebug( "  Version_MZ = %f\n", _hostota.Version_MZ );
+
+					mjson_stat = mjson_get_base64(json, json_length, "$.SHA256Plain", ( char * )&_hostota.sha256Plain, sizeof( sha256_t ) );
+				}
+
+				if( 0 != mjson_stat )
+				{
+					printsha256( "Plain", &_hostota.sha256Plain );
+
+					mjson_stat = mjson_get_base64(json, json_length, "$.SHA256Encrypted", ( char * )&_hostota.sha256Encrypted, sizeof( sha256_t ) );
+				}
+
+				if( 0 != mjson_stat )
+				{
+					printsha256( "Encrypted", &_hostota.sha256Encrypted );
+
+					_hostota.state = eHostOtaVerifyImage;
+				}
+				else
+				{
+					_hostota.state = eHostOtaPendUpdate;				/* If error encountered parsing JSON, pend on an update from AWS */
+				}
 				break;
 
 			case eHostOtaVerifyImage:
-
 				mbedtls_sha256_init( &ctx );
 				mbedtls_sha256_starts( &ctx, 0 );						/* SHA-256, not 224 */
 
@@ -820,14 +861,39 @@ static void _hostOtaTask(void *arg)
 				if( 0 == memcmp( &_hostota.sha256Encrypted, &hash, 32 ) )
 				{
 					IotLogInfo( "Image SHA256 Hash matches metadata SHA256Encrypted" );
+					_hostota.state = eHostOtaVersionCheck;
+				}
+				else
+				{
+					IotLogError( "Image SHA256 Hash does not match metadata SHA256Encrypted" );
+					_hostota.state = eHostOtaPendUpdate;				/* If Image not Valid, pend on an update from AWS */
+				}
+				break;
+
+			case eHostOtaVersionCheck:
+				if( 0 > _hostota.currentVersion_MZ )
+				{
+					vTaskDelay( 1000 / portTICK_PERIOD_MS );
+					_hostota.currentVersion_MZ = shadowUpdate_getFirmwareVersion_MZ();
+				}
+				else if( _hostota.Version_MZ > _hostota.currentVersion_MZ )
+				{
+					IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_MZ, _hostota.Version_MZ);
 					_hostota.state = eHostOtaTransfer;
 					_hostota.bStartTransfer = true;
 				}
 				else
 				{
-					IotLogError( "Image SHA256 Hash does not match metadata SHA256Encrypted" );
-					_hostota.state = eHostOtaError;
+					IotLogInfo( "Current Version: %5.2f, Downloaded Version: %5.2f", _hostota.currentVersion_MZ, _hostota.Version_MZ);
+					_hostota.state = eHostOtaPendUpdate;				/* If downloaded Image version is not greater than current version, pend on an update from AWS */
 				}
+				break;
+
+			case eHostOtaPendUpdate:
+				/* Pend on an update from AWS */
+				IotLogInfo(" *** TODO: PEND_UPDATE *** " );
+				IotSemaphore_Wait( &_hostota.iotUpdateSemaphore );
+				_hostota.state = eHostOtaIdle;							/* back to image verification */
 				break;
 
 			case eHostOtaTransfer:
@@ -852,6 +918,9 @@ static void _hostOtaTask(void *arg)
     	}
     	vTaskDelay( 10 / portTICK_PERIOD_MS );
     }
+
+	IotSemaphore_Destroy( &_hostota.iotUpdateSemaphore );
+
 }
 
 
@@ -865,7 +934,7 @@ static void _hostOtaTask(void *arg)
 /**
  * @brief Initialize Host OTA submodule
  */
-int32_t host_ota_init( void )
+int32_t hostOta_init( void )
 {
 //	esp_err_t	err = ESP_OK;
 //	size_t size;
@@ -885,4 +954,14 @@ int32_t host_ota_init( void )
     }
 
     return	ESP_OK;
+}
+
+/**
+ * @brief	Getter for iotUpdateSemaphore
+ *
+ * @return	Pointer to iotUpdateSemaphore
+ */
+IotSemaphore_t * hostOta_getSemaphore( void )
+{
+	return &_hostota.iotUpdateSemaphore;
 }

@@ -12,7 +12,8 @@ int OTAUpdate_startTask( 	void * pNetworkServerInfo,
 							IotMqttConnection_t * pMqttConnection,
                             const char * pIdentifier,
                             void * pNetworkCredentialInfo,
-                            const IotNetworkInterface_t * pNetworkInterface );
+                            const IotNetworkInterface_t * pNetworkInterface,
+							IotSemaphore_t *pSemaphore );
 
 
 #endif /* _OTA_UPDATE_H_ */
