@@ -61,7 +61,9 @@
 	"{" \
     "\"state\":{" \
         "\"reported\":{" \
-            "\"connected\":false" \
+            "\"connected\":false," \
+            "\"State\":\"unknown\"," \
+			"\"MinToChilled\":-1" \
         "}" \
     "}" \
 "}"

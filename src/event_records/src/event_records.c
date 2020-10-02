@@ -230,6 +230,56 @@ const char EventRecordPublishTopicPoduction[] = "Homebar-event-record-prod";
 const char shadowLastPublishedIndex[] = "LastPublishedIndex";
 
 /**
+ * @brief	Format Byte Array as a string with a tag and size
+ *
+ *	A format buffer is allocated from the heap, and the array formated.
+ *	If the string option is selected, the array is printed as an ASCII string, with
+ *	null characters ('\0' being ignored.  The string is formated with quotes.
+ *
+ *	The caller must release the buffer when done with it.
+ *
+ *	@param[in]	pData	Pointer to byte array
+ *	@param[in]	size	Size of byte array to be printed
+ */
+/* FIXME - merge functionality with formatByteArray() */
+static char * formatHexByteArray(const uint8_t *pData, size_t size )
+{
+	int i;
+	int n;
+	char *buffer, *ptr;
+	int formatByteLength = 3;
+	const int formatOverhead = 1;			/* just need terminator */
+	size_t	remaining;
+
+	formatByteLength = 2;
+
+	/* Allocate a buffer */
+	remaining = ( size * formatByteLength ) + formatOverhead;
+	buffer = pvPortMalloc( remaining );
+
+	if( NULL != buffer )
+	{
+		IotLogInfo( "Allocated %d byte buffer", remaining );
+
+		ptr = buffer;
+
+		/* format each byte */
+		for (i = 0; i < size; ++i)
+		{
+			/* Keep ptr pointing to end of formatted string */
+			ptr += n;
+			remaining -= n;
+			n = snprintf( ptr, remaining, "%02x" ), *pData );
+
+			pData++;
+		}
+
+
+	}
+	return buffer;
+}
+
+/**
  * @brief	Look-up text for status value
  *
  * @param[in]	Status value
@@ -364,6 +414,7 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 	char * formatBuffer = NULL;
 	/* format Date/Time per ISO 8601 */
 	char *DateTimeString = formatDateTime( pDispenseRecord );
+	char *RawString = formatHexByteArray( ( uint8_t * ) pDispenseRecord, size );
 
 	switch( pDispenseRecord->Status )
 	{
@@ -382,7 +433,7 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( CWT_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%f, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
@@ -391,13 +442,14 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 						"BeverageID",      pDispenseRecord->SKUId,
 						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
 						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
-						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature)
+						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature),
+						"raw",             RawString
 						);
 			}
 			else
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
@@ -405,7 +457,8 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 						"CatalogID",       pDispenseRecord->PodId,
 						"BeverageID",      pDispenseRecord->SKUId,
 						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
-						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure )
+						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
+						"raw",             RawString
 						);
 			}
 			break;
@@ -416,12 +469,13 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( FIRMWARE_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
 						"StatusText",      statusText( pDispenseRecord->Status ),
-						"FirmwareVersion", ( ( ( double ) pDispenseRecord->FirmwareVersion ) / 100 )
+						"FirmwareVersion", ( ( ( double ) pDispenseRecord->FirmwareVersion ) / 100 ),
+						"raw",             RawString
 						);
 			}
 			break;
@@ -431,12 +485,13 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( FREEZE_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
 						"StatusText",      statusText( pDispenseRecord->Status ),
-						"FreezeEvents",    pDispenseRecord->FreezeEvents
+						"FreezeEvents",    pDispenseRecord->FreezeEvents,
+						"raw",             RawString
 						);
 			}
 			break;
@@ -444,12 +499,13 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 		/* Extended Pressure */
 		case	eCritical_Error_ExtendedOPError:
 			mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f}",
+					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f, %Q:%Q}",
 					"Index",           pDispenseRecord->index,
 					"DateTime",        DateTimeString,
 					"Status",          pDispenseRecord->Status,
 					"StatusText",      statusText( pDispenseRecord->Status ),
-					"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure )
+					"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
+					"raw",             RawString
 					);
 			break;
 
@@ -458,12 +514,13 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( CWT_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
 						"StatusText",      statusText( pDispenseRecord->Status ),
-						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature)
+						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature),
+						"raw",             RawString
 						);
 			}
 			break;
@@ -492,16 +549,18 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 		case	eBLE_MultiConnectStat:
 		case	eBLE_MaxCriticalTimeout:
 			mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q}",
+					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%Q}",
 					"Index",           pDispenseRecord->index,
 					"DateTime",        DateTimeString,
 					"Status",          pDispenseRecord->Status,
-					"StatusText",      statusText( pDispenseRecord->Status )
+					"StatusText",      statusText( pDispenseRecord->Status ),
+					"raw",             RawString
 					);
 			break;
 
 	}
 	vPortFree( DateTimeString );				/* free date/time buffer */
+	vPortFree( RawString );						/* free raw format string */
 
 	return( formatBuffer );
 }
