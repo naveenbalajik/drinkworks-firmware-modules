@@ -65,10 +65,14 @@
 
 #include "application.h"
 
-/* TODO - make callback of a generic type? */
-typedef void (* _userCreateFileForRxCallback_t)( bool );
+#include "host_ota.h"
 
-extern uint32_t prvPAL_RegisterUserCreateFileForRxCallback( _userCreateFileForRxCallback_t handler);
+//#include "../../../../freertos/vendors/espressif/boards/esp32/ports/ota/aws_ota_secondary_pal.h"
+
+/* TODO - make callback of a generic type? */
+//typedef void (* _userCreateFileForRxCallback_t)( bool );
+
+//extern uint32_t prvPAL_RegisterUserCreateFileForRxCallback( _userCreateFileForRxCallback_t handler);
 
 static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 
@@ -131,8 +135,264 @@ static const char * _pStateStr[ eOTA_AgentState_All ] =
     "Stopped"
 };
 
-static bool bPICupdate = false;
+//static bool bPICupdate = false;
 static IotSemaphore_t	*pHostUpdateComplete = NULL;
+
+/* secondaryota.patch.txt */
+
+#ifndef	SECONDARY_UPDATE
+
+static OTA_PAL_ImageState_t CurrentImageState = eOTA_PAL_ImageState_Valid;
+
+// ------- PAL function declarations -------
+/*
+extern OTA_Err_t prvPAL_Abort( OTA_FileContext_t * const C );
+extern OTA_Err_t prvPAL_CreateFileForRx( OTA_FileContext_t * const C );
+extern OTA_Err_t prvPAL_CloseFile( OTA_FileContext_t * const C );
+extern int16_t prvPAL_WriteBlock( OTA_FileContext_t * const C,
+                           uint32_t ulOffset,
+                           uint8_t * const pcData,
+                           uint32_t ulBlockSize );
+extern OTA_Err_t prvPAL_ActivateNewImage( void );
+extern OTA_Err_t prvPAL_ResetDevice( void );
+*/
+extern OTA_Err_t prvPAL_SetPlatformImageState( OTA_ImageState_t eState );
+extern OTA_PAL_ImageState_t prvPAL_GetPlatformImageState( void );
+// --------
+
+/**
+ * @brief	Handle Secondary Processor OTA updates by overriding the PAL Layer
+ *
+ * For PIC32MZ updates set the file ID to '1' in the OTA Job
+ */
+
+#ifdef NEEDED
+OTA_JobParseErr_t otaDemoCustomJobCallback( const char * pcJSON, uint32_t ulMsgLen )
+{
+    DEFINE_OTA_METHOD_NAME( "prvDefaultCustomJobCallback" );
+    configPRINTF(("Job Found:\r\n"));
+    if ( pcJSON != NULL )
+    {
+        //Process Custom job
+    }
+
+    OTA_LOG_L1( "[%s] Received Custom Job inside OTA Demo.\r\n", OTA_METHOD_NAME );
+
+    return eOTA_JobParseErr_None;
+}
+
+
+OTA_Err_t prvPAL_Abort_customer( OTA_FileContext_t * const C )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_Abort_customer" );
+
+    if ( C == NULL )
+    {
+        OTA_LOG_L1( "[%s] File context null\r\n", OTA_METHOD_NAME );
+        return kOTA_Err_AbortFailed;
+    }
+
+    if ( C->ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_Abort( C );
+    }
+    else
+    {
+        OTA_LOG_L1( "[%s] OTA for secondary processor\r\n", OTA_METHOD_NAME );
+        return kOTA_Err_None;
+    }
+}
+
+
+
+OTA_Err_t prvPAL_ActivateNewImage_customer( uint32_t ulServerFileID )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_ActivateNewImage_customer" );
+
+    if ( ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_ActivateNewImage();
+    }
+    else
+    {
+        OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
+        // Reset self after doing cleanup
+        return prvPAL_ActivateNewImage();
+    }
+}
+
+
+OTA_Err_t prvPAL_CloseFile_customer( OTA_FileContext_t * const C )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_CloseFile_customer" );
+
+    if ( C->ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_CloseFile( C );
+    }
+    else
+    {
+        OTA_LOG_L1( "[%s] Received prvPAL_CloseFile_customer inside OTA for secondary processor.\r\n", OTA_METHOD_NAME );
+        C->pucFile = (uint8_t *)0;
+        return kOTA_Err_None;
+    }
+}
+
+OTA_Err_t prvPAL_CreateFileForRx_customer( OTA_FileContext_t * const C )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_CreateFileForRx_customer" );
+
+    if ( C == NULL )
+    {
+        OTA_LOG_L1( "[%s] File context null\r\n", OTA_METHOD_NAME );
+        return kOTA_Err_RxFileCreateFailed;
+    }
+
+    if ( C->ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_CreateFileForRx( C );
+    }
+    else
+    {
+        OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
+
+        // Put a value in the file handle
+        C->pucFile = (uint8_t *)C;
+
+        return kOTA_Err_None;
+    }
+}
+
+
+OTA_Err_t prvPAL_ResetDevice_customer( uint32_t ulServerFileID )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_ResetDevice_customer" );
+
+    if ( ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_ResetDevice();
+    }
+    else
+    {
+        OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
+        return kOTA_Err_None;
+    }
+}
+
+int16_t prvPAL_WriteBlock_customer( OTA_FileContext_t * const C,
+                           uint32_t iOffset,
+                           uint8_t * const pacData,
+                           uint32_t iBlockSize )
+ {
+    DEFINE_OTA_METHOD_NAME( "prvPAL_WriteBlock_customer" );
+
+    if ( C == NULL )
+    {
+        OTA_LOG_L1( "[%s] File context null\r\n", OTA_METHOD_NAME );
+        return -1;
+    }
+
+    if ( C->ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_WriteBlock(C, iOffset, pacData, iBlockSize);
+    }
+    else
+    {
+        OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
+        return (int16_t) iBlockSize;
+    }
+}
+
+#endif	/* NEEDED */
+
+OTA_PAL_ImageState_t prvPAL_GetPlatformImageState_customer( uint32_t ulServerFileID )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_GetPlatformImageState_customer" );
+
+    if ( ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_GetPlatformImageState();
+    }
+    else
+    {
+    	CurrentImageState = hostOta_getImageState();
+        OTA_LOG_L1( "[%s](%d) OTA for secondary processor: %d.\r\n", OTA_METHOD_NAME, ulServerFileID, CurrentImageState );
+        return CurrentImageState;
+    }
+}
+
+
+OTA_Err_t prvPAL_SetPlatformImageState_customer( uint32_t ulServerFileID, OTA_ImageState_t eState )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_SetPlatformImageState_customer" );
+
+    if ( ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_SetPlatformImageState(eState);
+    }
+    else
+    {
+        OTA_LOG_L1( "[%s](%d) OTA for secondary processor: %d\r\n", OTA_METHOD_NAME, ulServerFileID, eState  );
+        hostOta_setImageState( eState );
+
+//        if ( eState==eOTA_ImageState_Testing )
+//        {
+//            CurrentImageState = eOTA_PAL_ImageState_PendingCommit;
+//        }
+
+        return kOTA_Err_None;
+    }
+}
+
+#else
+static OTA_PAL_ImageState_t CurrentImageState = eOTA_PAL_ImageState_Valid;
+
+static OTA_PAL_ImageState_t secondary_GetPlatformImageState( uint32_t ulServerFileID )
+{
+    DEFINE_OTA_METHOD_NAME( "secondary_GetPlatformImageState" );
+
+	OTA_LOG_L1( "[%s](%d): %d\r\n", OTA_METHOD_NAME, ulServerFileID, CurrentImageState );
+	return CurrentImageState;
+}
+
+
+static OTA_Err_t secondary_SetPlatformImageState( uint32_t ulServerFileID, OTA_ImageState_t eState )
+{
+    DEFINE_OTA_METHOD_NAME( "secondary_SetPlatformImageState" );
+
+	OTA_LOG_L1( "[%s](%d): %d\r\n", OTA_METHOD_NAME, ulServerFileID, eState );
+
+	CurrentImageState = eState;
+
+//	if ( eState==eOTA_ImageState_Testing )
+//	{
+//		CurrentImageState = eOTA_PAL_ImageState_PendingCommit;
+//	}
+
+	return kOTA_Err_None;
+}
+
+
+static void secondary_OTACompleteCallback(  OTA_JobEvent_t eEvent )
+{
+    DEFINE_OTA_METHOD_NAME( "secondary_OTACompleteCallback" );
+
+	OTA_LOG_L1( "[%s]: %d\r\n", OTA_METHOD_NAME, eEvent );
+
+}
+#endif
+
+/* end of secondaryota_patch.txt */
+
+
 
 /**
  * @brief Delay before retrying network connection up to a maximum interval.
@@ -161,11 +421,13 @@ static void _connectionRetryDelay( void )
     IotClock_SleepMs( retryIntervalwithJitter * 1000 );
 }
 
+#ifdef OLD
 static void vCreateFileForRx( bool bUseDwFunctions )
 {
 	IotLogInfo("vCreateFileForRx: %s", bUseDwFunctions ? "true" : "false" );
 	bPICupdate = bUseDwFunctions;
 }
+#endif
 
 /**
  * @brief Run the OTA Update Task. It first
@@ -189,6 +451,35 @@ static void vRunOTAUpdate(		void * pNetworkServerInfo,
 {
 	OTA_State_t eState;
 	static OTA_ConnectionContext_t xOTAConnectionCtx;
+
+#ifndef	SECONDARY
+	/* Only need to override the default callbacks that are needed, other than xCompleteCallback */
+    OTA_PAL_Callbacks_t otaCallbacks = {
+        .xAbort                    = NULL,	// prvPAL_Abort_customer,
+        .xActivateNewImage         = NULL,	// prvPAL_ActivateNewImage_customer,
+        .xCloseFile                = NULL,	// prvPAL_CloseFile_customer,
+        .xCreateFileForRx          = NULL,	// prvPAL_CreateFileForRx_customer,
+        .xGetPlatformImageState    = prvPAL_GetPlatformImageState_customer,
+        .xResetDevice              = NULL,	// prvPAL_ResetDevice_customer,
+        .xSetPlatformImageState    = prvPAL_SetPlatformImageState_customer,
+        .xWriteBlock               = NULL,	// prvPAL_WriteBlock_customer,
+        .xCompleteCallback         = App_OTACompleteCallback,
+        .xCustomJobCallback        = NULL	// otaDemoCustomJobCallback
+    };
+#else
+    OTA_Secondary_PAL_Callbacks_t otaSecondaryCallbacks = {
+        .xAbort                    = NULL,		//prvPAL_Abort_customer,
+        .xActivateNewImage         = NULL,		//prvPAL_ActivateNewImage_customer,
+        .xCloseFile                = NULL,		//prvPAL_CloseFile_customer,
+        .xCreateFileForRx          = NULL,		//prvPAL_CreateFileForRx_customer,
+        .xGetPlatformImageState    = secondary_GetPlatformImageState,
+        .xResetDevice              = NULL,		//prvPAL_ResetDevice_customer,
+        .xSetPlatformImageState    = secondary_SetPlatformImageState,
+        .xWriteBlock               = NULL,		//prvPAL_WriteBlock_customer,
+        .xCompleteCallback         = secondary_OTACompleteCallback,
+        .xCustomJobCallback        = NULL,		//otaDemoCustomJobCallback
+    };
+#endif
 
 	// Continually loop until OTA process is completed
 	for( ; ; )
@@ -217,14 +508,26 @@ static void vRunOTAUpdate(		void * pNetworkServerInfo,
 
 			IotLogInfo( "OTA Agent Initializing" );
 
+#ifndef SECONDARY
+			/* Initialize the OTA Agent, using internal init function, so PAL callbacks can be overridden */
+			/* not sure how this will work if OTA agent is already running */
+			OTA_AgentInit_internal( ( void * ) ( &xOTAConnectionCtx ),
+									( const uint8_t * ) ( pIdentifier ),
+									&otaCallbacks,
+									( TickType_t ) ~0 );
+#else
 			/* Initialize the OTA Agent , if it is resuming the OTA statistics will be cleared for new connection.*/
 			OTA_AgentInit( ( void * ) ( &xOTAConnectionCtx ),
 						   ( const uint8_t * ) ( pIdentifier ),
 						   App_OTACompleteCallback,
 						   ( TickType_t ) ~0 );
+#endif
 
 			/* Register a handler for CreateFileForRx */
-			prvPAL_RegisterUserCreateFileForRxCallback( vCreateFileForRx );
+//			prvPAL_RegisterUserCreateFileForRxCallback( vCreateFileForRx );
+
+			/* Register Secondary Processor Update callbacks */
+//			prvPAL_RegisterSecondaryPAL( &otaSecondaryCallbacks );
 
 			while( ( ( eState = OTA_GetAgentState() ) != eOTA_AgentState_Stopped ) && mqtt_IsConnected() )
 			{
@@ -299,25 +602,39 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
         IotLogInfo( "Received eOTA_JobEvent_Activate callback from OTA Agent." );
 
         /* OTA job is completed. so delete the network connection. */
-        mqtt_disconnectMqttConnection();
+//        mqtt_disconnectMqttConnection();
+
+        /* Activate New image, this function will only return if processing an update for a secondary processor */
+    	OTA_ActivateNewImage();
+
+     	IotLogInfo( "Secondary Processor Update, activated ... post semaphore" );
+
+    	if( pHostUpdateComplete != NULL )
+    	{
+    		IotSemaphore_Post( pHostUpdateComplete );
+    	}
+    	else
+    	{
+    		IotLogError( "pHostUpdateComplete semaphore is NULL" );
+    	}
 
         /* TODO - For non ESP32 updates need to do something different than activating the image INW */
-        if( bPICupdate )
-        {
-        	IotLogInfo( "PIC Update ... what now?" );
-        	IotSemaphore_Post( pHostUpdateComplete );
-        }
-        else
-        {
-        	OTA_ActivateNewImage();
-        }
+//        if( bPICupdate )
+//        {
+//        	IotLogInfo( "PIC Update ... what now?" );
+//        	IotSemaphore_Post( pHostUpdateComplete );
+//        }
+//        else
+//        {
+//        	OTA_ActivateNewImage();
+//        }
 
         /* We should never get here as new image activation must reset the device.*/
-        IotLogError( "New image activation failed.\r\n" );
-
-        for( ; ; )
-        {
-        }
+//        IotLogError( "New image activation failed.\r\n" );
+//
+//        for( ; ; )
+//        {
+//        }
     }
     else if( eEvent == eOTA_JobEvent_Fail )
     {
@@ -374,6 +691,7 @@ int OTAUpdate_startTask( 	void * pNetworkServerInfo,
 
     /* Save the Semaphore */
     pHostUpdateComplete = pSemaphore;
+	IotLogInfo( "OTAUpdate_startTask: pHostUpdateComplete = %p", pHostUpdateComplete );
 
     vRunOTAUpdate(pNetworkServerInfo, pMqttConnection, pNetworkInterface, pNetworkCredentialInfo, pIdentifier );
 

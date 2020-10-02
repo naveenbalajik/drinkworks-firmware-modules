@@ -48,7 +48,8 @@ typedef enum
 	NVS_FIFO_CONTROLS,
 	NVS_FIFO_MAX,
 	NVS_EVENT_RECORD,
-	NVS_LAST_PUB_INDEX
+	NVS_LAST_PUB_INDEX,
+	NVS_HOSTOTA_STATE
 //	NVS_FIFO_TEST						/**< For test purposes only */
 } NVS_Items_t;
 

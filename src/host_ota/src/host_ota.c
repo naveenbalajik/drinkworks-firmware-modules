@@ -39,6 +39,8 @@
 
 #include	"shadow_updates.h"
 
+#include "aws_iot_ota_agent.h"
+
 /* Debug Logging */
 #include "host_ota_logging.h"
 
@@ -316,6 +318,7 @@ typedef struct
 	uint16_t			uid;
 	bool				bStartTransfer;
 	IotSemaphore_t		iotUpdateSemaphore;
+	OTA_ImageState_t	imageState;
 } host_ota_t;
 
 
@@ -745,7 +748,10 @@ static void _hostOtaTask(void *arg)
 	{
 		IotLogError("Failed to create semaphore");
 	}
-
+	else
+	{
+		IotLogInfo( "iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
+	}
 
 	vTaskDelay( 10000 / portTICK_PERIOD_MS );
 
@@ -939,6 +945,7 @@ int32_t hostOta_init( void )
 //	esp_err_t	err = ESP_OK;
 //	size_t size;
 
+	_hostota.imageState = eOTA_PAL_ImageState_Unknown;
 
 	/* Register callback for OTA Status update */
 	bleInterface_registerUpdateCB( eOtaStatusIndex, &vOtaStatusUpdate );
@@ -963,5 +970,18 @@ int32_t hostOta_init( void )
  */
 IotSemaphore_t * hostOta_getSemaphore( void )
 {
+	IotLogInfo( "hostOta_getSemaphore: iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
 	return &_hostota.iotUpdateSemaphore;
+}
+
+OTA_PAL_ImageState_t hostOta_getImageState( void )
+{
+	IotLogInfo( "Get ImageState = %d", _hostota.imageState);
+	return _hostota.imageState;
+}
+
+void hostOta_setImageState( OTA_ImageState_t eState )
+{
+	IotLogInfo( "Set ImageState = %d", eState);
+	_hostota.imageState = eState;
 }

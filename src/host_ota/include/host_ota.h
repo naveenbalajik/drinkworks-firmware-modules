@@ -9,9 +9,15 @@
 #define	HOST_OTA_H
 
 #include	<stdint.h>
+#include "aws_iot_ota_agent.h"
+
 
 int32_t hostOta_init( void );
 
 IotSemaphore_t *hostOta_getSemaphore( void );
+
+OTA_PAL_ImageState_t hostOta_getImageState( void );
+
+void hostOta_setImageState( OTA_ImageState_t eState );
 
 #endif		/*	HOST_OTA_H	*/
