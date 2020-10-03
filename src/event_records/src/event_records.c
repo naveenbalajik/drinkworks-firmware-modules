@@ -170,15 +170,16 @@ typedef struct
 #define	FREEZE_ENTRY_MIN_SIZE		( DISPENSE_RECORD_MAX_SIZE - 2 )			// Minimum size for a FreezeEvents entry
 #define	FIRMWARE_ENTRY_MIN_SIZE		( DISPENSE_RECORD_MAX_SIZE - 6 )			// Minimum size for a Firmware entry
 
-#define	EVENT_RECORD_STACK_SIZE    ( 2048 )
+#define	EVENT_RECORD_STACK_SIZE    ( 3076 )
 
 #define	EVENT_RECORD_TASK_PRIORITY	( 5 )
 
 static const char recordSeparator[] = ", ";
 static const char recordFooter[] = "]}}";
 #define	footerSize	( sizeof( recordFooter ) )
-#define	MAX_EVENT_RECORD_SIZE	256
+#define	MAX_EVENT_RECORD_SIZE	512			//256
 #define	MAX_RECORDS_PER_MESSAGE	10
+static char rawBuffer[64];						//57 is good for 28 bytes
 
 /**
  * @brief	Event Record control structure
@@ -242,6 +243,7 @@ const char shadowLastPublishedIndex[] = "LastPublishedIndex";
  *	@param[in]	size	Size of byte array to be printed
  */
 /* FIXME - merge functionality with formatByteArray() */
+#ifdef	DYNAMIC
 static char * formatHexByteArray(const uint8_t *pData, size_t size )
 {
 	int i;
@@ -259,7 +261,7 @@ static char * formatHexByteArray(const uint8_t *pData, size_t size )
 
 	if( NULL != buffer )
 	{
-		IotLogInfo( "Allocated %d byte buffer", remaining );
+		IotLogInfo( "formatHexByteArray: Allocated %d byte buffer", remaining );
 
 		ptr = buffer;
 
@@ -269,16 +271,43 @@ static char * formatHexByteArray(const uint8_t *pData, size_t size )
 			/* Keep ptr pointing to end of formatted string */
 			ptr += n;
 			remaining -= n;
-			n = snprintf( ptr, remaining, "%02x" ), *pData );
+			n = snprintf( ptr, remaining, "%02x", *pData );
 
 			pData++;
 		}
+		IotLogInfo( "formatHexByteArray: %s", buffer );
 
 
 	}
 	return buffer;
 }
+#else
+const char* pszNibbleToHex = {"0123456789ABCDEF"};
 
+static char * formatHexByteArray(const uint8_t *pData, size_t size )
+{
+	int		i;
+	char	*ptr;
+	uint8_t	nibble;
+
+	/* use static buffer */
+	ptr = &rawBuffer[0];
+
+	/* format each byte */
+	for (i = 0; i < size; ++i)
+	{
+		nibble = *pData >> 4;							// High Nibble
+		*ptr++ = pszNibbleToHex[ nibble ];
+		nibble = *pData & 0x0f;							// Low Nibble
+		*ptr++ = pszNibbleToHex[ nibble ];
+		pData++;
+	}
+	*ptr = '\0';										// terminate
+
+	return rawBuffer;
+}
+
+#endif
 /**
  * @brief	Look-up text for status value
  *
@@ -560,8 +589,9 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 
 	}
 	vPortFree( DateTimeString );				/* free date/time buffer */
+#ifdef	DYNAMIC
 	vPortFree( RawString );						/* free raw format string */
-
+#endif
 	return( formatBuffer );
 }
 
@@ -601,7 +631,8 @@ static void vUpdateEventRecordData( uint8_t *pData, uint16_t size )
 			/* Save record in FIFO */
 			fifo_put( _evtrec.fifoHandle, jsonBuffer, strlen( jsonBuffer ) );
 
-			IotLogInfo( jsonBuffer );
+//			IotLogInfo( jsonBuffer );
+			printf( jsonBuffer );
 
 			free( jsonBuffer );						/* free mjson format buffer */
 		}
@@ -775,6 +806,8 @@ static char * readRecords( int n )
 
 	// Allocate a buffer for a single record */
 	record = pvPortMalloc( MAX_EVENT_RECORD_SIZE );
+
+	IotLogInfo( "readRecords: %d, bufferSize = %d", n, bufferSize );
 
 	/* Read n records into buffer, separate records with ", " */
 	while( n-- )

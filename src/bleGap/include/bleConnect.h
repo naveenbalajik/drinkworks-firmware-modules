@@ -6,7 +6,7 @@
 #define	_BLE_CONNECT_H_
 
 #include "bt_hal_manager.h"
-
+#include "bleStatus.h"
 /**
  * @brief	Connection Mapping, store limited number of connection ID and Remote BT Addresses
  */
@@ -30,5 +30,8 @@ void bleConnect_NumericComparisonCb( BTBdaddr_t * pxRemoteBdAddr,
                              uint32_t ulPassKey );
 
 _connectionMap_t *retrieveConnection( uint8_t handle );
+
+_bleStatus_t bleConnect_getStatus( void );
+void bleConnect_setStatus( _bleStatus_t status );
 
 #endif /* _BLE_CONNECT_H_ */
