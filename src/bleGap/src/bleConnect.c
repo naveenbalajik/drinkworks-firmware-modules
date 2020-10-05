@@ -10,8 +10,6 @@
 #include "ble_logging.h"
 #include "shci_internal.h"
 #include "shci.h"
-//#include "bleInterface_internal.h"
-//#include "bleInterface.h"
 #include "iot_ble.h"
 
 #include "bleStatus.h"
@@ -317,4 +315,24 @@ void bleConnect_init( void )
 	/* Register BLE commands */
 	shci_RegisterCommand( eUserConfirmResponse, &vUserConfirmResponse );
 
+}
+
+/**
+ * @brief	BLE Status getter
+ *
+ * @return	BLE Status
+ */
+_bleStatus_t bleConnect_getStatus( void )
+{
+	return _bleStatus;
+}
+
+/**
+ * @brief	BLE Status setter
+ *
+ * @param[in]	status	BLE Status
+ */
+void bleConnect_setStatus( _bleStatus_t status )
+{
+	_bleStatus = status;
 }

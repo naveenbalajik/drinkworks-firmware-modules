@@ -480,7 +480,7 @@ int32_t NVS_pGet( const NVS_Entry_Details_t *pItem, void* pOutput, void* pSize )
 
 	if( err != ESP_OK )
 	{
-		IotLogError( "ERROR getting NVS Item" );
+		IotLogError( "ERROR getting NVS Item: type= %d, err = %d", pItem->type, err );
 	}
 
 	nvs_close( handle);

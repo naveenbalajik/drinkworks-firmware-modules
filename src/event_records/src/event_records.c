@@ -170,15 +170,16 @@ typedef struct
 #define	FREEZE_ENTRY_MIN_SIZE		( DISPENSE_RECORD_MAX_SIZE - 2 )			// Minimum size for a FreezeEvents entry
 #define	FIRMWARE_ENTRY_MIN_SIZE		( DISPENSE_RECORD_MAX_SIZE - 6 )			// Minimum size for a Firmware entry
 
-#define	EVENT_RECORD_STACK_SIZE    ( 2048 )
+#define	EVENT_RECORD_STACK_SIZE    ( 3076 )
 
 #define	EVENT_RECORD_TASK_PRIORITY	( 5 )
 
 static const char recordSeparator[] = ", ";
 static const char recordFooter[] = "]}}";
 #define	footerSize	( sizeof( recordFooter ) )
-#define	MAX_EVENT_RECORD_SIZE	256
+#define	MAX_EVENT_RECORD_SIZE	512			//256
 #define	MAX_RECORDS_PER_MESSAGE	10
+static char rawBuffer[64];						//57 is good for 28 bytes
 
 /**
  * @brief	Event Record control structure
@@ -229,6 +230,84 @@ const char EventRecordPublishTopicPoduction[] = "Homebar-event-record-prod";
  */
 const char shadowLastPublishedIndex[] = "LastPublishedIndex";
 
+/**
+ * @brief	Format Byte Array as a string with a tag and size
+ *
+ *	A format buffer is allocated from the heap, and the array formated.
+ *	If the string option is selected, the array is printed as an ASCII string, with
+ *	null characters ('\0' being ignored.  The string is formated with quotes.
+ *
+ *	The caller must release the buffer when done with it.
+ *
+ *	@param[in]	pData	Pointer to byte array
+ *	@param[in]	size	Size of byte array to be printed
+ */
+/* FIXME - merge functionality with formatByteArray() */
+#ifdef	DYNAMIC
+static char * formatHexByteArray(const uint8_t *pData, size_t size )
+{
+	int i;
+	int n;
+	char *buffer, *ptr;
+	int formatByteLength = 3;
+	const int formatOverhead = 1;			/* just need terminator */
+	size_t	remaining;
+
+	formatByteLength = 2;
+
+	/* Allocate a buffer */
+	remaining = ( size * formatByteLength ) + formatOverhead;
+	buffer = pvPortMalloc( remaining );
+
+	if( NULL != buffer )
+	{
+		IotLogInfo( "formatHexByteArray: Allocated %d byte buffer", remaining );
+
+		ptr = buffer;
+
+		/* format each byte */
+		for (i = 0; i < size; ++i)
+		{
+			/* Keep ptr pointing to end of formatted string */
+			ptr += n;
+			remaining -= n;
+			n = snprintf( ptr, remaining, "%02x", *pData );
+
+			pData++;
+		}
+		IotLogInfo( "formatHexByteArray: %s", buffer );
+
+
+	}
+	return buffer;
+}
+#else
+const char* pszNibbleToHex = {"0123456789ABCDEF"};
+
+static char * formatHexByteArray(const uint8_t *pData, size_t size )
+{
+	int		i;
+	char	*ptr;
+	uint8_t	nibble;
+
+	/* use static buffer */
+	ptr = &rawBuffer[0];
+
+	/* format each byte */
+	for (i = 0; i < size; ++i)
+	{
+		nibble = *pData >> 4;							// High Nibble
+		*ptr++ = pszNibbleToHex[ nibble ];
+		nibble = *pData & 0x0f;							// Low Nibble
+		*ptr++ = pszNibbleToHex[ nibble ];
+		pData++;
+	}
+	*ptr = '\0';										// terminate
+
+	return rawBuffer;
+}
+
+#endif
 /**
  * @brief	Look-up text for status value
  *
@@ -364,6 +443,7 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 	char * formatBuffer = NULL;
 	/* format Date/Time per ISO 8601 */
 	char *DateTimeString = formatDateTime( pDispenseRecord );
+	char *RawString = formatHexByteArray( ( uint8_t * ) pDispenseRecord, size );
 
 	switch( pDispenseRecord->Status )
 	{
@@ -382,7 +462,7 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( CWT_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%f, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
@@ -391,13 +471,14 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 						"BeverageID",      pDispenseRecord->SKUId,
 						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
 						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
-						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature)
+						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature),
+						"raw",             RawString
 						);
 			}
 			else
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
@@ -405,7 +486,8 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 						"CatalogID",       pDispenseRecord->PodId,
 						"BeverageID",      pDispenseRecord->SKUId,
 						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
-						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure )
+						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
+						"raw",             RawString
 						);
 			}
 			break;
@@ -416,12 +498,13 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( FIRMWARE_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
 						"StatusText",      statusText( pDispenseRecord->Status ),
-						"FirmwareVersion", ( ( ( double ) pDispenseRecord->FirmwareVersion ) / 100 )
+						"FirmwareVersion", ( ( ( double ) pDispenseRecord->FirmwareVersion ) / 100 ),
+						"raw",             RawString
 						);
 			}
 			break;
@@ -431,12 +514,13 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( FREEZE_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
 						"StatusText",      statusText( pDispenseRecord->Status ),
-						"FreezeEvents",    pDispenseRecord->FreezeEvents
+						"FreezeEvents",    pDispenseRecord->FreezeEvents,
+						"raw",             RawString
 						);
 			}
 			break;
@@ -444,12 +528,13 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 		/* Extended Pressure */
 		case	eCritical_Error_ExtendedOPError:
 			mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f}",
+					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f, %Q:%Q}",
 					"Index",           pDispenseRecord->index,
 					"DateTime",        DateTimeString,
 					"Status",          pDispenseRecord->Status,
 					"StatusText",      statusText( pDispenseRecord->Status ),
-					"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure )
+					"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
+					"raw",             RawString
 					);
 			break;
 
@@ -458,12 +543,13 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			if( CWT_ENTRY_MIN_SIZE <= size )
 			{
 				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f}",
+						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f, %Q:%Q}",
 						"Index",           pDispenseRecord->index,
 						"DateTime",        DateTimeString,
 						"Status",          pDispenseRecord->Status,
 						"StatusText",      statusText( pDispenseRecord->Status ),
-						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature)
+						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature),
+						"raw",             RawString
 						);
 			}
 			break;
@@ -492,17 +578,20 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 		case	eBLE_MultiConnectStat:
 		case	eBLE_MaxCriticalTimeout:
 			mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q}",
+					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%Q}",
 					"Index",           pDispenseRecord->index,
 					"DateTime",        DateTimeString,
 					"Status",          pDispenseRecord->Status,
-					"StatusText",      statusText( pDispenseRecord->Status )
+					"StatusText",      statusText( pDispenseRecord->Status ),
+					"raw",             RawString
 					);
 			break;
 
 	}
 	vPortFree( DateTimeString );				/* free date/time buffer */
-
+#ifdef	DYNAMIC
+	vPortFree( RawString );						/* free raw format string */
+#endif
 	return( formatBuffer );
 }
 
@@ -542,7 +631,8 @@ static void vUpdateEventRecordData( uint8_t *pData, uint16_t size )
 			/* Save record in FIFO */
 			fifo_put( _evtrec.fifoHandle, jsonBuffer, strlen( jsonBuffer ) );
 
-			IotLogInfo( jsonBuffer );
+//			IotLogInfo( jsonBuffer );
+			printf( jsonBuffer );
 
 			free( jsonBuffer );						/* free mjson format buffer */
 		}
@@ -716,6 +806,8 @@ static char * readRecords( int n )
 
 	// Allocate a buffer for a single record */
 	record = pvPortMalloc( MAX_EVENT_RECORD_SIZE );
+
+	IotLogInfo( "readRecords: %d, bufferSize = %d", n, bufferSize );
 
 	/* Read n records into buffer, separate records with ", " */
 	while( n-- )
