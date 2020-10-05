@@ -318,7 +318,7 @@ typedef struct
 	uint16_t			uid;
 	bool				bStartTransfer;
 	IotSemaphore_t		iotUpdateSemaphore;
-	OTA_ImageState_t	imageState;
+	OTA_PAL_ImageState_t	imageState;
 } host_ota_t;
 
 
@@ -712,6 +712,16 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 	return _hostota.mzXfer_state;
 }
 
+/**
+ * @Brief	Set ImageState and save to NVS
+ *
+ * @param[in]	eState		Image State to set and save
+ */
+static void setImageState( OTA_PAL_ImageState_t eState)
+{
+	_hostota.imageState = eState;
+	NVS_Set( NVS_HOSTOTA_STATE, &_hostota.imageState, NULL);
+}
 
 /**
  * @brief	Host OTA Task
@@ -742,6 +752,7 @@ static void _hostOtaTask(void *arg)
     sha256_t	hash;
 	mbedtls_sha256_context ctx;
 	int mjson_stat;
+	esp_err_t	err = ESP_OK;
 
 	/* Create semaphore to wait for Image Download from AWS IoT */
 	if( IotSemaphore_Create( &_hostota.iotUpdateSemaphore, 0, 1 ) == false )
@@ -751,6 +762,17 @@ static void _hostOtaTask(void *arg)
 	else
 	{
 		IotLogInfo( "iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
+	}
+
+	/* Attempt to retrieve image state from NVS */
+	err = NVS_Get( NVS_HOSTOTA_STATE, &_hostota.imageState, NULL);
+	if( ESP_OK == err )
+	{
+		IotLogInfo(" ImageState = %d", _hostota.imageState );
+	}
+	else
+	{
+		setImageState( eOTA_PAL_ImageState_Unknown );
 	}
 
 	vTaskDelay( 10000 / portTICK_PERIOD_MS );
@@ -896,8 +918,26 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			case eHostOtaPendUpdate:
+				if( eOTA_PAL_ImageState_PendingCommit == _hostota.imageState )
+				{
+					/* If image state is pending commit */
+					if( _hostota.Version_MZ == _hostota.currentVersion_MZ )
+					{
+						/* If downloaded Image version is equal to current version: update was successful */
+						setImageState( eOTA_PAL_ImageState_Valid );
+						IotLogInfo( "Host update successful, current version: %5.2f", _hostota.currentVersion_MZ );
+					}
+					else
+					{
+						/* If downloaded Image version is not equal to current version: update failed */
+						setImageState( eOTA_PAL_ImageState_Invalid );
+						IotLogInfo( "Host update failed, current version: %5.2f", _hostota.currentVersion_MZ );
+					}
+
+				}
+
 				/* Pend on an update from AWS */
-				IotLogInfo(" *** TODO: PEND_UPDATE *** " );
+				IotLogInfo( "Host OTA Update: pend on image download" );
 				IotSemaphore_Wait( &_hostota.iotUpdateSemaphore );
 				_hostota.state = eHostOtaIdle;							/* back to image verification */
 				break;
@@ -912,6 +952,8 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			case eHostOtaActivate:
+				_hostota.imageState = eOTA_PAL_ImageState_PendingCommit;
+				NVS_Set( NVS_HOSTOTA_STATE, &_hostota.imageState, NULL );
 				break;
 
 			case eHostOtaError:
