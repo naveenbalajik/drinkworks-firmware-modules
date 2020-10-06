@@ -51,7 +51,7 @@
 ( (((data) >> 24) & 0x000000FF) | (((data) >>  8) & 0x0000FF00) | \
   (((data) <<  8) & 0x00FF0000) | (((data) << 24) & 0xFF000000) )
 
-#define	HOST_OTA_STACK_SIZE    ( 2048 )
+#define	HOST_OTA_STACK_SIZE    ( 3072 )
 
 #define	HOST_OTA_TASK_PRIORITY	( 7 )
 
@@ -319,6 +319,8 @@ typedef struct
 	bool				bStartTransfer;
 	IotSemaphore_t		iotUpdateSemaphore;
 	OTA_PAL_ImageState_t	imageState;
+	double				percentComplete;
+	int					lastPercentComplete;
 } host_ota_t;
 
 
@@ -378,6 +380,99 @@ static void vUpdateEventRecordData( uint8_t *pData, uint16_t size )
 	}
 }
 #endif
+
+/**
+ * @brief	Post notification of Host OTA Update Status
+ *
+ * This function could post the notification to the device shadow, or to the MQTT Event topic.
+ * The basic notification message would be the same in either case, the function to perform the
+ * MQTT publish is different.
+ *
+ * Notification messages include:
+ *  - Waiting for Image
+ * 	- Downloading
+ * 	- Image Verification
+ * 	- Flash Erase
+ * 	- Flash Program x%
+ * 	- Update Validation
+ * 	- Update Complete vN.NN
+ */
+typedef	enum
+{
+	eNotifyWaitForImage,
+	eNotifyDownload,
+	eNotifyImageVerification,
+	eNotifyFlashErase,
+	eNotifyFlashProgram,
+	eNotifyUpdateValidation,
+	eNotifyHostReset,
+	eNotifyUpdateSuccess,
+	eNotifyUpdateFailed
+} hostOta_notification_t;
+
+static const char *NotificationMessage[] =
+{
+	[ eNotifyWaitForImage ]			= "Waiting for update",
+	[ eNotifyDownload ]				= "Downloading image",
+	[ eNotifyImageVerification ]	= "Verifying image",
+	[ eNotifyFlashErase ]			= "Erasing Flash",
+	[ eNotifyFlashProgram ]			= "Programming Flash %s",
+	[ eNotifyUpdateValidation ]		= "Validating Update",
+	[ eNotifyHostReset ]			= "Resetting Host Processor",
+	[ eNotifyUpdateSuccess ]		= "Update complete, v%5.2f",
+	[ eNotifyUpdateFailed ]			= "Update failed"
+};
+
+static void hostOtaNotificationUpdate( hostOta_notification_t notify, double param )
+{
+	char * jsonBuffer = NULL;
+	char formatBuffer[ 32 ];
+	int	n = 0;
+	esp_err_t	err;
+	int percent;
+
+	/* Format Notification update */
+	switch( notify )
+	{
+		case eNotifyWaitForImage:
+		case eNotifyDownload:
+		case eNotifyImageVerification:
+		case eNotifyFlashErase:
+		case eNotifyUpdateValidation:
+		case eNotifyHostReset:
+		case eNotifyUpdateFailed:
+			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%Q}", "MZ_Update_Status", NotificationMessage[ notify ] );
+			break;
+
+		case eNotifyFlashProgram:
+			percent = ( int ) param;
+			if( percent != _hostota.lastPercentComplete )
+			{
+				snprintf( formatBuffer, sizeof( formatBuffer ), NotificationMessage[ notify ], percent );
+				printf( "%s\n", formatBuffer );
+				_hostota.lastPercentComplete = percent;
+				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%Q}", "MZ_Update_Status", formatBuffer );
+			}
+			break;
+
+		case eNotifyUpdateSuccess:
+			snprintf( formatBuffer, sizeof( formatBuffer ), NotificationMessage[ notify ], param );
+			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%Q}", "MZ_Update_Status", formatBuffer );
+			break;
+
+		default:
+			break;
+	}
+	printf( "n = %d\n", n );
+	if( n )
+	{
+		IotLogDebug( "shadow update: %s", jsonBuffer );
+
+		err =  updateReportedShadow( jsonBuffer, n, NULL );
+		vPortFree( jsonBuffer );
+	}
+}
+
 
 /**
  * @brief	OTA Status update handler
@@ -552,6 +647,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			break;
 
 		case mzXfer_Erase:
+			hostOtaNotificationUpdate( eNotifyFlashErase, 0 );
 			IotLogDebug( "mzXfer_Erase" );
 			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
@@ -578,12 +674,15 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 				imageAddress = _hostota.partition->address + _hostota.PaddingBoundary + _hostota.startAddress;
 				_hostota.targetAddress = _hostota.LoadAddress + _hostota.startAddress;
 				remaining = _hostota.ImageSize - _hostota.startAddress;
+				_hostota.percentComplete = 0;
+				_hostota.lastPercentComplete = -1;
 
 				_hostota.mzXfer_state = mzXfer_Data;
 			}
 			break;
 
 		case mzXfer_Data:
+			hostOtaNotificationUpdate( eNotifyFlashProgram, _hostota.percentComplete );
 			IotLogDebug( "mzXfer_Data" );
 			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
@@ -639,6 +738,9 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 				imageAddress += size;
 				remaining -= size;
 
+				/* compute percent complete */
+				_hostota.percentComplete = ( ( double )( 100 * ( _hostota.ImageSize - remaining ) ) ) / _hostota.ImageSize;
+
 				IotLogDebug( "DataACK, targetAddress = %08X, remaining = %08X", _hostota.targetAddress, remaining );
 				/* When remaining bytes is zero, transfer is complete */
 				_hostota.mzXfer_state = remaining ? mzXfer_Data : mzXfer_Verify;
@@ -647,6 +749,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 
 
 		case mzXfer_Verify:
+			hostOtaNotificationUpdate( eNotifyUpdateValidation, 0 );
 			IotLogDebug( "mzXfer_Verify");
 			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
@@ -677,6 +780,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			break;
 
 		case mzXfer_Reset:
+			hostOtaNotificationUpdate( eNotifyHostReset, 0 );
 			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
 			_hostota.pCommand_mzXfer->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
@@ -924,12 +1028,14 @@ static void _hostOtaTask(void *arg)
 					if( _hostota.Version_MZ == _hostota.currentVersion_MZ )
 					{
 						/* If downloaded Image version is equal to current version: update was successful */
+						hostOtaNotificationUpdate( 	eNotifyUpdateSuccess, _hostota.currentVersion_MZ );
 						setImageState( eOTA_PAL_ImageState_Valid );
 						IotLogInfo( "Host update successful, current version: %5.2f", _hostota.currentVersion_MZ );
 					}
 					else
 					{
 						/* If downloaded Image version is not equal to current version: update failed */
+						hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );
 						setImageState( eOTA_PAL_ImageState_Invalid );
 						IotLogInfo( "Host update failed, current version: %5.2f", _hostota.currentVersion_MZ );
 					}
@@ -937,6 +1043,7 @@ static void _hostOtaTask(void *arg)
 				}
 
 				/* Pend on an update from AWS */
+				hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
 				IotLogInfo( "Host OTA Update: pend on image download" );
 				IotSemaphore_Wait( &_hostota.iotUpdateSemaphore );
 				_hostota.state = eHostOtaIdle;							/* back to image verification */
