@@ -416,17 +416,16 @@ static const char *NotificationMessage[] =
 	[ eNotifyDownload ]				= "Downloading image",
 	[ eNotifyImageVerification ]	= "Verifying image",
 	[ eNotifyFlashErase ]			= "Erasing Flash",
-	[ eNotifyFlashProgram ]			= "Programming Flash %s",
+	[ eNotifyFlashProgram ]			= "Programming Flash",
 	[ eNotifyUpdateValidation ]		= "Validating Update",
 	[ eNotifyHostReset ]			= "Resetting Host Processor",
-	[ eNotifyUpdateSuccess ]		= "Update complete, v%5.2f",
+	[ eNotifyUpdateSuccess ]		= "Update complete",
 	[ eNotifyUpdateFailed ]			= "Update failed"
 };
 
 static void hostOtaNotificationUpdate( hostOta_notification_t notify, double param )
 {
 	char * jsonBuffer = NULL;
-	char formatBuffer[ 32 ];
 	int	n = 0;
 	esp_err_t	err;
 	int percent;
@@ -441,29 +440,26 @@ static void hostOtaNotificationUpdate( hostOta_notification_t notify, double par
 		case eNotifyUpdateValidation:
 		case eNotifyHostReset:
 		case eNotifyUpdateFailed:
-			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%Q}", "MZ_Update_Status", NotificationMessage[ notify ] );
+			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q}}", "MZ_Update", "State", NotificationMessage[ notify ] );
 			break;
 
 		case eNotifyFlashProgram:
 			percent = ( int ) param;
 			if( percent != _hostota.lastPercentComplete )
 			{
-				snprintf( formatBuffer, sizeof( formatBuffer ), NotificationMessage[ notify ], percent );
-				printf( "%s\n", formatBuffer );
 				_hostota.lastPercentComplete = percent;
-				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%Q}", "MZ_Update_Status", formatBuffer );
+				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%d}}", "MZ_Update", "State", NotificationMessage[ notify ], "percent", percent );
 			}
 			break;
 
 		case eNotifyUpdateSuccess:
-			snprintf( formatBuffer, sizeof( formatBuffer ), NotificationMessage[ notify ], param );
-			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%Q}", "MZ_Update_Status", formatBuffer );
+			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%f}}", "MZ_Update", "State", NotificationMessage[ notify ], "version", param  );
 			break;
 
 		default:
 			break;
 	}
-	printf( "n = %d\n", n );
+
 	if( n )
 	{
 		IotLogDebug( "shadow update: %s", jsonBuffer );
