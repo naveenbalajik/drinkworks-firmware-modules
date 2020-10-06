@@ -114,7 +114,7 @@ int updateReportedShadow(const char * updateJSON,
 
 		updateStatus = AwsIotShadow_Update( mqttConnection,
 												 &updateDocument,
-												 AWS_IOT_SHADOW_FLAG_KEEP_SUBSCRIPTIONS,
+												 0,
 												 pCallbackInfo,
 												 NULL);
 	}

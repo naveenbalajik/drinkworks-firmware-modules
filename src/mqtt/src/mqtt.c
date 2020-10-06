@@ -181,7 +181,7 @@ static void _updateShadowCallback(void *pCallbackContext, AwsIotShadowCallbackPa
  *
  * @param[in] pIdentifier 		Thing name
  *
- * @return `ESP_OK` if the connection is successfully established; Shadow publish update failure
+ * @return `ESP_OK` if the shadow is successfully updated to connected; Shadow publish update failure
  * otherwise.
  */
 static esp_err_t _updateShadowConnected(const char *pIdentifier)
@@ -255,9 +255,12 @@ void mqtt_disconnectMqttConnection(void){
 
 	if(_pCurrentMqttConnection != NULL)
 	{
-		IotMqtt_Disconnect(_pCurrentMqttConnection, 0);
+		IotMqtt_Disconnect(_pCurrentMqttConnection, IOT_MQTT_FLAG_CLEANUP_ONLY);
 		_pCurrentMqttConnection = NULL;
 	}
+
+	_mqttConnected = false;
+
 }
 
 /**
@@ -414,10 +417,24 @@ esp_err_t mqtt_establishMqttConnection(
 		                    connectInfo.pClientIdentifier,
 		                    connectInfo.clientIdentifierLength );
 
-		err = _updateShadowConnected(pIdentifier);
-
 		_connectedCallback(_callbackParams);
 
+	}
+
+	if(err == ESP_OK){
+		uint8_t updateRetryCount = 0;
+		// Attempt to update the shadow to connected up to three times
+		err = _updateShadowConnected(pIdentifier);
+		while(err != ESP_OK && updateRetryCount < 2){
+			IotLogError( "Error updating Shadow to connected. Retrying..." );
+			err = _updateShadowConnected(pIdentifier);
+			updateRetryCount++;
+		}
+		// If the shadow cannot be updated to connected, disconnect the connection
+		if(err != ESP_OK){
+			IotLogError( "Error: Retry of shadow connect failed. Disconnecting MQTT connection" );
+			mqtt_disconnectMqttConnection();
+		}
 	}
 
 	return err;

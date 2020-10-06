@@ -65,6 +65,8 @@
 
 #include "application.h"
 
+#include "wifiFunction.h"
+
 
 static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 
@@ -91,7 +93,7 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 /**
  * @brief The base interval in seconds for retrying network connection.
  */
-#define OTA_CONN_RETRY_BASE_INTERVAL_SECONDS    ( 4U )
+#define OTA_CONN_RETRY_BASE_INTERVAL_SECONDS    ( 2U )
 
 /**
  * @brief The delay used in the main OTA Demo task loop to periodically output the OTA
@@ -183,6 +185,10 @@ static void vRunOTAUpdate(		void * pNetworkServerInfo,
 	{
 		/* Connect to MQTT if not connected */
 		if(!mqtt_IsConnected()){
+			while(wifi_GetStatus() != WiFi_Status_Connected){
+				vTaskDelay( 500 / portTICK_PERIOD_MS );
+				_retryInterval = OTA_CONN_RETRY_BASE_INTERVAL_SECONDS;
+			}
 			IotLogInfo( "OTA connecting to broker...\r\n" );
 			mqtt_establishMqttConnection( pNetworkServerInfo, pNetworkCredentialInfo,  pNetworkInterface, (const char * ) pIdentifier, pMqttConnection );
 		}
@@ -247,8 +253,11 @@ static void vRunOTAUpdate(		void * pNetworkServerInfo,
 			}
 		}
 
-		/* After failure to connect or a disconnect, delay for retrying connection. */
-		_connectionRetryDelay();
+		/* After failure to connect or a disconnect, delay for retrying connection. Only delay if MQTT disconnected with Wifi still connected */
+		if(wifi_GetStatus() == WiFi_Status_Connected && !mqtt_IsConnected())
+		{
+			_connectionRetryDelay();
+		}
 	}
 
 }
