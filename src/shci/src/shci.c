@@ -389,7 +389,7 @@ static void _shciTask(void *arg)
 			{
 				
 //			    DEBUG_GPIO_PIN_CLR( TEST_POINT_2 );
-	            IotLogInfo( "Read %d bytes from Message Buffer",  _txPacket.numBytes );
+	            IotLogDebug( "Read %d bytes from Message Buffer",  _txPacket.numBytes );
 			
 				_shciSendResponse( & _txPacket );
 			}
@@ -545,7 +545,7 @@ bool shci_PostResponse( const uint8_t *pData, size_t numBytes )
 		{
 //		    DEBUG_GPIO_PIN_SET( TEST_POINT_2 );
 //			 vTaskDelay( 10 );
-			IotLogInfo( "shci_PostResponse %d bytes", numBytes);
+			IotLogDebug( "shci_PostResponse %d bytes", numBytes);
 			return false;		/* Succeeded to post the message, within 5 ticks */
 		}
 		IotLogError( "shci_PostResponse failed");

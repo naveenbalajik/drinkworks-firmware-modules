@@ -53,7 +53,7 @@
 
 #define	HOST_OTA_STACK_SIZE    ( 3072 )
 
-#define	HOST_OTA_TASK_PRIORITY	( 7 )
+#define	HOST_OTA_TASK_PRIORITY	( 4 )
 
 #define	FIXED_CONNECTION_HANDLE		(37)
 
