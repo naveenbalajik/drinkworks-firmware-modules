@@ -37,6 +37,7 @@
 #include	"../../../../freertos/libraries/3rdparty/mbedtls/include/mbedtls/sha256.h"
 #include	"crc16_ccitt.h"
 
+#include	"host_ota.h"
 #include	"shadow_updates.h"
 
 #include "aws_iot_ota_agent.h"
@@ -58,6 +59,15 @@
 #define	FIXED_CONNECTION_HANDLE		(37)
 
 /**
+ * @brief	Wait for MQTT retry count
+ *
+ * _hostOtaTask has a 10ms delay, so a value or 500 will give a maximum wait time of 5 seconds.
+ * If the counter expires and the MQTT connection has not been established, state-machine will
+ * transition to pending on a firmware download.  A couple of status notifications will be lost.
+ */
+#define	MQTT_WAIT_RETRY_COUNT	500
+
+/**
  * @brief	Host OTA State Machine States
  */
 typedef enum
@@ -66,11 +76,48 @@ typedef enum
 	eHostOtaParseJSON,
 	eHostOtaVerifyImage,
 	eHostOtaVersionCheck,
+	eHostOtaWaitMQTT,
 	eHostOtaPendUpdate,
 	eHostOtaTransfer,
 	eHostOtaActivate,
+	eHostOtaWaitReset,
 	eHostOtaError
 } _hostOtaStates_t;
+
+/**
+ * @brief	Update Notification Event Name
+ */
+static const char hostOta_notificationEventName[] = "MZ_Update";
+
+/**
+ * @brief	Update Notification Event statuses
+ */
+typedef	enum
+{
+	eNotifyWaitForImage,
+	eNotifyDownload,
+	eNotifyImageVerification,
+	eNotifyFlashErase,
+	eNotifyFlashProgram,
+	eNotifyUpdateValidation,
+	eNotifyHostReset,
+	eNotifyUpdateSuccess,
+	eNotifyUpdateFailed
+} hostOta_notification_t;
+
+static const char *NotificationMessage[] =
+{
+	[ eNotifyWaitForImage ]			= "Waiting for update",
+	[ eNotifyDownload ]				= "Downloading image",
+	[ eNotifyImageVerification ]	= "Verifying image",
+	[ eNotifyFlashErase ]			= "Erasing Flash",
+	[ eNotifyFlashProgram ]			= "Programming Flash",
+	[ eNotifyUpdateValidation ]		= "Validating Update",
+	[ eNotifyHostReset ]			= "Resetting Host Processor",
+	[ eNotifyUpdateSuccess ]		= "Update complete",
+	[ eNotifyUpdateFailed ]			= "Update failed"
+};
+
 
 /**
  * @brief	SHA256 Hash Value type definition (includes null-terminator)
@@ -321,6 +368,8 @@ typedef struct
 	OTA_PAL_ImageState_t	imageState;
 	double				percentComplete;
 	int					lastPercentComplete;
+	_hostOtaNotifyCallback_t	notifyHandler;
+	int					waitMQTTretry;
 } host_ota_t;
 
 
@@ -329,57 +378,6 @@ static host_ota_t _hostota =
 		.state = eHostOtaIdle,
 };
 
-
-
-#ifdef	PLACE_HOLDER
-
-/**
- * @brief Event Record Data Command handler
- *
- * Parameter data is a legacy (Model-A) Dispense Record. Received data is formatted as
- * a JSON packet then sent to the Event Record FIFO.
- *
- * @param[in]	pData	Pointer to data buffer
- * @param[in]	size	Number of parameter bytes (does not include the command OpCode)
- */
-static void vUpdateEventRecordData( uint8_t *pData, uint16_t size )
-{
-	_dispenseRecord_t	*pDispenseRecord;
-	char * jsonBuffer = NULL;
-
-	shci_postCommandComplete( eEventRecordData, eCommandSucceeded );
-
-	/* sanity check the data parameters */
-	if( ( NULL != pData ) && ( DISPENSE_RECORD_MIN_SIZE <= size ) && ( size <= DISPENSE_RECORD_MAX_SIZE ) )
-	{
-		pDispenseRecord = ( _dispenseRecord_t * ) pData;						// cast pData to dispense record pointer
-
-		/* Only process records with index greater than the last received index, or if lastReceivedIndex = -1 */
-		if( pDispenseRecord->index > _evtrec.nvs.lastReceivedIndex )
-		{
-			_evtrec.nvs.lastReceivedIndex = pDispenseRecord->index;
-			_evtrec.nvs.nextRequestIndex = _evtrec.nvs.lastReceivedIndex + 1;
-			_evtrec.updateNvs = true;												// Update NVS on Event Record Task
-
-			IotLogDebug( "Received index = %d", pDispenseRecord->index );
-
-			/* format record as JSON */
-			jsonBuffer = formatEventRecord( pDispenseRecord, size );
-
-			/* Save record in FIFO */
-			fifo_put( _evtrec.fifoHandle, jsonBuffer, strlen( jsonBuffer ) );
-
-			IotLogInfo( jsonBuffer );
-
-			free( jsonBuffer );						/* free mjson format buffer */
-		}
-		else
-		{
-			IotLogInfo( "Same received index, current = %d, last = %d", pDispenseRecord->index, _evtrec.nvs.lastReceivedIndex );
-		}
-	}
-}
-#endif
 
 /**
  * @brief	Post notification of Host OTA Update Status
@@ -397,37 +395,10 @@ static void vUpdateEventRecordData( uint8_t *pData, uint16_t size )
  * 	- Update Validation
  * 	- Update Complete vN.NN
  */
-typedef	enum
-{
-	eNotifyWaitForImage,
-	eNotifyDownload,
-	eNotifyImageVerification,
-	eNotifyFlashErase,
-	eNotifyFlashProgram,
-	eNotifyUpdateValidation,
-	eNotifyHostReset,
-	eNotifyUpdateSuccess,
-	eNotifyUpdateFailed
-} hostOta_notification_t;
-
-static const char *NotificationMessage[] =
-{
-	[ eNotifyWaitForImage ]			= "Waiting for update",
-	[ eNotifyDownload ]				= "Downloading image",
-	[ eNotifyImageVerification ]	= "Verifying image",
-	[ eNotifyFlashErase ]			= "Erasing Flash",
-	[ eNotifyFlashProgram ]			= "Programming Flash",
-	[ eNotifyUpdateValidation ]		= "Validating Update",
-	[ eNotifyHostReset ]			= "Resetting Host Processor",
-	[ eNotifyUpdateSuccess ]		= "Update complete",
-	[ eNotifyUpdateFailed ]			= "Update failed"
-};
-
 static void hostOtaNotificationUpdate( hostOta_notification_t notify, double param )
 {
 	char * jsonBuffer = NULL;
 	int	n = 0;
-	esp_err_t	err;
 	int percent;
 
 	/* Format Notification update */
@@ -440,7 +411,8 @@ static void hostOtaNotificationUpdate( hostOta_notification_t notify, double par
 		case eNotifyUpdateValidation:
 		case eNotifyHostReset:
 		case eNotifyUpdateFailed:
-			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q}}", "MZ_Update", "State", NotificationMessage[ notify ] );
+			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q}}",
+					hostOta_notificationEventName, "State", NotificationMessage[ notify ] );
 			break;
 
 		case eNotifyFlashProgram:
@@ -448,12 +420,14 @@ static void hostOtaNotificationUpdate( hostOta_notification_t notify, double par
 			if( percent != _hostota.lastPercentComplete )
 			{
 				_hostota.lastPercentComplete = percent;
-				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%d}}", "MZ_Update", "State", NotificationMessage[ notify ], "percent", percent );
+				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%d}}",
+						hostOta_notificationEventName, "State", NotificationMessage[ notify ], "percent", percent );
 			}
 			break;
 
 		case eNotifyUpdateSuccess:
-			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%f}}", "MZ_Update", "State", NotificationMessage[ notify ], "version", param  );
+			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%f}}",
+					hostOta_notificationEventName, "State", NotificationMessage[ notify ], "version", param  );
 			break;
 
 		default:
@@ -462,9 +436,15 @@ static void hostOtaNotificationUpdate( hostOta_notification_t notify, double par
 
 	if( n )
 	{
-		IotLogDebug( "shadow update: %s", jsonBuffer );
+		IotLogDebug( "hostOta notify: %s", jsonBuffer );
 
-		err =  updateReportedShadow( jsonBuffer, n, NULL );
+		/* Call notification handler, if one has been registered */
+		if( NULL != _hostota.notifyHandler )
+		{
+			_hostota.notifyHandler( jsonBuffer );
+		}
+
+		/* Free buffer */
 		vPortFree( jsonBuffer );
 	}
 }
@@ -963,7 +943,8 @@ static void _hostOtaTask(void *arg)
 				}
 				else
 				{
-					_hostota.state = eHostOtaPendUpdate;				/* If error encountered parsing JSON, pend on an update from AWS */
+					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
+					_hostota.state = eHostOtaWaitMQTT;				/* If error encountered parsing JSON, pend on an update from AWS */
 				}
 				break;
 
@@ -994,7 +975,8 @@ static void _hostOtaTask(void *arg)
 				else
 				{
 					IotLogError( "Image SHA256 Hash does not match metadata SHA256Encrypted" );
-					_hostota.state = eHostOtaPendUpdate;				/* If Image not Valid, pend on an update from AWS */
+					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
+					_hostota.state = eHostOtaWaitMQTT;					/* If Image not Valid, pend on an update from AWS */
 				}
 				break;
 
@@ -1013,7 +995,16 @@ static void _hostOtaTask(void *arg)
 				else
 				{
 					IotLogInfo( "Current Version: %5.2f, Downloaded Version: %5.2f", _hostota.currentVersion_MZ, _hostota.Version_MZ);
-					_hostota.state = eHostOtaPendUpdate;				/* If downloaded Image version is not greater than current version, pend on an update from AWS */
+					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
+					_hostota.state = eHostOtaWaitMQTT;				/* If downloaded Image version is not greater than current version, pend on an update from AWS */
+				}
+				break;
+
+			case eHostOtaWaitMQTT:
+				/* If MQTT connection is active, or retry count expires */
+				if( (mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
+				{
+					_hostota.state = eHostOtaPendUpdate;				/* Pend on an update from AWS */
 				}
 				break;
 
@@ -1057,6 +1048,10 @@ static void _hostOtaTask(void *arg)
 			case eHostOtaActivate:
 				_hostota.imageState = eOTA_PAL_ImageState_PendingCommit;
 				NVS_Set( NVS_HOSTOTA_STATE, &_hostota.imageState, NULL );
+				_hostota.state = eHostOtaWaitReset;
+				break;
+
+			case eHostOtaWaitReset:
 				break;
 
 			case eHostOtaError:
@@ -1084,11 +1079,13 @@ static void _hostOtaTask(void *arg)
 
 /**
  * @brief Initialize Host OTA submodule
+ *
+ * @param[in]	notifyCb	Handler to be called for Host OTA Update notifications
  */
-int32_t hostOta_init( void )
+int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb )
 {
-//	esp_err_t	err = ESP_OK;
-//	size_t size;
+	/* Save the notification handler */
+	_hostota.notifyHandler = notifyCb;
 
 	_hostota.imageState = eOTA_PAL_ImageState_Unknown;
 

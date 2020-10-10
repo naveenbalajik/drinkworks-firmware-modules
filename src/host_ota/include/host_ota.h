@@ -11,8 +11,12 @@
 #include	<stdint.h>
 #include "aws_iot_ota_agent.h"
 
+/**
+ * @brief Callback called for Host OTA Update Notification
+ */
+typedef void (* _hostOtaNotifyCallback_t)( char *pJson );
 
-int32_t hostOta_init( void );
+int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb );
 
 IotSemaphore_t *hostOta_getSemaphore( void );
 
