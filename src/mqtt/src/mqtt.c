@@ -70,9 +70,11 @@
 	"{" \
     "\"state\":{" \
         "\"reported\":{" \
-            "\"connected\":false," \
-            "\"State\":\"unknown\"," \
-			"\"MinToChilled\":-1" \
+        	"\"status\":{" \
+				"\"Connected\":false," \
+				"\"State\":\"unknown\"," \
+				"\"MinToChilled\":-1" \
+			"}" \
         "}" \
     "}" \
 "}"

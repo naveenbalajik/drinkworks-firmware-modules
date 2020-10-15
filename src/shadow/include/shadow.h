@@ -34,7 +34,7 @@ typedef	struct {
 	const char *			key;
 	const json_type_t		jType;
 	json_value_t			jValue;
-	_shadowDeltaCallback_t	handler;
+//	_shadowDeltaCallback_t	handler;
 	bool					bUpdate;			/**< If true, Shadow update is required for item */
 } _shadowItem_t;
 
@@ -70,5 +70,6 @@ void shadow_InitDeltaCallbacks( _shadowItem_t *pShadowDeltaList );
 
 int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName );
 
+void shadow_updateReported( void );
 
 #endif /* MODULES_SRC_SHADOW_INCLUDE_SHADOW_H_ */

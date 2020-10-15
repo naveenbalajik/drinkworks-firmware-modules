@@ -164,6 +164,8 @@ static bool _getDelta( const char * pDeltaDocument,
 /**
  * @brief Update a Shadow Item
  *
+ *	Assumes that Item has a Section
+ *
  * @param[in] pItem			Pointer to Shadow Item
  */
 static char * _formatJsonItem( _shadowItem_t * pItem )
@@ -264,6 +266,9 @@ static char * _formatShadowUpdate( void )
     		mergeOutput = NULL;
     		free( temp );
     		temp = NULL;
+
+    		/* Clear the update flag */
+    		pDeltaItem->bUpdate = false;
     	}
     }
     return staticShadowJSON;
@@ -282,21 +287,9 @@ static void _shadowDeltaCallback( void * pCallbackContext,
                                   AwsIotShadowCallbackParam_t * pCallbackParam )
 {
     bool deltaFound = false;
-//    const char * pDelta = NULL;
-//    size_t deltaLength = 0;
-//    IotSemaphore_t * pDeltaSemaphore = pCallbackContext;
-//    int updateDocumentLength = 0;
-//    AwsIotShadowError_t updateStatus = AWS_IOT_SHADOW_STATUS_PENDING;
-//    AwsIotShadowDocumentInfo_t updateDocument = AWS_IOT_SHADOW_DOCUMENT_INFO_INITIALIZER;
     _shadowItem_t *pDeltaItem;
 
     char * updateDocument;
-    /* Stored state. */
-//    static int32_t currentState = 0;
-
-    /* A buffer containing the update document. It has static duration to prevent
-     * it from being placed on the call stack. */
-//    static char pUpdateDocument[ EXPECTED_REPORTED_JSON_SIZE + 1 ] = { 0 };
 
     /* Iterate through deltaCallbacklist */
     for( pDeltaItem = deltaCallbackList; pDeltaItem->key != NULL; ++pDeltaItem )
@@ -388,100 +381,6 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 
 		}
 
-#ifdef	USE_CALLBACK
-		/* Check if there is a different state in the Shadow for the current item. */
-		deltaFound = _getDelta( pCallbackParam->u.callback.pDocument,
-								pCallbackParam->u.callback.documentLength,
-								pDeltaItem->section,
-								pDeltaItem->key,
-								&pDelta,
-								&deltaLength );
-
-		/* If difference found */
-		if( deltaFound == true )
-		{
-			/* And a callback handler is present */
-			if( pDeltaItem->handler != NULL )
-			{
-				/* call the handler */
-				pDeltaItem->handler( pDeltaItem, ( const uint8_t * ) pDelta, deltaLength );
-			}
-#ifdef	DEPRECIATED
-			/* Change the current state based on the value in the delta document. */
-			if( *pDelta == '0' )
-			{
-				IotLogInfo( "%.*s changing state from %d to 0.",
-							pCallbackParam->thingNameLength,
-							pCallbackParam->pThingName,
-							currentState );
-
-				currentState = 0;
-			}
-			else if( *pDelta == '1' )
-			{
-				IotLogInfo( "%.*s changing state from %d to 1.",
-							pCallbackParam->thingNameLength,
-							pCallbackParam->pThingName,
-							currentState );
-
-				currentState = 1;
-			}
-			else
-			{
-				IotLogWarn( "Unknown powerOn state parsed from delta document." );
-			}
-
-			/* Set the common members to report the new state. */
-			updateDocument.pThingName = pCallbackParam->pThingName;
-			updateDocument.thingNameLength = pCallbackParam->thingNameLength;
-			updateDocument.u.update.pUpdateDocument = pUpdateDocument;
-			updateDocument.u.update.updateDocumentLength = EXPECTED_REPORTED_JSON_SIZE;
-
-			/* Generate a Shadow document for the reported state. To keep the client
-			 * token within 6 characters, it is modded by 1000000. */
-			updateDocumentLength = snprintf( pUpdateDocument,
-											 EXPECTED_REPORTED_JSON_SIZE + 1,
-											 SHADOW_REPORTED_JSON,
-											 ( int ) currentState,
-											 ( long unsigned ) ( IotClock_GetTimeMs() % 1000000 ) );
-
-			if( ( size_t ) updateDocumentLength != EXPECTED_REPORTED_JSON_SIZE )
-			{
-				IotLogError( "Failed to generate reported state document for Shadow update." );
-			}
-			else
-			{
-				/* Send the Shadow update. Its result is not checked, as the Shadow updated
-				 * callback will report if the Shadow was successfully updated. Because the
-				 * Shadow is constantly updated in this demo, the "Keep Subscriptions" flag
-				 * is passed to this function. */
-				updateStatus = AwsIotShadow_Update( pCallbackParam->mqttConnection,
-													&updateDocument,
-													AWS_IOT_SHADOW_FLAG_KEEP_SUBSCRIPTIONS,
-													NULL,
-													NULL );
-
-				if( updateStatus != AWS_IOT_SHADOW_STATUS_PENDING )
-				{
-					IotLogWarn( "%.*s failed to report new state.",
-								pCallbackParam->thingNameLength,
-								pCallbackParam->pThingName );
-				}
-				else
-				{
-					IotLogInfo( "%.*s sent new state report.",
-								pCallbackParam->thingNameLength,
-								pCallbackParam->pThingName );
-				}
-			}
-
-		}
-		else
-		{
-			IotLogWarn( "Failed to parse powerOn state from delta document." );
-#endif
-		}
-#endif
     }
     if( deltaFound )
     {
@@ -695,6 +594,21 @@ int updateReportedShadow(const char * updateJSON,
 		}
 	}
 	return status;
+}
+
+void shadow_updateReported( void )
+{
+	char *updateDocument;
+
+	/* Only proceed if an mqtt connection has been established, otherwise the bUpdate flags will get cleared */
+	if( shadowData.mqttConnection != NULL )
+	{
+		updateDocument = _formatShadowUpdate();
+		IotLogInfo( "Update Document = %s", updateDocument );
+		/* Update shadow */
+		updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
+		free( updateDocument );
+	}
 }
 
 /**
