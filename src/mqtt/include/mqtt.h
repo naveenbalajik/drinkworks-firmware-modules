@@ -20,20 +20,41 @@
 /**
  * @brief Callback called when a connection to the MQTT library is made
  */
-typedef void (* _mqttConnectedCallback_t)(const void * pParams);
+//typedef void (* _mqttConnectedCallback_t)( const void * pParams );
+typedef void ( * _mqttConnectedCallback_t )( void );
+
+/**
+ * @brief Callback called when a connection to the MQTT library is broken
+ */
+//typedef void (* _mqttDisconnectedCallback_t)(const void * pParams);
+typedef void ( * _mqttDisconnectedCallback_t )( void );
 
 /**
  * @brief	Check if MQTT is connected to AWS
  *
  * @return true if actively connected to AWS
  */
-bool	mqtt_IsConnected(void);
+bool	mqtt_IsConnected( void );
 
 
 /**
  * @brief	Disconnect active MQTT connection
  */
-void mqtt_disconnectMqttConnection(void);
+void mqtt_disconnectMqttConnection( void) ;
+
+/**
+ * @brief 	Get the handle of the current MQTT connection
+ *
+ * @return    Handle of the current MQTT connection
+ */
+IotMqttConnection_t	* mqtt_getConnection( void );
+
+/**
+ * @brief 	Get the Client Identifier (ThingName)
+ *
+ * @return    Pointer to Client Identifier (NULL terminated)
+ */
+const char * mqtt_getIdentifier( void );
 
 /**
  * @brief 	Get the handle of the current MQTT connection
@@ -42,7 +63,7 @@ void mqtt_disconnectMqttConnection(void);
  *
  * @return `ESP_OK` if there is a current connection ESP_FAIL otherwise
  */
-esp_err_t	mqtt_GetMqtt(IotMqttConnection_t * mqttConnection);
+esp_err_t	mqtt_GetMqtt( IotMqttConnection_t * mqttConnection );
 
 /**
  * @brief	Send an MQTT message to a designated topic. QoS for the message will be 1. A provided callback will be returned upon completion of the message
@@ -82,14 +103,30 @@ esp_err_t mqtt_establishMqttConnection(		void * pNetworkServerInfo,
 void	mqtt_Cleanup(void);
 
 /**
+ * @brief	Set the MQTT Connection parameters
+ *
+ * Parameters are saved in static mqttData structure for establishing MQTT connection.
+ *
+ * @param[in]    pNetworkServerInfo      Passed to the MQTT connect function when establishing the MQTT connection.
+ * @param[in]    pNetworkCredentialInfo  Passed to the MQTT connect function when establishing the MQTT connection.
+ * @param[in]    pNetworkInterface       Network interface to use for the connection.
+ * @param[in]    pIdentifier             Client Identifier (ThingName)
+ */
+void mqtt_setConnectionParameters(	void * pNetworkServerInfo,
+									void * pNetworkCredentialInfo,
+									const IotNetworkInterface_t * pNetworkInterface,
+									const char * pIdentifier );
+
+/**
  * @brief	Initialize the MQTT library and set a callback that triggers on a connection with the MQTT broker
  *
- * @param[in]   callback	Callback function forwhen an MQTT connection is successful
+ * @param[in]   callback	Callback function for when an MQTT connection is successful
  * @param[in]	pParams		Parameters to pass to the callback function
  *
  * @return `EXIT_SUCCESS` if the mqtt library is successfully initialized; `EXIT_FAILURE`
  * otherwise.
  */
-esp_err_t	mqtt_Init(_mqttConnectedCallback_t callback, const void * pParams);
+//esp_err_t	mqtt_Init(_mqttConnectedCallback_t callback, const void * pParams);
+esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnectedCallback_t diconnectCallback );
 
 #endif /* _MQTT_H_ */

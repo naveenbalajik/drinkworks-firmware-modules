@@ -67,12 +67,6 @@
 
 #include "host_ota.h"
 
-//#include "../../../../freertos/vendors/espressif/boards/esp32/ports/ota/aws_ota_secondary_pal.h"
-
-/* TODO - make callback of a generic type? */
-//typedef void (* _userCreateFileForRxCallback_t)( bool );
-
-//extern uint32_t prvPAL_RegisterUserCreateFileForRxCallback( _userCreateFileForRxCallback_t handler);
 #include "wifiFunction.h"
 
 static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
@@ -136,12 +130,9 @@ static const char * _pStateStr[ eOTA_AgentState_All ] =
     "Stopped"
 };
 
-//static bool bPICupdate = false;
 static IotSemaphore_t	*pHostUpdateComplete = NULL;
 
 /* secondaryota.patch.txt */
-
-#ifndef	SECONDARY_UPDATE
 
 static OTA_PAL_ImageState_t CurrentImageState = eOTA_PAL_ImageState_Valid;
 
@@ -353,44 +344,6 @@ OTA_Err_t prvPAL_SetPlatformImageState_customer( uint32_t ulServerFileID, OTA_Im
     }
 }
 
-#else
-static OTA_PAL_ImageState_t CurrentImageState = eOTA_PAL_ImageState_Valid;
-
-static OTA_PAL_ImageState_t secondary_GetPlatformImageState( uint32_t ulServerFileID )
-{
-    DEFINE_OTA_METHOD_NAME( "secondary_GetPlatformImageState" );
-
-	OTA_LOG_L1( "[%s](%d): %d\r\n", OTA_METHOD_NAME, ulServerFileID, CurrentImageState );
-	return CurrentImageState;
-}
-
-
-static OTA_Err_t secondary_SetPlatformImageState( uint32_t ulServerFileID, OTA_ImageState_t eState )
-{
-    DEFINE_OTA_METHOD_NAME( "secondary_SetPlatformImageState" );
-
-	OTA_LOG_L1( "[%s](%d): %d\r\n", OTA_METHOD_NAME, ulServerFileID, eState );
-
-	CurrentImageState = eState;
-
-//	if ( eState==eOTA_ImageState_Testing )
-//	{
-//		CurrentImageState = eOTA_PAL_ImageState_PendingCommit;
-//	}
-
-	return kOTA_Err_None;
-}
-
-
-static void secondary_OTACompleteCallback(  OTA_JobEvent_t eEvent )
-{
-    DEFINE_OTA_METHOD_NAME( "secondary_OTACompleteCallback" );
-
-	OTA_LOG_L1( "[%s]: %d\r\n", OTA_METHOD_NAME, eEvent );
-
-}
-#endif
-
 /* end of secondaryota_patch.txt */
 
 
@@ -422,14 +375,6 @@ static void _connectionRetryDelay( void )
     IotClock_SleepMs( retryIntervalwithJitter * 1000 );
 }
 
-#ifdef OLD
-static void vCreateFileForRx( bool bUseDwFunctions )
-{
-	IotLogInfo("vCreateFileForRx: %s", bUseDwFunctions ? "true" : "false" );
-	bPICupdate = bUseDwFunctions;
-}
-#endif
-
 /**
  * @brief Run the OTA Update Task. It first
  * establishes the connection , initializes the OTA Agent, keeps logging
@@ -453,7 +398,6 @@ static void vRunOTAUpdate(		void * pNetworkServerInfo,
 	OTA_State_t eState;
 	static OTA_ConnectionContext_t xOTAConnectionCtx;
 
-#ifndef	SECONDARY
 	/* Only need to override the default callbacks that are needed, other than xCompleteCallback */
     OTA_PAL_Callbacks_t otaCallbacks = {
         .xAbort                    = NULL,	// prvPAL_Abort_customer,
@@ -467,20 +411,6 @@ static void vRunOTAUpdate(		void * pNetworkServerInfo,
         .xCompleteCallback         = App_OTACompleteCallback,
         .xCustomJobCallback        = NULL	// otaDemoCustomJobCallback
     };
-#else
-    OTA_Secondary_PAL_Callbacks_t otaSecondaryCallbacks = {
-        .xAbort                    = NULL,		//prvPAL_Abort_customer,
-        .xActivateNewImage         = NULL,		//prvPAL_ActivateNewImage_customer,
-        .xCloseFile                = NULL,		//prvPAL_CloseFile_customer,
-        .xCreateFileForRx          = NULL,		//prvPAL_CreateFileForRx_customer,
-        .xGetPlatformImageState    = secondary_GetPlatformImageState,
-        .xResetDevice              = NULL,		//prvPAL_ResetDevice_customer,
-        .xSetPlatformImageState    = secondary_SetPlatformImageState,
-        .xWriteBlock               = NULL,		//prvPAL_WriteBlock_customer,
-        .xCompleteCallback         = secondary_OTACompleteCallback,
-        .xCustomJobCallback        = NULL,		//otaDemoCustomJobCallback
-    };
-#endif
 
 	// Continually loop until OTA process is completed
 	for( ; ; )
@@ -513,26 +443,29 @@ static void vRunOTAUpdate(		void * pNetworkServerInfo,
 
 			IotLogInfo( "OTA Agent Initializing" );
 
-#ifndef SECONDARY
-			/* Initialize the OTA Agent, using internal init function, so PAL callbacks can be overridden */
-			/* not sure how this will work if OTA agent is already running */
-			OTA_AgentInit_internal( ( void * ) ( &xOTAConnectionCtx ),
-									( const uint8_t * ) ( pIdentifier ),
-									&otaCallbacks,
-									( TickType_t ) ~0 );
-#else
-			/* Initialize the OTA Agent , if it is resuming the OTA statistics will be cleared for new connection.*/
-			OTA_AgentInit( ( void * ) ( &xOTAConnectionCtx ),
-						   ( const uint8_t * ) ( pIdentifier ),
-						   App_OTACompleteCallback,
-						   ( TickType_t ) ~0 );
-#endif
-
-			/* Register a handler for CreateFileForRx */
-//			prvPAL_RegisterUserCreateFileForRxCallback( vCreateFileForRx );
-
-			/* Register Secondary Processor Update callbacks */
-//			prvPAL_RegisterSecondaryPAL( &otaSecondaryCallbacks );
+			/* Initialize the OTA Agent */
+			if( eState == eOTA_AgentState_Stopped )
+			{
+				/*
+				 * If Agent is not already running, initialize the OTA Agent, using internal init function,
+				 * so PAL callbacks can be overridden
+				 */
+				OTA_AgentInit_internal( ( void * ) ( &xOTAConnectionCtx ),
+										( const uint8_t * ) ( pIdentifier ),
+										&otaCallbacks,
+										( TickType_t ) ~0 );
+			}
+			else
+			{
+				/*
+				 * Agent is already running, use standard OTA Agent initialization function.
+				 * This will clear OTA statistics for new connection.
+				 */
+				OTA_AgentInit( ( void * ) ( &xOTAConnectionCtx ),
+							   ( const uint8_t * ) ( pIdentifier ),
+							   App_OTACompleteCallback,
+							   ( TickType_t ) ~0 );
+			}
 
 			while( ( ( eState = OTA_GetAgentState() ) != eOTA_AgentState_Stopped ) && mqtt_IsConnected() )
 			{
@@ -625,17 +558,6 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
     	{
     		IotLogError( "pHostUpdateComplete semaphore is NULL" );
     	}
-
-        /* TODO - For non ESP32 updates need to do something different than activating the image INW */
-//        if( bPICupdate )
-//        {
-//        	IotLogInfo( "PIC Update ... what now?" );
-//        	IotSemaphore_Post( pHostUpdateComplete );
-//        }
-//        else
-//        {
-//        	OTA_ActivateNewImage();
-//        }
 
         /* We should never get here as new image activation must reset the device.*/
 //        IotLogError( "New image activation failed.\r\n" );

@@ -85,6 +85,8 @@ static const NVS_Entry_Details_t NVS_Items[] =
 	[ NVS_EVENT_RECORD ]      = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "EventRecord" },
 	[ NVS_LAST_PUB_INDEX ]    = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "LastPubIndex" },
 	[ NVS_HOSTOTA_STATE ]     = {	.type = NVS_TYPE_U32,	.partition = NVS_PART_PDATA,		.namespace = "OTA",						.nvsKey = "HostOtaState" },
+	[ NVS_DATA_SHARE ]        = {	.type = NVS_TYPE_U8,	.partition = NVS_PART_PDATA,		.namespace = "Settings",				.nvsKey = "DataShare" },
+	[ NVS_PRODUCTION ]        = {	.type = NVS_TYPE_U8,	.partition = NVS_PART_PDATA,		.namespace = "Settings",				.nvsKey = "Production" },
 	/* Following entry is only needed if running the EventFifo Unit Test */
 	//	[ NVS_FIFO_TEST ]          = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "Fifotest" },			/**< For test purposes only */
 };
