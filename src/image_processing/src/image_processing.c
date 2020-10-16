@@ -12,6 +12,7 @@
 #include "esp_timer.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/queue.h>
 #include <string.h>
 #include <math.h>
 
@@ -1430,6 +1431,361 @@ void imageProces_CleanupFrame(Image_Proces_Frame_t* img){
 
 	if(img->trustmark.fb.buf != NULL){
 		free(img->trustmark.fb.buf);
+	}
+}
+
+// ********** Task creation ********
+
+#define IMG_CAPTURE_STACK_SIZE		4096
+#define IMG_CAPTURE_PRIORITY		12
+
+typedef enum
+{
+	eResetSensor,
+	eCaptureImage
+}imgCapture_Command_t;
+
+
+typedef struct
+{
+	imgCapture_Command_t			command;
+	imgCaptureCommandCallback_t		callback;
+}imgProces_QueueItem_t;
+
+
+static TaskHandle_t _captureTaskHandle;
+
+
+QueueHandle_t	imgProces_Queue = NULL;
+
+static void _capture_and_decode_img(imgCaptureCommandCallback_t	callback)
+{
+	esp_err_t	err = ESP_OK;
+
+	/* Turn on camera LEDs for capture */
+	//cam_set_LEDs(1);
+	gpio_set_level(15,1);
+
+	// Capture image
+	camera_fb_t *fb = NULL;
+	fb = esp_camera_fb_get();
+	if(!fb)
+	{
+		IotLogError("Camera capture failed to get fb");
+		err = ESP_FAIL;
+	}
+
+	/* Turn off camera LEDs after capture */
+	//cam_set_LEDs(0);
+	gpio_set_level(15,0);
+
+
+    Image_Proces_Frame_t img = {0};
+    // Set the frame buffer to be analyzed
+    img.fb = *fb;
+
+    if(err == ESP_OK){
+    	err = imageProces_DecodeDWBarcode(&img);
+		if(err != ESP_OK){
+			IotLogError("Failed to Decode Barcode and Trademark. Err = %d", err);
+		}
+    }
+
+	IotLogInfo("Barcode1:%d\t Barcode2:%d\t TrademarkDiff:%d", img.barcode1.barcodeResult, img.barcode2.barcodeResult, img.trustmark.trustmarkDiff);
+
+	imageProces_CleanupFrame(&img);
+
+	callback(&img);
+
+}
+
+#include "driver/ledc.h"
+#include "driver/i2c.h"
+
+#define I2C_CAM_SPEED		8000000
+#define GC0309_RUN_SPEED	2400000
+
+typedef struct{
+	uint8_t reg_addr;
+	uint8_t reg_val;
+}addr_val_list;
+
+static const addr_val_list GC0309_default[] =
+{
+	    {0xfe,0x80},
+	    {0xfe,0x00},
+	    {0x1a,0x26},
+
+	    {0x22,0x55},
+	    {0x5a,0x57},
+	    {0x5b,0x40},
+	    {0x5c,0x45},
+	    {0x01,0x6a},
+	    {0x02,0x70},
+
+	    {0xe3,0x96},
+	    {0xe4,0x02},
+	    {0xe5,0x58},
+	    {0xe6,0x03},
+	    {0xe7,0x84},
+	    {0xe8,0x07},
+	    {0xe9,0x08},
+	    {0xea,0x0d},
+	    {0xeb,0x7a},
+
+	    {0x05,0x00},
+	    {0x06,0x00},
+	    {0x07,0x00},
+	    {0x08,0x00},
+	    {0x09,0x01},
+	    {0x0a,0xe8},
+	    {0x0b,0x02},
+	    {0x0c,0x88},
+	    {0x0d,0x02},
+	    {0x0e,0x02},
+	    {0x0f,0x00},
+	    {0x10,0x26},
+	    {0x11,0x0d},
+	    {0x12,0x2a},
+	    {0x13,0x00},
+	    {0x14,0x00},
+	    {0x15,0x0a},
+	    {0x16,0x05},
+	    {0x17,0x01},
+	    {0x18,0x44},
+	    {0x19,0x44},
+	    {0x1b,0x03},
+	    {0x1c,0x49},
+	    {0x1d,0x98},
+	    {0x1e,0x20},
+	    {0x1f,0x16},
+	    {0x20,0xff},
+	    {0x21,0xf8},
+	    {0x22,0x57},
+	    {0x24,0xb9},
+	    {0x25,0x0f},
+	    {0x26,0x02},
+	    {0x2f,0x01},
+
+	    {0x30,0xf7},
+	    {0x31,0x40},
+	    {0x32,0x00},
+	    {0x39,0x04},
+	    {0x3a,0x20},
+	    {0x3b,0x20},
+	    {0x3c,0x02},
+	    {0x3d,0x02},
+	    {0x3e,0x02},
+	    {0x3f,0x02},
+
+	    {0x50,0x24},
+	    {0x53,0x80},
+	    {0x54,0x80},
+	    {0x55,0x80},
+	    {0x56,0x80},
+
+	    {0xd0,0xc9},
+	    {0xd1,0x10},
+	    {0xd2,0x90},
+	    {0xd3,0x80},
+	    {0xd5,0xf2},
+	    {0xd6,0x16},
+	    {0xdb,0x92},
+	    {0xdc,0xa5},
+	    {0xdf,0x23},
+
+	    {0xd9,0x00},
+	    {0xda,0x00},
+	    {0xe0,0x09},
+
+	    {0xec,0x20},
+	    {0xed,0x04},
+	    {0xee,0xa0},
+	    {0xef,0x40},
+
+	    {0xfe,0x00},
+	    {0xd2,0x90},  // Open AEC at last.
+
+
+	    // THESE ARE MODIFICATIONS TO THE CAMERA REGISTERS
+	    {0x14,0x00},    // direction
+	    {0x24,0xd1},    // only y
+	    {0x26,0x0B},    // Gate PCLK
+	    {0x06,0x00},    // Row Start
+	    {0x08,0x00},    // Col Start
+	    {0x09,0x01},    // Window Height High (488)
+	    {0x0a,0xe8},    // Window Height Low
+	    {0x0b,0x02},    // Window Width High (648)
+	    {0x0c,0x88},    // Window Width Low
+	    {0xd2,0x00},    //Exposure control
+	    {0x04,0x15},    //Exposure control low bit								// 0x09 for exposure based upon GEN1 PM testing
+	    {0x03,0x00},     //Exposure control high bit
+	    {0x0f,0x01},    // horizontal blanking time
+	    // Luma Contrast Increase for better black/white contrast
+	    {0xb3,0xf0},
+
+	    {0x01,0x00},    //HSYNC down time
+	    {0x02,0x10},    //VSYNC down time
+
+	     /*
+	    {0xfe,0x01},    // set page one
+	    {0x53,0x82},
+	//    {0x54,0x44},
+	    {0x54,0x22},
+	    {0x56,0x00},
+	    {0x57,0x00},
+	    {0x58,0x00},
+	    {0x59,0x00},
+	    {0x55,0x01},
+	//    */
+
+	    {0xff,0xff}   // End Marker
+};
+
+esp_err_t _xclk_timer_conf(int ledc_timer, int xclk_freq_hz)
+{
+    ledc_timer_config_t timer_conf;
+    timer_conf.duty_resolution = 2;
+    timer_conf.freq_hz = xclk_freq_hz;
+    timer_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
+#if ESP_IDF_VERSION_MAJOR >= 4
+    timer_conf.clk_cfg = LEDC_AUTO_CLK;
+#endif
+    timer_conf.timer_num = (ledc_timer_t)ledc_timer;
+    esp_err_t err = ledc_timer_config(&timer_conf);
+    if (err != ESP_OK) {
+    	IotLogError( "ledc_timer_config failed for freq %d, rc=%x", xclk_freq_hz, err);
+    }
+    return err;
+}
+
+#ifdef MODEL_B_V1
+#define 	CAM_PIN_RESET 33                  /*!< GPIO pin for camera reset line */
+#else
+#define 	CAM_PIN_RESET 12                  /*!< GPIO pin for camera reset line */
+#endif
+
+static void _reset_sensor(void)
+{
+	esp_err_t err = ESP_OK;
+
+	// Pull reset pin
+    gpio_config_t conf = { 0 };
+    conf.pin_bit_mask = 1LL << CAM_PIN_RESET;
+    conf.mode = GPIO_MODE_OUTPUT;
+    gpio_config(&conf);
+    gpio_matrix_out(CAM_PIN_RESET, SIG_GPIO_OUT_IDX, true, false);             /* Invert signal */
+
+    gpio_set_level(CAM_PIN_RESET, 0);
+    vTaskDelay(30 / portTICK_PERIOD_MS);
+    gpio_set_level(CAM_PIN_RESET, 1);
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+
+
+	// Set camera freq to I2C speed
+	_xclk_timer_conf(LEDC_TIMER_0, I2C_CAM_SPEED);
+
+	// Set registers over I2C
+	addr_val_list* currentRegVal = (addr_val_list*) GC0309_default;
+	i2c_cmd_handle_t cmd;
+	while(!(currentRegVal->reg_addr == 0xff && currentRegVal->reg_val == 0xff)){
+		cmd = i2c_cmd_link_create();
+		i2c_master_start(cmd);
+		i2c_master_write_byte(cmd, 0x42, 1);
+		i2c_master_write_byte(cmd, currentRegVal->reg_addr, 1);
+		i2c_master_write_byte(cmd, currentRegVal->reg_val, 1);
+		i2c_master_stop(cmd);
+		err = i2c_master_cmd_begin(I2C_NUM_1, cmd, 1000);
+		i2c_cmd_link_delete(cmd);
+		if(err != ESP_OK){
+			IotLogError("Failed setting camera register settings. Err");
+		}
+		currentRegVal++;
+	}
+
+	vTaskDelay(100 / portTICK_PERIOD_MS);
+
+	// Set the camera freq back to the initial value
+	_xclk_timer_conf(LEDC_TIMER_0, GC0309_RUN_SPEED);
+
+}
+
+
+static void _captureTask( void * arg)
+{
+	// Receive queue capable of handling 4 messages
+	imgProces_Queue = xQueueCreate(6, sizeof(imgProces_QueueItem_t));
+	imgProces_QueueItem_t	currentCmd;
+
+	for( ;; )
+	{
+		// Poll the queue for receive messages
+		if(xQueueReceive(imgProces_Queue, &currentCmd, 5000/portTICK_PERIOD_MS) == pdPASS){
+			switch(currentCmd.command)
+			{
+				case eResetSensor:
+					_reset_sensor();
+					break;
+
+				case eCaptureImage:
+					_capture_and_decode_img(currentCmd.callback);
+					break;
+			}
+		}
+	}
+}
+
+int32_t _sendToQueue(imgCapture_Command_t	command, imgCaptureCommandCallback_t	callback)
+{
+	img_proces_err_t err = IMG_PROCES_OK;
+	bool sentToQueue = 0;
+	imgProces_QueueItem_t	queueCmd = {command, callback};
+
+	if(imgProces_Queue != NULL){
+		sentToQueue = xQueueSendToBack(imgProces_Queue, (void *)&queueCmd, 0);
+	}
+	else{
+		IotLogError("Error: Image processing queue == NULL");
+		err = IMG_PROCES_FAIL;
+	}
+
+	if(!sentToQueue){
+		IotLogError("Error: Queue Full");
+		err = IMG_PROCES_FAIL;
+	}
+
+	return err;
+}
+
+int32_t imgCapture_ResetSensor(void){
+	return _sendToQueue(eResetSensor, NULL);
+}
+
+int32_t imgCapture_CaptureAndDecode(imgCaptureCommandCallback_t cb){
+	return _sendToQueue(eCaptureImage, cb);
+}
+
+int32_t imgCapture_init(void)
+{
+	int err = IMG_PROCES_OK;
+
+	xTaskCreate(_captureTask, "capture_task", IMG_CAPTURE_STACK_SIZE, NULL, IMG_CAPTURE_PRIORITY, &_captureTaskHandle );
+
+	if(_captureTaskHandle == NULL)
+	{
+		err = IMG_PROCES_FAIL;
+	}
+
+	return err;
+}
+
+
+void capture_deinit(void)
+{
+	if(_captureTaskHandle != NULL)
+	{
+		IotLogInfo( "Deleting img_cap Task" );
+		vTaskDelete( _captureTaskHandle );
 	}
 }
 

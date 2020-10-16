@@ -102,7 +102,13 @@ typedef struct {
 	Image_Decode_Result_t	result;
 }Image_Proces_Frame_t;
 
+typedef void (* imgCaptureCommandCallback_t)(Image_Proces_Frame_t* img);
+
 img_proces_err_t 	imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img);
 void 				imageProces_CleanupFrame(Image_Proces_Frame_t* img);
+void 				capture_deinit(void);
+int32_t 			imgCapture_init(void);
+int32_t 			imgCapture_CaptureAndDecode(imgCaptureCommandCallback_t cb);
+int32_t 			imgCapture_ResetSensor(void);
 
 #endif /* IMAGE_PROCESSING_H_ */
