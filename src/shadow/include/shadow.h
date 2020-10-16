@@ -16,6 +16,7 @@ typedef enum
 	JSON_STRING,
 	JSON_NUMBER,
 	JSON_INTEGER,
+	JSON_UINT32,
 	JSON_BOOL
 } json_type_t;
 
@@ -24,10 +25,12 @@ typedef union
 	char *string;
 	double *number;
 	int16_t *integer;
+	uint32_t *integerU32;
 	bool *truefalse;
 } json_value_t;
 
 typedef void (* _shadowDeltaCallback_t)( void *pItem, const uint8_t *pData, uint16_t size );
+typedef void (* updateCompleteCallback_t)( void  *pItem );
 
 typedef	struct {
 	const char *			section;
@@ -35,6 +38,7 @@ typedef	struct {
 	const json_type_t		jType;
 	json_value_t			jValue;
 //	_shadowDeltaCallback_t	handler;
+	updateCompleteCallback_t handler;			/**< Callback function called upon shadow item update complete */
 	bool					bUpdate;			/**< If true, Shadow update is required for item */
 } _shadowItem_t;
 

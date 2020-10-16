@@ -26,6 +26,7 @@
 #include	"TimeSync.h"
 #include	"nvs_utility.h"
 #include	"shadow.h"
+#include	"shadow_updates.h"
 
 /* Debug Logging */
 #include "event_record_logging.h"
@@ -875,6 +876,25 @@ static void vEventRecordPublishComplete(void * reference, IotMqttCallbackParam_t
 	}
 }
 
+#ifndef	NEW_SHADOW
+/**
+ * @brief	Event Record Shadow Update Complete Callback
+ *
+ * This function is called when the Shadow Update completes.
+ * The param structure contains a results field; value AWS_IOT_SHADOW_SUCCESS indicates shadow was successfully updated.
+ * If shadow is successfully updated and the context reference matches the value used when sending the update request,
+ * the LastPublishIndex will be updated on AWS.
+ *
+ * @param[in]	pItem	Pointer Shadow Item that was updated
+ */
+static void vEventRecordShadowUpdateComplete( _shadowItem_t *pItem )
+{
+	IotLogInfo( "EventRecord: Shadow Update success" );
+	_evtrec.shadowUpdateComplete = true;
+	_evtrec.shadowUpdateSuccess = true;
+}
+
+#else
 /**
  * @brief	Event Record Shadow Update Complete Callback
  *
@@ -906,6 +926,7 @@ static void vEventRecordShadowUpdateComplete( void * reference, AwsIotShadowCall
 	}
 
 }
+#endif
 
 /**
  * @brief	Publish Event Records from FIFO to AWS
@@ -927,8 +948,10 @@ static void publishRecords( const char *topic )
 
 	char * jsonBuffer = NULL;
 	uint16_t	nRecords;
+#ifdef	NEW_SHADOW
 	int	n;
 	esp_err_t err = ESP_OK;
+#endif
 
 	switch( _evtrec.publishState )
 	{
@@ -981,6 +1004,16 @@ static void publishRecords( const char *topic )
 					_evtrec.lastPublishedIndex = _evtrec.highestReadIndex;
 					NVS_Set( NVS_LAST_PUB_INDEX, &_evtrec.lastPublishedIndex, NULL );
 
+#ifndef	NEW_SHADOW
+					/* Update Last Published Index */
+					shadowUpdates_publishedIndex( _evtrec.lastPublishedIndex, &vEventRecordShadowUpdateComplete );
+
+					/* Clear flags */
+					_evtrec.shadowUpdateComplete = false;
+					_evtrec.shadowUpdateSuccess = false;
+
+					_evtrec.publishState = ePublishWaitShadowUpdate;
+#else
 					/* Format Shadow update */
 					n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%d}", shadowLastPublishedIndex, _evtrec.lastPublishedIndex );
 					IotLogInfo( "shadow update: %s", jsonBuffer );
@@ -1009,6 +1042,7 @@ static void publishRecords( const char *topic )
 					{
 						_evtrec.publishState = ePublishWaitShadowUpdate;
 					}
+#endif
 				}
 				else
 				{

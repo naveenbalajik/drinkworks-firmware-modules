@@ -34,6 +34,11 @@
 #define	MAX_THINGNAME_LEN	128
 
 /**
+ * @brief	Minimum Shadow Document size to process
+ */
+#define MIN_UPDATE_LEN 5
+
+/**
  * @brief The timeout for Shadow and MQTT operations in this demo.
  */
 #define TIMEOUT_MS            ( 5000 )
@@ -81,6 +86,7 @@ static _shadowItem_t *deltaCallbackList = NULL;
  */
 static bool _shadowInitialized = false;
 
+#ifdef	DEPRECIATED
 /**
  * @brief Parses a key in the "state" section of a Shadow delta document.
  *
@@ -160,6 +166,7 @@ static bool _getDelta( const char * pDeltaDocument,
 
     return deltaFound;
 }
+#endif
 
 /**
  * @brief Update a Shadow Item
@@ -242,7 +249,6 @@ static char * _formatShadowUpdate( void )
 {
 	int32_t	len = 2;
 	char * temp = NULL;
-//	int32_t tempLen = 0;
 	char * mergeOutput = NULL;
 	char * staticShadowJSON = (char *) malloc(sizeof("{}"));
 	strcpy(staticShadowJSON, "{}");
@@ -268,7 +274,7 @@ static char * _formatShadowUpdate( void )
     		temp = NULL;
 
     		/* Clear the update flag */
-    		pDeltaItem->bUpdate = false;
+//    		pDeltaItem->bUpdate = false;
     	}
     }
     return staticShadowJSON;
@@ -309,7 +315,7 @@ static void _shadowDeltaCallback( void * pCallbackContext,
     	{
     		snprintf( matchstr, sizeof( matchstr ), "$.state.%s.%s", pDeltaItem->section, pDeltaItem->key );
     	}
-    	IotLogInfo( "matchstr = %s", matchstr );
+    	IotLogInfo( "_shadowDeltaCallback: matchstr = %s", matchstr );
 
 		switch( pDeltaItem->jType )
 		{
@@ -319,11 +325,7 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 							matchstr,
 							outbuf,
 							sizeof( outbuf ));
-				if( result == -1 )
-				{
-					IotLogInfo( "Did not find: %s", matchstr );
-				}
-				else
+				if( result != -1 )
 				{
 					IotLogInfo( "Found %s = %s", matchstr, outbuf );
 					pDeltaItem->bUpdate = true;
@@ -337,11 +339,7 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 							pCallbackParam->u.callback.documentLength,
 							matchstr,
 							&value );
-				if( result == 0 )
-				{
-					IotLogInfo( "Did not find: %s", matchstr );
-				}
-				else
+				if( result != 0 )
 				{
 					IotLogInfo( "Found %s = %f", matchstr, value );
 					if( pDeltaItem->jType == JSON_NUMBER )
@@ -362,11 +360,7 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 							pCallbackParam->u.callback.documentLength,
 							matchstr,
 							&ivalue );
-				if( result == 0 )
-				{
-					IotLogInfo( "Did not find: %s", matchstr );
-				}
-				else
+				if( result != 0 )
 				{
 					IotLogInfo( "Found %s = %d", matchstr, ivalue );
 					*pDeltaItem->jValue.truefalse = ivalue ? true : false;
@@ -395,6 +389,135 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 }
 
 /**
+ * @brief Shadow updated callback, invoked when the Shadow document changes.
+ *
+ * This function reports when a Shadow has been updated. It is used to verify that
+ * reported state updates were accepted.
+ *
+ * The received document is parsed and <i>current:state:reported</i> contents compared with local values.
+ * <i>bUpdate</i> flag is cleared for matching values.
+ *
+ * @param[in] pCallbackContext Not used.
+ * @param[in] pCallbackParam The received Shadow updated document.
+ */
+static void _shadowUpdatedCallback( void * pCallbackContext,
+                                    AwsIotShadowCallbackParam_t * pCallbackParam )
+{
+	char matchstr[ 64 ];
+	char outbuf[ 30 ];
+	int result;
+	double value;
+	int ivalue;
+	bool	bUpdateComplete;
+
+    /* Silence warnings about unused parameters. */
+    ( void ) pCallbackContext;
+
+    _shadowItem_t *pItem;
+
+	printf( "_shadowUpdatedCallback: doc[%d] = %s",
+			pCallbackParam->u.callback.documentLength,
+			pCallbackParam->u.callback.pDocument );
+
+	/* Don't try to process the document if it is very small */
+	if( pCallbackParam->u.callback.documentLength > MIN_UPDATE_LEN )
+	{
+		/* Iterate through deltaCallbacklist */
+		for( pItem = deltaCallbackList; pItem->key != NULL; ++pItem )
+		{
+			bUpdateComplete = false;
+
+			/* assemble a match string */
+			snprintf( matchstr, sizeof( matchstr ), "$.current.state.reported.%s.%s", pItem->section, pItem->key );
+			IotLogDebug( "_shadowUpdatedCallback: matchstr = %s", matchstr );
+
+			switch( pItem->jType )
+			{
+				case JSON_STRING:
+					result = mjson_get_string( pCallbackParam->u.callback.pDocument,
+								pCallbackParam->u.callback.documentLength,
+								matchstr,
+								outbuf,
+								sizeof( outbuf ));
+					if( result != -1 )
+					{
+						/* If values match, cancel the update flag */
+						if( ( 0 == strcmp( pItem->jValue.string, outbuf ) ) && pItem->bUpdate )
+						{
+							IotLogInfo( "Found %s = %s", matchstr, outbuf );
+							bUpdateComplete = true;
+						}
+					}
+					break;
+
+				case JSON_NUMBER:
+				case JSON_INTEGER:
+					result = mjson_get_number( pCallbackParam->u.callback.pDocument,
+								pCallbackParam->u.callback.documentLength,
+								matchstr,
+								&value );
+					if( result != 0 )
+					{
+						if( pItem->jType == JSON_NUMBER )
+						{
+							/* If values match, cancel the update flag */
+							if( ( *pItem->jValue.number == value ) && pItem->bUpdate )
+							{
+								IotLogInfo( "Found %s = %f", matchstr, value );
+								bUpdateComplete = true;
+							}
+						}
+						else
+						{
+							/* If values match, cancel the update flag */
+							if( ( *pItem->jValue.integer == ( int16_t )value ) && pItem->bUpdate )
+							{
+								IotLogInfo( "Found %s = %f", matchstr, value );
+								bUpdateComplete = true;
+							}
+						}
+					}
+					break;
+
+				case JSON_BOOL:
+					result = mjson_get_bool( pCallbackParam->u.callback.pDocument,
+								pCallbackParam->u.callback.documentLength,
+								matchstr,
+								&ivalue );
+					if( result != 0 )
+					{
+						/* If values match, cancel the update flag */
+						if( ( *pItem->jValue.truefalse == ( ivalue ? true : false ) ) && pItem->bUpdate )
+						{
+							IotLogInfo( "Found %s = %d", matchstr, ivalue );
+							bUpdateComplete = true;
+						}
+					}
+					break;
+
+				case JSON_NONE:
+				default:
+					break;
+
+			}
+
+			/* If update for this Item completed */
+			if( bUpdateComplete )
+			{
+				/* Clear update flag */
+				pItem->bUpdate = false;
+
+				/* Call UpdateCompleteCallback handler, if present */
+				if( pItem->handler != NULL )
+				{
+					pItem->handler( pItem );
+				}
+			}
+		}
+	}
+}
+
+/**
  * @brief Set the Shadow callback functions used in this demo.
  *
  * @param[in] pDeltaSemaphore Used to synchronize Shadow updates with the delta
@@ -414,12 +537,12 @@ static int _setShadowCallbacks( IotSemaphore_t * pDeltaSemaphore,
     int status = EXIT_SUCCESS;
     AwsIotShadowError_t callbackStatus = AWS_IOT_SHADOW_STATUS_PENDING;
     AwsIotShadowCallbackInfo_t deltaCallback = AWS_IOT_SHADOW_CALLBACK_INFO_INITIALIZER;
-//    AwsIotShadowCallbackInfo_t updatedCallback = AWS_IOT_SHADOW_CALLBACK_INFO_INITIALIZER;
+    AwsIotShadowCallbackInfo_t updatedCallback = AWS_IOT_SHADOW_CALLBACK_INFO_INITIALIZER;
 
     /* Set the functions for callbacks. */
     deltaCallback.pCallbackContext = pDeltaSemaphore;
     deltaCallback.function = _shadowDeltaCallback;
-//    updatedCallback.function = _shadowUpdatedCallback;
+    updatedCallback.function = _shadowUpdatedCallback;
 
     /* Set the delta callback, which notifies of different desired and reported
      * Shadow states. */
@@ -429,20 +552,20 @@ static int _setShadowCallbacks( IotSemaphore_t * pDeltaSemaphore,
                                                     0,
                                                     &deltaCallback );
 
-//    if( callbackStatus == AWS_IOT_SHADOW_SUCCESS )
-//    {
+    if( callbackStatus == AWS_IOT_SHADOW_SUCCESS )
+    {
         /* Set the updated callback, which notifies when a Shadow document is
          * changed. */
-//        callbackStatus = AwsIotShadow_SetUpdatedCallback( mqttConnection,
-//                                                          pThingName,
-//                                                          thingNameLength,
-//                                                          0,
-//                                                          &updatedCallback );
-//    }
+        callbackStatus = AwsIotShadow_SetUpdatedCallback( mqttConnection,
+                                                          pThingName,
+                                                          thingNameLength,
+                                                          0,
+                                                          &updatedCallback );
+    }
 
     if( callbackStatus != AWS_IOT_SHADOW_SUCCESS )
     {
-        IotLogError( "Failed to set demo shadow callback, error %s.",
+        IotLogError( "Failed to set shadow module callback, error %s.",
                      AwsIotShadow_strerror( callbackStatus ) );
 
         status = EXIT_FAILURE;
