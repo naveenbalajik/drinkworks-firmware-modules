@@ -120,13 +120,13 @@ void mqtt_setConnectionParameters(	void * pNetworkServerInfo,
 /**
  * @brief	Initialize the MQTT library and set a callback that triggers on a connection with the MQTT broker
  *
- * @param[in]   callback	Callback function for when an MQTT connection is successful
- * @param[in]	pParams		Parameters to pass to the callback function
+ * @param[in]   connectCallback		Callback function for when an MQTT connection is successful
+ * @param[in]   disconnectCallback	Callback function for when an MQTT connection is terminated
+ * @param[in]	pLWAT				Pointer to Last Will and Testament message
  *
  * @return `EXIT_SUCCESS` if the mqtt library is successfully initialized; `EXIT_FAILURE`
  * otherwise.
  */
-//esp_err_t	mqtt_Init(_mqttConnectedCallback_t callback, const void * pParams);
-esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnectedCallback_t diconnectCallback );
+esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnectedCallback_t diconnectCallback, const char *pLWAT );
 
 #endif /* _MQTT_H_ */

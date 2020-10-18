@@ -9,6 +9,7 @@
 #define MODULES_SRC_SHADOW_INCLUDE_SHADOW_H_
 
 #include "aws_iot_shadow.h"
+#include "nvs_utility.h"
 
 typedef enum
 {
@@ -40,6 +41,7 @@ typedef	struct {
 //	_shadowDeltaCallback_t	handler;
 	updateCompleteCallback_t handler;			/**< Callback function called upon shadow item update complete */
 	bool					bUpdate;			/**< If true, Shadow update is required for item */
+	NVS_Items_t 			nvsItem;			/**< Associated Enumerated NVS Item, -1 if none */
 } _shadowItem_t;
 
 

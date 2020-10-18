@@ -86,87 +86,105 @@ static _shadowItem_t *deltaCallbackList = NULL;
  */
 static bool _shadowInitialized = false;
 
-#ifdef	DEPRECIATED
 /**
- * @brief Parses a key in the "state" section of a Shadow delta document.
+ * @brief	Store Shadow Item value in associated NVS storage
  *
- * @param[in] pDeltaDocument The Shadow delta document to parse.
- * @param[in] deltaDocumentLength The length of `pDeltaDocument`.
- * @param[in] pDeltaKey The key in the delta document to find. Must be NULL-terminated.
- * @param[out] pDelta Set to the first character in the delta key.
- * @param[out] pDeltaLength The length of the delta key.
+ * @param[in] pItem			Pointer to Shadow Item
  *
- * @return `true` if the given delta key is found; `false` otherwise.
  */
-static bool _getDelta( const char * pDeltaDocument,
-                       size_t deltaDocumentLength,
-					   const char * pDeltaSection,
-                       const char * pDeltaKey,
-                       const char ** pDelta,
-                       size_t * pDeltaLength )
+void _storeInNvs( _shadowItem_t * pItem )
 {
-    bool stateFound = false;
-    bool deltaFound = false;
-    bool sectionFound = false;
-    const size_t deltaSectionLength = strlen( pDeltaSection );
-    const size_t deltaKeyLength = strlen( pDeltaKey );
-    const char * pState = NULL;
-    size_t stateLength = 0;
-    const char * pSection = NULL;
-    size_t sectionLength = 0;
+	uint8_t bValue;
 
-    /* Find the "state" key in the delta document. */
-    stateFound = IotJsonUtils_FindJsonValue( pDeltaDocument,
-                                             deltaDocumentLength,
-                                             "state",
-                                             5,
-                                             &pState,
-                                             &stateLength );
+	IotLogInfo( "_storeInNvs: %s", pItem->key );
 
-    if( stateFound == true )
-    {
-    	/* if a Delta Section is present */
-    	if( pDeltaSection != NULL )
-    	{
-            /* Find the delta section within the "state" section. */
-            sectionFound = IotJsonUtils_FindJsonValue( pState,
-                                                     stateLength,
-                                                     pDeltaSection,
-                                                     deltaSectionLength,
-                                                     &pSection,
-                                                     &sectionLength );
-            if( sectionFound == true )
-            {
-                /* Find the delta key within the delta section. */
-                deltaFound = IotJsonUtils_FindJsonValue( pSection,
-                                                         sectionLength,
-                                                         pDeltaKey,
-                                                         deltaKeyLength,
-                                                         pDelta,
-                                                         pDeltaLength );
+	switch( pItem->jType )
+	{
+		case JSON_STRING:
+			NVS_Set( pItem->nvsItem, pItem->jValue.string, 0 );
+			break;
 
-            }
+		case JSON_NUMBER:
+			IotLogError( "Storing floating-point value in NVS is not supported" );
+			break;
 
-    	}
-    	else
-    	{
-        /* Find the delta key within the "state" section. */
-        deltaFound = IotJsonUtils_FindJsonValue( pState,
-                                                 stateLength,
-                                                 pDeltaKey,
-                                                 deltaKeyLength,
-                                                 pDelta,
-                                                 pDeltaLength );
-    	}
-    }
-    else
-    {
-        IotLogWarn( "Failed to find \"state\" in Shadow delta document." );
-    }
+		case JSON_INTEGER:
+			NVS_Set( pItem->nvsItem, pItem->jValue.integer, 0 );
+			break;
 
-    return deltaFound;
+		case JSON_UINT32:
+			NVS_Set( pItem->nvsItem, pItem->jValue.integerU32, 0 );
+			break;
+
+		case JSON_BOOL:
+			bValue = ( *pItem->jValue.truefalse ? 1 : 0 );
+			NVS_Set( pItem->nvsItem, &bValue, 0 );
+			break;
+
+		case JSON_NONE:
+		default:
+			break;
+	}
 }
-#endif
+
+/**
+ * @brief	Fetch Shadow Item value from associated NVS storage
+ *
+ * If Shadow Item does not exist, save the current (default) item value in NVS.
+ *
+ * @param[in] pItem			Pointer to Shadow Item
+ */
+void _fetchFromNvs( _shadowItem_t * pItem )
+{
+	uint8_t bValue;
+
+	IotLogInfo( "_fetchFromNvs: %s", pItem->key );
+
+	switch( pItem->jType )
+	{
+		case JSON_STRING:
+			if( ESP_OK != NVS_Get( pItem->nvsItem, pItem->jValue.string, 0 ) )
+			{
+				NVS_Set( pItem->nvsItem, pItem->jValue.string, 0 );
+			}
+			break;
+
+		case JSON_NUMBER:
+			IotLogError( "Storing floating-point value in NVS is not supported" );
+			break;
+
+		case JSON_INTEGER:
+			if( ESP_OK != NVS_Get( pItem->nvsItem, pItem->jValue.integer, 0 ) )
+			{
+				NVS_Set( pItem->nvsItem, pItem->jValue.integer, 0 );
+			}
+			break;
+
+		case JSON_UINT32:
+			if( ESP_OK != NVS_Get( pItem->nvsItem, pItem->jValue.integerU32, 0 ) )
+			{
+				NVS_Set( pItem->nvsItem, pItem->jValue.integerU32, 0 );
+			}
+			break;
+
+		case JSON_BOOL:
+			if( ESP_OK != NVS_Get( pItem->nvsItem, &bValue, 0 ) )
+			{
+				bValue = ( *pItem->jValue.truefalse ? 1 : 0 );
+				NVS_Set( pItem->nvsItem, &bValue, 0 );
+			}
+			else
+			{
+				*pItem->jValue.truefalse = ( bValue == 0 ) ? false : true;
+			}
+			break;
+
+		case JSON_NONE:
+		default:
+			break;
+	}
+}
+
 
 /**
  * @brief Update a Shadow Item
@@ -179,11 +197,7 @@ static char * _formatJsonItem( _shadowItem_t * pItem )
 {
 
 	int32_t	itemLen = 0;
-//	int32_t	sectionLen = 0;
-//	int32_t	mergeLen = 0;
 	char *itemJSON = NULL;
-//	char *sectionJSON = NULL;
-//	char *mergeOutput = NULL;
 
 	switch( pItem->jType )
 	{
@@ -208,6 +222,14 @@ static char * _formatJsonItem( _shadowItem_t * pItem )
 					pItem->section,
 					pItem->key,
 					*pItem->jValue.integer
+					);
+			break;
+
+		case JSON_UINT32:
+			itemLen = mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%d}}",
+					pItem->section,
+					pItem->key,
+					*pItem->jValue.integerU32
 					);
 			break;
 
@@ -252,16 +274,17 @@ static char * _formatShadowUpdate( void )
 	char * mergeOutput = NULL;
 	char * staticShadowJSON = (char *) malloc(sizeof("{}"));
 	strcpy(staticShadowJSON, "{}");
-    _shadowItem_t *pDeltaItem;
-
+    _shadowItem_t *pItem;
+printf( "_formatShadowUpdate:\n" );
     /* Iterate through Shadow Item List */
-    for( pDeltaItem = deltaCallbackList; pDeltaItem->key != NULL; ++pDeltaItem )
+    for( pItem = deltaCallbackList; pItem->key != NULL; ++pItem )
     {
     	/* For any item that needs updating */
-    	if( pDeltaItem->bUpdate )
+    	if( pItem->bUpdate )
     	{
-    		/* Create a new json document for just that item */
-    		temp = _formatJsonItem( pDeltaItem );
+printf( "  item: %s\n", pItem->key );
+			/* Create a new json document for just that item */
+    		temp = _formatJsonItem( pItem );
 
       		/* Merge the new Item Document with the static shadow JSON. Output to mergeOutput */
     		len = mjson_merge(staticShadowJSON, len, temp, strlen( temp ), mjson_print_dynamic_buf, &mergeOutput);
@@ -335,6 +358,7 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 
 			case JSON_NUMBER:
 			case JSON_INTEGER:
+			case JSON_UINT32:
 				result = mjson_get_number( pCallbackParam->u.callback.pDocument,
 							pCallbackParam->u.callback.documentLength,
 							matchstr,
@@ -346,9 +370,13 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 					{
 						*pDeltaItem->jValue.number = value;
 					}
-					else
+					else if( pDeltaItem->jType == JSON_INTEGER )
 					{
 						*pDeltaItem->jValue.integer = ( int16_t )value;
+					}
+					else
+					{
+						*pDeltaItem->jValue.integerU32 = ( uint32_t )value;
 					}
 					pDeltaItem->bUpdate = true;
 					deltaFound = true;
@@ -415,9 +443,11 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 
     _shadowItem_t *pItem;
 
-	printf( "_shadowUpdatedCallback: doc[%d] = %s",
-			pCallbackParam->u.callback.documentLength,
-			pCallbackParam->u.callback.pDocument );
+    /* Debug - print the update document */
+//	printf( "_shadowUpdatedCallback: doc[%d] = %.*s\n",
+//			pCallbackParam->u.callback.documentLength,
+//			pCallbackParam->u.callback.documentLength,
+//			pCallbackParam->u.callback.pDocument );
 
 	/* Don't try to process the document if it is very small */
 	if( pCallbackParam->u.callback.documentLength > MIN_UPDATE_LEN )
@@ -442,7 +472,8 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 					if( result != -1 )
 					{
 						/* If values match, cancel the update flag */
-						if( ( 0 == strcmp( pItem->jValue.string, outbuf ) ) && pItem->bUpdate )
+//						if( ( 0 == strcmp( pItem->jValue.string, outbuf ) ) && pItem->bUpdate )
+						if( pItem->bUpdate  && (pItem->jValue.string != NULL ) && ( 0 == strcmp( pItem->jValue.string, outbuf ) ) )
 						{
 							IotLogInfo( "Found %s = %s", matchstr, outbuf );
 							bUpdateComplete = true;
@@ -452,6 +483,7 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 
 				case JSON_NUMBER:
 				case JSON_INTEGER:
+				case JSON_UINT32:
 					result = mjson_get_number( pCallbackParam->u.callback.pDocument,
 								pCallbackParam->u.callback.documentLength,
 								matchstr,
@@ -467,12 +499,21 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 								bUpdateComplete = true;
 							}
 						}
-						else
+						else if( pItem->jType == JSON_INTEGER )
 						{
 							/* If values match, cancel the update flag */
 							if( ( *pItem->jValue.integer == ( int16_t )value ) && pItem->bUpdate )
 							{
-								IotLogInfo( "Found %s = %f", matchstr, value );
+								IotLogInfo( "Found %s = %d", matchstr, ( int16_t )value );
+								bUpdateComplete = true;
+							}
+						}
+						else
+						{
+							/* If values match, cancel the update flag */
+							if( ( *pItem->jValue.integerU32 == ( uint32_t )value ) && pItem->bUpdate )
+							{
+								IotLogInfo( "Found %s = %d", matchstr, ( uint32_t )value );
 								bUpdateComplete = true;
 							}
 						}
@@ -507,6 +548,11 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 				/* Clear update flag */
 				pItem->bUpdate = false;
 
+				/* Store value in NVS */
+				if( pItem->nvsItem != -1 )
+				{
+					_storeInNvs( pItem );
+				}
 				/* Call UpdateCompleteCallback handler, if present */
 				if( pItem->handler != NULL )
 				{
@@ -660,7 +706,12 @@ int updateReportedShadow(const char * updateJSON,
 	{
 		/* A buffer containing the update document. It has static duration to prevent
 		 * it from being placed on the call stack. */
+		/*
+		 *  TODO: This is a large buffer, would it be better to allocate from heap?
+		 *  or perform wrapping in _formatShadowUpdate()
+		 */
 		static char pUpdateDocument[ MAX_SHADOW_SIZE ] = { 0 };
+
 		/* Generate shadow document using a timestamp for the client token. To keep the client token within 6 characters, it is modded by 1000000. */
 		updateDocumentLength = snprintf(pUpdateDocument, MAX_SHADOW_SIZE, SHADOW_REPORTED_JSON, sizeJSON, updateJSON, ( long unsigned ) ( IotClock_GetTimeMs() % 1000000 ));
 
@@ -679,13 +730,6 @@ int updateReportedShadow(const char * updateJSON,
 		{
 			thingLength--;
 		}
-
-		/* Ensure that we are connected to the AWS server */
-	//	IotMqttConnection_t mqttConnection;
-	//	if( status == EXIT_SUCCESS )
-	//	{
-	//		status = mqtt_GetMqtt(&mqttConnection);
-	//	}
 
 		if( status == EXIT_SUCCESS )
 		{
@@ -728,6 +772,7 @@ void shadow_updateReported( void )
 	{
 		updateDocument = _formatShadowUpdate();
 		IotLogInfo( "Update Document = %s", updateDocument );
+
 		/* Update shadow */
 		updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
 		free( updateDocument );
@@ -767,6 +812,18 @@ int shadow_init(void)
 
 void shadow_InitDeltaCallbacks( _shadowItem_t *pShadowDeltaList )
 {
+	_shadowItem_t *pItem;
+
 	IotLogInfo( "Registering Delta Callback List" );
 	deltaCallbackList = pShadowDeltaList;
+
+	/* Iterate through deltaCallbacklist fetching values from NVS */
+	for( pItem = deltaCallbackList; pItem->key != NULL; ++pItem )
+	{
+		if( pItem->nvsItem != -1 )
+		{
+			_fetchFromNvs( pItem );
+			pItem->bUpdate = true;
+		}
+	}
 }

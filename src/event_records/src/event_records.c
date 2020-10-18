@@ -1000,12 +1000,8 @@ static void publishRecords( const char *topic )
 					IotLogInfo( "publishRecords success - commit FIFO Read(s)" );
 					fifo_commitRead( _evtrec.fifoHandle, true );
 
-					/* Save Last Published Index in NVS */
-					_evtrec.lastPublishedIndex = _evtrec.highestReadIndex;
-					NVS_Set( NVS_LAST_PUB_INDEX, &_evtrec.lastPublishedIndex, NULL );
-
 #ifndef	NEW_SHADOW
-					/* Update Last Published Index */
+					/* Update Last Published Index, NVS will be updated by shadow module */
 					shadowUpdates_publishedIndex( _evtrec.lastPublishedIndex, &vEventRecordShadowUpdateComplete );
 
 					/* Clear flags */
@@ -1014,6 +1010,10 @@ static void publishRecords( const char *topic )
 
 					_evtrec.publishState = ePublishWaitShadowUpdate;
 #else
+					/* Save Last Published Index in NVS */
+					_evtrec.lastPublishedIndex = _evtrec.highestReadIndex;
+					NVS_Set( NVS_LAST_PUB_INDEX, &_evtrec.lastPublishedIndex, NULL );
+
 					/* Format Shadow update */
 					n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%d}", shadowLastPublishedIndex, _evtrec.lastPublishedIndex );
 					IotLogInfo( "shadow update: %s", jsonBuffer );

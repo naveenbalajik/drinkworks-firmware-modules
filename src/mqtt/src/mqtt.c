@@ -63,6 +63,7 @@
 // Will Topic should be dw/things/<ThingName>/update
 #define WILL_TOPIC_NAME_TEMPLATE		"dw/things/%s/update"
 
+#ifdef DEPRECIATED
 /**
  * @brief The message to publish to expanded #WILL_TOPIC_NAME_TEMPLATE.
  */
@@ -84,6 +85,7 @@
 * @brief The length of #WILL_MESSAGE.
 */
 #define WILL_MESSAGE_LENGTH                      ( ( size_t ) ( sizeof( WILL_MESSAGE ) - 1 ) )
+#endif
 
 /**
 * @brief Keepalive seconds of the MQTT connection. "AWS IoT does not support keep-alive intervals less than 30 seconds"
@@ -149,6 +151,7 @@ typedef struct
 	bool					bMqttConnected;
 	_mqttConnectedCallback_t connectedCallback;
 	_mqttDisconnectedCallback_t disconnectedCallback;
+	const char *			pLWAT;													/**< Last Will and Testament message */
 //	void * 					callbackParams;
 
 } mqttData_t;
@@ -165,19 +168,6 @@ static mqttData_t mqttData =
 	.retryInterval = MQTT_CONN_RETRY_BASE_INTERVAL_SECONDS,
 };
 
-
-/**
-* @brief Flag to track if MQTT is actively connected to broker
-*/
-//static bool	_mqttConnected = false;
-
-/**
-* @brief Pointer to the current MQTT connection context.
-*/
-//static IotMqttConnection_t		_pCurrentMqttConnection = NULL;
-
-//static _mqttConnectedCallback_t _connectedCallback = NULL;
-//static const void * _callbackParams = NULL;
 
 /**
  * @brief Disconnect callback for the loss of an MQTT connection. Tracks the connected parameters
@@ -270,30 +260,6 @@ const char * mqtt_getIdentifier( void )
 }
 
 /**
- * @brief 	Get the handle of the current MQTT connection
- *
- * @param[out]    mqttConnection  Set to the handle of the current MQTT connection
- *
- * @return `ESP_OK` if there is a current connection ESP_FAIL otherwise
- */
-//esp_err_t	mqtt_GetMqtt(IotMqttConnection_t * mqttConnection)
-//{
-//	esp_err_t err = ESP_OK;
-//
-//	if( mqttData.pMqttConnection == NULL)
-//	{
-//		err = ESP_FAIL;
-//	}
-//
-//	if( err == ESP_OK )
-//	{
-//		mqttConnection = mqttData.pMqttConnection;
-//	}
-//
-//	return err;
-//}
-
-/**
  * @brief	Send an MQTT message to a designated topic. QoS for the message will be 1. A provided callback will be returned upon completion of the message
  *
  * @param[in]    topic      	Topic name where the message will be sent
@@ -305,7 +271,8 @@ const char * mqtt_getIdentifier( void )
  * @return `ESP_OK` if publish message queued; `ESP_FAIL` if function fails before queuing of a publish operation
  * otherwise.
  */
-esp_err_t	mqtt_SendMsgToTopic(const char* topic, uint32_t topicLen, const char* msgBuf, uint32_t msgLen, const IotMqttCallbackInfo_t * pCallbackInfo){
+esp_err_t	mqtt_SendMsgToTopic( const char* topic, uint32_t topicLen, const char* msgBuf, uint32_t msgLen, const IotMqttCallbackInfo_t * pCallbackInfo )
+{
 
 	esp_err_t err = ESP_OK;
 
@@ -389,8 +356,8 @@ esp_err_t _establishMqttConnection( void )
 	snprintf( willTopicName, 50, WILL_TOPIC_NAME_TEMPLATE, mqttData.pIdentifier );
 	willInfo.pTopicName      = willTopicName;
 	willInfo.topicNameLength = strlen( willTopicName );
-	willInfo.pPayload        = WILL_MESSAGE;
-	willInfo.payloadLength   = WILL_MESSAGE_LENGTH;
+	willInfo.pPayload        = mqttData.pLWAT;
+	willInfo.payloadLength   = strlen( mqttData.pLWAT );
 	IotLogInfo( "Will topic = %s, message = %s", willInfo.pTopicName, willInfo.pPayload );
 
 	/* Set the members of the connection info not set by the initializer. */
@@ -679,17 +646,18 @@ static void mqtt_task( void *arg )
 /**
  * @brief	Initialize the MQTT library and set a callback that triggers on a connection with the MQTT broker
  *
- * @param[in]   connectCallback	Callback function for when an MQTT connection is successful
- * @param[in]	pParams		Parameters to pass to the callback function
+ * @param[in]   connectCallback		Callback function for when an MQTT connection is successful
+ * @param[in]   disconnectCallback	Callback function for when an MQTT connection is terminated
+ * @param[in]	pLWAT				Pointer to Last Will and Testament message
  *
  * @return `EXIT_SUCCESS` if the mqtt library is successfully initialized; `EXIT_FAILURE`
  * otherwise.
  */
-esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnectedCallback_t diconnectCallback )
+esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnectedCallback_t diconnectCallback, const char *pLWAT )
 {
 	esp_err_t err = ESP_OK;
 
-	IotLogInfo( "mqtt_Init" );
+	IotLogInfo( "mqtt_Init, LWAT = %s", pLWAT );
 
 	if( IotMqtt_Init()  != IOT_MQTT_SUCCESS )
 	{
@@ -707,6 +675,9 @@ esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnected
 		{
 			mqttData.disconnectedCallback = diconnectCallback;
 		}
+
+		mqttData.pLWAT = pLWAT;
+
 //		if( pParams != NULL )
 //		{
 //			mqttData.callbackParams = pParams;
