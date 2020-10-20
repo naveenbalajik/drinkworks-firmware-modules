@@ -65,11 +65,13 @@ typedef struct
 {
     /* Allows the Shadow update function to wait for the delta callback to complete
      * a state change before continuing. */
-    IotSemaphore_t deltaSemaphore;
+    IotSemaphore_t 			deltaSemaphore;
 
-    bool		deltaSemaphoreCreated;
+    bool					deltaSemaphoreCreated;
 
-    IotMqttConnection_t mqttConnection;
+    IotMqttConnection_t		mqttConnection;
+    const char * 			pThingName;							/**< Thing Name pointer */
+    size_t					thingNameLength;    				/**< Length of Shadow Thing Name. */
 
 } shadowData_t;
 
@@ -185,7 +187,6 @@ void _fetchFromNvs( _shadowItem_t * pItem )
 	}
 }
 
-
 /**
  * @brief Update a Shadow Item
  *
@@ -196,13 +197,14 @@ void _fetchFromNvs( _shadowItem_t * pItem )
 static char * _formatJsonItem( _shadowItem_t * pItem )
 {
 
-	int32_t	itemLen = 0;
 	char *itemJSON = NULL;
 
 	switch( pItem->jType )
 	{
 		case JSON_STRING:
-			itemLen = mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%Q}}",
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%Q}}}}",
+					"state",
+					"reported",
 					pItem->section,
 					pItem->key,
 					pItem->jValue.string
@@ -210,7 +212,9 @@ static char * _formatJsonItem( _shadowItem_t * pItem )
 			break;
 
 		case JSON_NUMBER:
-			itemLen = mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%f}}",
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%f}}}}",
+					"state",
+					"reported",
 					pItem->section,
 					pItem->key,
 					*pItem->jValue.number
@@ -218,7 +222,9 @@ static char * _formatJsonItem( _shadowItem_t * pItem )
 			break;
 
 		case JSON_INTEGER:
-			itemLen = mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%d}}",
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
+					"state",
+					"reported",
 					pItem->section,
 					pItem->key,
 					*pItem->jValue.integer
@@ -226,7 +232,9 @@ static char * _formatJsonItem( _shadowItem_t * pItem )
 			break;
 
 		case JSON_UINT32:
-			itemLen = mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%d}}",
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
+					"state",
+					"reported",
 					pItem->section,
 					pItem->key,
 					*pItem->jValue.integerU32
@@ -234,7 +242,9 @@ static char * _formatJsonItem( _shadowItem_t * pItem )
 			break;
 
 		case JSON_BOOL:
-			itemLen = mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%B}}",
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%B}}}}",
+					"state",
+					"reported",
 					pItem->section,
 					pItem->key,
 					*pItem->jValue.truefalse
@@ -246,20 +256,20 @@ static char * _formatJsonItem( _shadowItem_t * pItem )
 			break;
 	}
 
-	/* Is a section specified for this item */
-//	if( pItem->section != NULL )
-//	{
-//		sectionLen = mjson_printf( &mjson_print_dynamic_buf, &sectionJSON, "{%Q:}", pItem->section );
-//		mergeLen = mjson_merge(sectionJSON, sectionLen, itemJSON, itemLen, mjson_print_dynamic_buf, &mergeOutput);
-//
-//		free( itemJSON );
-//		free (sectionJSON );
-//		itemJSON = mergeOutput;
-//		itemLen = mergeLen;
-//	}
-
-
 	return itemJSON;
+}
+
+/**
+ * @brief	Create a client token using a timestamp
+ *
+ *  To keep the client token within 6 characters, it is modded by 1000000.
+ */
+static char * _makeToken( void )
+{
+	static char tokenBuffer[ 7 ];
+
+	snprintf( tokenBuffer, sizeof( tokenBuffer ), "%06lu", ( long unsigned ) ( IotClock_GetTimeMs() % 1000000 ));
+	return tokenBuffer;
 }
 
 /**
@@ -272,9 +282,13 @@ static char * _formatShadowUpdate( void )
 	int32_t	len = 2;
 	char * temp = NULL;
 	char * mergeOutput = NULL;
-	char * staticShadowJSON = (char *) malloc(sizeof("{}"));
-	strcpy(staticShadowJSON, "{}");
+	char * staticShadowJSON;	// = (char *) malloc(sizeof("{}"));
+//	strcpy(staticShadowJSON, "{}");
     _shadowItem_t *pItem;
+
+    /* Start by creating a client token */
+	mjson_printf( &mjson_print_dynamic_buf, &staticShadowJSON, "{%Q:%Q}", "clientToken", _makeToken() );
+
 printf( "_formatShadowUpdate:\n" );
     /* Iterate through Shadow Item List */
     for( pItem = deltaCallbackList; pItem->key != NULL; ++pItem )
@@ -296,11 +310,111 @@ printf( "  item: %s\n", pItem->key );
     		free( temp );
     		temp = NULL;
 
-    		/* Clear the update flag */
-//    		pDeltaItem->bUpdate = false;
     	}
     }
-    return staticShadowJSON;
+
+	return staticShadowJSON;
+}
+
+/**
+ * @brief 	Send Shadow Update Document
+ *
+ * Input must be a fully formatted Shadow Update JSON document including:
+ *
+ * { state:
+ * 		{ reported:
+ * 			{ section1:
+ * 				{ characteristic1:Value1,
+ * 				  characteristic2:Value2
+ * 				},
+ * 			{ section2:
+ * 				{ characteristic3:Value3,
+ * 				  characteristic4:Value4
+ * 				},
+ * 			  ...
+ * 			}
+ * 		}
+ * 	}
+ *
+ * @param[in] updateJSON		The shadow update in JSON format. Should not include the "reported" portion
+ * @param[in] sizeJSON			Size of JSON string
+ * @param[in] pCallbackInfo		Callback info after Shadow Update Complete ACK'd by AWS
+ *
+ * @return `EXIT_SUCCESS` if all Shadow updates were sent; `EXIT_FAILURE`
+ * otherwise.
+ */
+static int updateReportedShadow(const char * updateJSON,
+							int	sizeJSON,
+							const AwsIotShadowCallbackInfo_t * pCallbackInfo)
+{
+	int status = EXIT_SUCCESS;
+//	int updateDocumentLength = 0;
+	AwsIotShadowError_t updateStatus = AWS_IOT_SHADOW_STATUS_PENDING;
+	AwsIotShadowDocumentInfo_t updateDocument = AWS_IOT_SHADOW_DOCUMENT_INFO_INITIALIZER;
+//	char * pUpdateDocument;
+
+	/* Only proceed if an mqtt connection has been established */
+	if( shadowData.mqttConnection != NULL )
+	{
+		/* A buffer containing the update document. It has static duration to prevent
+		 * it from being placed on the call stack. */
+		/*
+		 *  TODO: This is a large buffer, would it be better to allocate from heap?
+		 *  or perform wrapping in _formatShadowUpdate()
+		 */
+//		static char pUpdateDocument[ MAX_SHADOW_SIZE ] = { 0 };
+
+		/* Generate shadow document using a timestamp for the client token. To keep the client token within 6 characters, it is modded by 1000000. */
+//		updateDocumentLength = snprintf(pUpdateDocument, MAX_SHADOW_SIZE, SHADOW_REPORTED_JSON, sizeJSON, updateJSON, ( long unsigned ) ( IotClock_GetTimeMs() % 1000000 ));
+
+		// Get thing name
+		/* Buffer to hold ThingName */
+//		char thingNameBuffer[ MAX_THINGNAME_LEN ] ={0};
+//		int thingLength = MAX_THINGNAME_LEN;
+//		if(EXIT_SUCCESS != NVS_Get(NVS_THING_NAME, thingNameBuffer, &thingLength) )
+//		{
+//			IotLogError( "ERROR, unable to fetch thing name" );
+//			status = EXIT_FAILURE;
+//		}
+//
+//		/* If the null terminator is included in the thing length, remove it */
+//		if( thingNameBuffer[thingLength - 1] == 0 )
+//		{
+//			thingLength--;
+//		}
+
+		if( status == EXIT_SUCCESS )
+		{
+			/* Set the common members of the Shadow update document info. */
+			updateDocument.pThingName = shadowData.pThingName;
+			updateDocument.thingNameLength = shadowData.thingNameLength;
+			updateDocument.u.update.pUpdateDocument = updateJSON;
+			updateDocument.u.update.updateDocumentLength = sizeJSON;
+//			updateDocument.u.update.pUpdateDocument = pUpdateDocument;
+//			updateDocument.u.update.updateDocumentLength = updateDocumentLength;
+
+			updateStatus = AwsIotShadow_Update( shadowData.mqttConnection,
+													 &updateDocument,
+													 0,
+													 pCallbackInfo,
+													 NULL);
+		}
+		else
+		{
+			IotLogError("Error updating shadow. No MQTT Connection");
+		}
+
+		if( updateStatus != AWS_IOT_SHADOW_STATUS_PENDING )
+		{
+			IotLogError( "Failed to send Shadow update. error %s.", AwsIotShadow_strerror( updateStatus ) );
+			status = EXIT_FAILURE;
+		}
+		else
+		{
+			IotLogInfo( "Sent Shadow update" );
+		}
+	}
+	return status;
 }
 
 /**
@@ -633,16 +747,15 @@ static int _setShadowCallbacks( IotSemaphore_t * pDeltaSemaphore,
 int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName )
 {
     /* Return value of this function and the exit status of this program. */
-    int status = 0;
-
-    size_t thingNameLength = EXIT_SUCCESS;    				/* Length of Shadow Thing Name. */
+    int status = EXIT_SUCCESS;
 
     /* Validate and determine the length of the Thing Name. */
     if( pThingName != NULL )
     {
-        thingNameLength = strlen( pThingName );
+    	shadowData.pThingName = pThingName;
+    	shadowData.thingNameLength = strlen( shadowData.pThingName );
 
-        if( thingNameLength == 0 )
+        if( shadowData.thingNameLength == 0 )
         {
             IotLogError( "The length of the Thing Name (identifier) must be nonzero." );
             status = EXIT_FAILURE;
@@ -659,8 +772,9 @@ int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName 
 
     /* Create the semaphore that synchronizes with the delta callback. */
     if( status == EXIT_SUCCESS )
-
-    shadowData.deltaSemaphoreCreated = IotSemaphore_Create( &shadowData.deltaSemaphore, 0, 1 );
+    {
+    	shadowData.deltaSemaphoreCreated = IotSemaphore_Create( &shadowData.deltaSemaphore, 0, 1 );
+    }
 
     if( shadowData.deltaSemaphoreCreated == false )
     {
@@ -670,98 +784,12 @@ int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName 
     /* Set the Shadow callbacks */
     if( status == EXIT_SUCCESS )
     {
-        status = _setShadowCallbacks( &shadowData.deltaSemaphore, mqttConnection, pThingName, thingNameLength );
+        status = _setShadowCallbacks( &shadowData.deltaSemaphore, mqttConnection, shadowData.pThingName, shadowData.thingNameLength );
     }
 
     return status;
 }
 
-/*-----------------------------------------------------------*/
-
-
-/**
- * @brief Update the "reported" portion of the shadow
- * Input should be of the format: "{"Characteristic":"Value", "Characteristic2":"Value2"}"
- * The "state" and "reported" portions of the shadow update are provided by the function. They should not
- * be passed to the function as part of the update JSON
- *
- * @param[in] updateJSON		The shadow update in JSON format. Should not include the "reported" portion
- * @param[in] sizeJSON			Size of JSON string
- * @param[in] pCallbackInfo		Callback info after shadow update ACK'd by AWS
- *
- * @return `EXIT_SUCCESS` if all Shadow updates were sent; `EXIT_FAILURE`
- * otherwise.
- */
-int updateReportedShadow(const char * updateJSON,
-							int	sizeJSON,
-							const AwsIotShadowCallbackInfo_t * pCallbackInfo)
-{
-	int status = EXIT_SUCCESS;
-	int updateDocumentLength = 0;
-	AwsIotShadowError_t updateStatus = AWS_IOT_SHADOW_STATUS_PENDING;
-	AwsIotShadowDocumentInfo_t updateDocument = AWS_IOT_SHADOW_DOCUMENT_INFO_INITIALIZER;
-
-	/* Only proceed if an mqtt connection has been established */
-	if( shadowData.mqttConnection != NULL )
-	{
-		/* A buffer containing the update document. It has static duration to prevent
-		 * it from being placed on the call stack. */
-		/*
-		 *  TODO: This is a large buffer, would it be better to allocate from heap?
-		 *  or perform wrapping in _formatShadowUpdate()
-		 */
-		static char pUpdateDocument[ MAX_SHADOW_SIZE ] = { 0 };
-
-		/* Generate shadow document using a timestamp for the client token. To keep the client token within 6 characters, it is modded by 1000000. */
-		updateDocumentLength = snprintf(pUpdateDocument, MAX_SHADOW_SIZE, SHADOW_REPORTED_JSON, sizeJSON, updateJSON, ( long unsigned ) ( IotClock_GetTimeMs() % 1000000 ));
-
-		// Get thing name
-		/* Buffer to hold ThingName */
-		char thingNameBuffer[ MAX_THINGNAME_LEN ] ={0};
-		int thingLength = MAX_THINGNAME_LEN;
-		if(EXIT_SUCCESS != NVS_Get(NVS_THING_NAME, thingNameBuffer, &thingLength) )
-		{
-			IotLogError( "ERROR, unable to fetch thing name" );
-			status = EXIT_FAILURE;
-		}
-
-		/* If the null terminator is included in the thing length, remove it */
-		if( thingNameBuffer[thingLength - 1] == 0 )
-		{
-			thingLength--;
-		}
-
-		if( status == EXIT_SUCCESS )
-		{
-			/* Set the common members of the Shadow update document info. */
-			updateDocument.pThingName = thingNameBuffer;
-			updateDocument.thingNameLength = thingLength;
-			updateDocument.u.update.pUpdateDocument = pUpdateDocument;
-			updateDocument.u.update.updateDocumentLength = updateDocumentLength;
-
-			updateStatus = AwsIotShadow_Update( shadowData.mqttConnection,
-													 &updateDocument,
-													 0,
-													 pCallbackInfo,
-													 NULL);
-		}
-		else
-		{
-			IotLogError("Error updating shadow. No MQTT Connection");
-		}
-
-		if( updateStatus != AWS_IOT_SHADOW_STATUS_PENDING )
-		{
-			IotLogError( "Failed to send Shadow update. error %s.", AwsIotShadow_strerror( updateStatus ) );
-			status = EXIT_FAILURE;
-		}
-		else
-		{
-			IotLogInfo( "Sent Shadow update" );
-		}
-	}
-	return status;
-}
 
 void shadow_updateReported( void )
 {

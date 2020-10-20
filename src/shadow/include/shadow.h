@@ -17,6 +17,7 @@ typedef enum
 	JSON_STRING,
 	JSON_NUMBER,
 	JSON_INTEGER,
+	JSON_UINT16,
 	JSON_UINT32,
 	JSON_BOOL
 } json_type_t;
@@ -26,6 +27,7 @@ typedef union
 	char *string;
 	double *number;
 	int16_t *integer;
+	uint16_t *integerU16;
 	uint32_t *integerU32;
 	bool *truefalse;
 } json_value_t;
@@ -59,9 +61,9 @@ typedef	struct {
  * @return `EXIT_SUCCESS` if all Shadow updates were sent; `EXIT_FAILURE`
  * otherwise.
  */
-int updateReportedShadow(const char * updateJSON,
-							int	sizeJSON,
-							const AwsIotShadowCallbackInfo_t * pCallbackInfo);
+//int updateReportedShadow(const char * updateJSON,
+//							int	sizeJSON,
+//							const AwsIotShadowCallbackInfo_t * pCallbackInfo);
 
 /**
  * @brief Initialize the Shadow library.

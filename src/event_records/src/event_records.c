@@ -1102,31 +1102,41 @@ static void _eventRecordsTask(void *arg)
 
     while( 1 )
 	{
-
-
-    	/* fetch Dispense Records from Host, put to FIFO*/
-    	fetchRecords();
-
-    	/* get Event Records from FIFO, push to AWS */
-    	publishRecords( EventRecordPublishTopicDevelop );
-
-    	/* Update NVS, if needed */
-    	if( _evtrec.updateNvs )
+    	/* Only process records if user has opted in to Data Sharing */
+    	if( shadowUpdates_getDataShare() )
     	{
-    		size = sizeof( struct event_record_nvs_s );
-    		err = NVS_Set( _evtrec.key, &_evtrec.nvs, &size );							// Update NVS
-    		if( ESP_OK != err )
-    		{
-    			IotLogError( "Error update Event Record NVS" );
-    		}
-    		else
-    		{
-    			IotLogInfo( " update evtrec nvs, last received = %d, last request = %d ", _evtrec.nvs.lastReceivedIndex, _evtrec.nvs.nextRequestIndex );
-    		}
-    		_evtrec.updateNvs = false;													// clear flag
-    	}
 
-		vTaskDelay( 1000 / portTICK_PERIOD_MS );
+			/* fetch Dispense Records from Host, put to FIFO*/
+			fetchRecords();
+
+			/* get Event Records from FIFO, push to AWS */
+			if( shadowUpdates_getProductionRecordTopic() )
+			{
+				publishRecords( EventRecordPublishTopicPoduction );		/* Prod */
+			}
+			else
+			{
+				publishRecords( EventRecordPublishTopicDevelop );		/* Dev */
+			}
+
+			/* Update NVS, if needed */
+			if( _evtrec.updateNvs )
+			{
+				size = sizeof( struct event_record_nvs_s );
+				err = NVS_Set( _evtrec.key, &_evtrec.nvs, &size );							// Update NVS
+				if( ESP_OK != err )
+				{
+					IotLogError( "Error update Event Record NVS" );
+				}
+				else
+				{
+					IotLogInfo( " update evtrec nvs, last received = %d, last request = %d ", _evtrec.nvs.lastReceivedIndex, _evtrec.nvs.nextRequestIndex );
+				}
+				_evtrec.updateNvs = false;													// clear flag
+			}
+
+			vTaskDelay( 1000 / portTICK_PERIOD_MS );
+    	}
     }
 }
 
