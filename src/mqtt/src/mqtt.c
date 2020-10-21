@@ -684,7 +684,7 @@ esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnected
 //		}
 
 		/* Create Task */
-#ifdef LATER
+#ifndef LATER
 		printf( "Create mqtt_task\n" );
 	    xTaskCreate( mqtt_task, MQTT_TASK_NAME, MQTT_STACK_SIZE, NULL, MQTT_TASK_PRIORITY, &mqttData.taskHandle );
 	    if( NULL == mqttData.taskHandle )

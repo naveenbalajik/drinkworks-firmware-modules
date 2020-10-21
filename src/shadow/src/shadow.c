@@ -279,24 +279,24 @@ static char * _makeToken( void )
  */
 static char * _formatShadowUpdate( void )
 {
-	int32_t	len = 2;
+	int32_t	len;
 	char * temp = NULL;
 	char * mergeOutput = NULL;
-	char * staticShadowJSON;	// = (char *) malloc(sizeof("{}"));
+	char * staticShadowJSON = NULL;	// = (char *) malloc(sizeof("{}"));
 //	strcpy(staticShadowJSON, "{}");
     _shadowItem_t *pItem;
 
     /* Start by creating a client token */
-	mjson_printf( &mjson_print_dynamic_buf, &staticShadowJSON, "{%Q:%Q}", "clientToken", _makeToken() );
+	len = mjson_printf( &mjson_print_dynamic_buf, &staticShadowJSON, "{%Q:%Q}", "clientToken", _makeToken() );
 
-printf( "_formatShadowUpdate:\n" );
+//printf( "_formatShadowUpdate: %s\n", staticShadowJSON );
     /* Iterate through Shadow Item List */
     for( pItem = deltaCallbackList; pItem->key != NULL; ++pItem )
     {
     	/* For any item that needs updating */
     	if( pItem->bUpdate )
     	{
-printf( "  item: %s\n", pItem->key );
+//printf( "  item: %s\n", pItem->key );
 			/* Create a new json document for just that item */
     		temp = _formatJsonItem( pItem );
 
@@ -312,6 +312,8 @@ printf( "  item: %s\n", pItem->key );
 
     	}
     }
+
+    printf( "_formatShadowUpdate: %s\n\n", staticShadowJSON );
 
 	return staticShadowJSON;
 }
