@@ -33,8 +33,6 @@
 
 #include "mqtt.h"
 #include "application.h"
-//#include "bleGap.h"
-//#include "aws_application_version.h"
 
 /* Shadow include. */
 #include "aws_iot_shadow.h"
@@ -48,44 +46,20 @@
 
 #define	MQTT_TASK_NAME	( "MqttTask" )
 /**
- * @brief The keep-alive interval used for this demo.
+ * @brief The keep-alive interval
  *
  * An MQTT ping request will be sent periodically at this interval.
  */
 #define KEEP_ALIVE_SECONDS                       ( 60 )
 
 /**
- * @brief The Last Will and Testament topic name in this demo.
+ * @brief The Last Will and Testament topic name
  *
  * The MQTT server will publish a message to this topic name if this client is
  * unexpectedly disconnected.
  */
 // Will Topic should be dw/things/<ThingName>/update
 #define WILL_TOPIC_NAME_TEMPLATE		"dw/things/%s/update"
-
-#ifdef DEPRECIATED
-/**
- * @brief The message to publish to expanded #WILL_TOPIC_NAME_TEMPLATE.
- */
-#define WILL_MESSAGE \
-	"{" \
-    "\"state\":{" \
-        "\"reported\":{" \
-        	"\"status\":{" \
-				"\"Connected\":false," \
-				"\"State\":\"unknown\"," \
-				"\"MinToChilled\":-1" \
-			"}" \
-        "}" \
-    "}" \
-"}"
-
-
-/**
-* @brief The length of #WILL_MESSAGE.
-*/
-#define WILL_MESSAGE_LENGTH                      ( ( size_t ) ( sizeof( WILL_MESSAGE ) - 1 ) )
-#endif
 
 /**
 * @brief Keepalive seconds of the MQTT connection. "AWS IoT does not support keep-alive intervals less than 30 seconds"
@@ -219,7 +193,10 @@ static void _mqttDisconnectCallback(void * param, IotMqttCallbackParam_t * mqttC
  */
 bool	mqtt_IsConnected( void )
 {
-
+	if( mqttData.bMqttConnected )
+	{
+		printf( "mqtt_IsConnected(): mqttConnection = %p\n", *mqtt_getConnection() );
+	}
 	return mqttData.bMqttConnected;
 }
 
@@ -229,6 +206,7 @@ bool	mqtt_IsConnected( void )
 void mqtt_disconnectMqttConnection( void )
 {
 
+	printf( "mqtt_disconnectMqttConnection\n");
 	if( mqttData.pMqttConnection != NULL )
 	{
 		IotMqtt_Disconnect( *mqttData.pMqttConnection, IOT_MQTT_FLAG_CLEANUP_ONLY );
@@ -300,6 +278,7 @@ esp_err_t	mqtt_SendMsgToTopic( const char* topic, uint32_t topicLen, const char*
 
 	if( err == ESP_OK )
 	{
+		printf("mqtt_SendMsgToTopic: pMqttConnection = %p\n", *mqttData.pMqttConnection );
 		IotMqttError_t qos1Result = IotMqtt_Publish( *mqttData.pMqttConnection, &msgInfo, 0, pCallbackInfo, NULL );
 		if( qos1Result != IOT_MQTT_STATUS_PENDING )
 		{
@@ -378,6 +357,7 @@ esp_err_t _establishMqttConnection( void )
 	IotLogInfo( "IotMqtt_Connect completed: %d", connectStatus );
 
     mqttData.pMqttConnection = &pMqttConnection;
+	printf("_establishMqttConnection: *mqttData.pMqttConnection = %p\n", *mqttData.pMqttConnection );
 
 	if( connectStatus != IOT_MQTT_SUCCESS )
 	{
@@ -390,7 +370,7 @@ esp_err_t _establishMqttConnection( void )
 	{
 		mqttData.bMqttConnected = true;
 		IotLogInfo( "Mqtt connection established" );
-		IotLogInfo( "MQTT demo client identifier is %.*s (length %hu).",
+		IotLogInfo( "MQTT client identifier is %.*s (length %hu).",
 		                    connectInfo.clientIdentifierLength,
 		                    connectInfo.pClientIdentifier,
 		                    connectInfo.clientIdentifierLength );
@@ -617,8 +597,16 @@ static void mqtt_task( void *arg )
 					}
 					else
 					{
+						printf("mqtt_task: before _establishMqttConnection(), bMqttConnected = %d\n", mqttData.bMqttConnected );
 						_establishMqttConnection();
-						_connectionRetryDelay();
+
+						/* check if now connected, if not delay before retrying */
+						if( mqttData.bMqttConnected == false )
+						{
+							printf("mqtt_task: before ConnectionRetryDelay(), bMqttConnected = %d\n", mqttData.bMqttConnected );
+							_connectionRetryDelay();
+							printf("mqtt_task: after ConnectionRetryDelay(), bMqttConnected = %d\n", mqttData.bMqttConnected );
+						}
 					}
 				}
 				break;

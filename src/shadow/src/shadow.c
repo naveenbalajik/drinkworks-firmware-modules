@@ -367,6 +367,8 @@ static int updateReportedShadow(const char * updateJSON,
 		else
 		{
 			IotLogInfo( "Sent Shadow update" );
+			printf( "Sent Shadow update\n" );
+			mqtt_IsConnected();	/*debug */
 		}
 	}
 	return status;

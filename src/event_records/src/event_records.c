@@ -958,17 +958,20 @@ static void publishRecords( const char *topic )
 		case ePublishRead:
 			if( mqtt_IsConnected() )
 			{
+				printf( "publishRecords(1): mqttConnection = %p\n", *mqtt_getConnection() );
 				nRecords = fifo_size( _evtrec.fifoHandle );
 				if( 0 < nRecords )
 				{
 					/* Limit number of records per message */
 					nRecords = ( MAX_RECORDS_PER_MESSAGE < nRecords ) ? MAX_RECORDS_PER_MESSAGE : nRecords;
 
+					printf( "publishRecords(2): mqttConnection = %p\n", *mqtt_getConnection() );
 					jsonBuffer = readRecords( nRecords );
+					printf( "publishRecords(3): mqttConnection = %p\n", *mqtt_getConnection() );
 					if( NULL != jsonBuffer )
 					{
-						IotLogDebug( jsonBuffer );				/* Log message will likely be truncated */
-
+//						IotLogDebug( jsonBuffer );				/* Log message will likely be truncated */
+//printf( "publishRecords: %s -> %s\n", jsonBuffer, topic);
 						/* Set callback function */
 						publishCallback.function = vEventRecordPublishComplete;
 
@@ -980,6 +983,7 @@ static void publishRecords( const char *topic )
 						_evtrec.contextTime =  getTimeValue();
 						publishCallback.pCallbackContext = &_evtrec.contextTime;
 
+						printf( "publishRecords(4): mqttConnection = %p\n", *mqtt_getConnection() );
 						mqtt_SendMsgToTopic( topic, strlen( topic ), jsonBuffer, strlen( jsonBuffer ), &publishCallback );
 
 						vPortFree( jsonBuffer );					/* free buffer after if is processed */
@@ -1102,12 +1106,26 @@ static void _eventRecordsTask(void *arg)
 
     while( 1 )
 	{
+		printf( "_eventRecordsTask: while ... ");
+		mqtt_IsConnected();
     	/* Only process records if user has opted in to Data Sharing */
     	if( shadowUpdates_getDataShare() )
     	{
 
+			/* debug */
+			if( mqtt_IsConnected() )
+			{
+				printf( "_eventRecordsTask(1): mqttConnection = %p\n", *mqtt_getConnection() );
+			}
+
 			/* fetch Dispense Records from Host, put to FIFO*/
 			fetchRecords();
+
+			/* debug */
+			if( mqtt_IsConnected() )
+			{
+				printf( "_eventRecordsTask(2): mqttConnection = %p\n", *mqtt_getConnection() );
+			}
 
 			/* get Event Records from FIFO, push to AWS */
 			if( shadowUpdates_getProductionRecordTopic() )
@@ -1134,9 +1152,8 @@ static void _eventRecordsTask(void *arg)
 				}
 				_evtrec.updateNvs = false;													// clear flag
 			}
-
-			vTaskDelay( 1000 / portTICK_PERIOD_MS );
     	}
+		vTaskDelay( 1000 / portTICK_PERIOD_MS );
     }
 }
 
