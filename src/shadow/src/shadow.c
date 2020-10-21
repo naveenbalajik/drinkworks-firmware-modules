@@ -39,25 +39,9 @@
 #define MIN_UPDATE_LEN 5
 
 /**
- * @brief The timeout for Shadow and MQTT operations in this demo.
+ * @brief The timeout for Shadow and MQTT operations.
  */
 #define TIMEOUT_MS            ( 5000 )
-
-/**
- * @brief Format string representing a Shadow document with a "reported" state.
- *
- * For the freertos shadow service, a client token is required for all shadow updates.
- * The client token must be unique at any given time, but may be reused once the update
- * is completed. A timestamp is used for the client token in this case.
- */
-#define SHADOW_REPORTED_JSON     \
-    "{"                          \
-    "\"state\":{"                \
-    "\"reported\":"              \
-    "%.*s"          			 \
-    "},"                         \
-	"\"clientToken\":\"%06lu\""  \
-    "}"
 
 #define MAX_SHADOW_SIZE			4096
 
@@ -262,6 +246,10 @@ static char * _formatJsonItem( _shadowItem_t * pItem )
 /**
  * @brief	Create a client token using a timestamp
  *
+ * For the freertos shadow service, a client token is required for all shadow updates.
+ * The client token must be unique at any given time, but may be reused once the update
+ * is completed. A timestamp is used for the client token in this case.
+ *
  *  To keep the client token within 6 characters, it is modded by 1000000.
  */
 static char * _makeToken( void )
@@ -282,21 +270,18 @@ static char * _formatShadowUpdate( void )
 	int32_t	len;
 	char * temp = NULL;
 	char * mergeOutput = NULL;
-	char * staticShadowJSON = NULL;	// = (char *) malloc(sizeof("{}"));
-//	strcpy(staticShadowJSON, "{}");
+	char * staticShadowJSON = NULL;
     _shadowItem_t *pItem;
 
     /* Start by creating a client token */
 	len = mjson_printf( &mjson_print_dynamic_buf, &staticShadowJSON, "{%Q:%Q}", "clientToken", _makeToken() );
 
-//printf( "_formatShadowUpdate: %s\n", staticShadowJSON );
     /* Iterate through Shadow Item List */
     for( pItem = deltaCallbackList; pItem->key != NULL; ++pItem )
     {
     	/* For any item that needs updating */
     	if( pItem->bUpdate )
     	{
-//printf( "  item: %s\n", pItem->key );
 			/* Create a new json document for just that item */
     		temp = _formatJsonItem( pItem );
 
@@ -312,8 +297,6 @@ static char * _formatShadowUpdate( void )
 
     	}
     }
-
-    printf( "_formatShadowUpdate: %s\n\n", staticShadowJSON );
 
 	return staticShadowJSON;
 }
@@ -350,40 +333,12 @@ static int updateReportedShadow(const char * updateJSON,
 							const AwsIotShadowCallbackInfo_t * pCallbackInfo)
 {
 	int status = EXIT_SUCCESS;
-//	int updateDocumentLength = 0;
 	AwsIotShadowError_t updateStatus = AWS_IOT_SHADOW_STATUS_PENDING;
 	AwsIotShadowDocumentInfo_t updateDocument = AWS_IOT_SHADOW_DOCUMENT_INFO_INITIALIZER;
-//	char * pUpdateDocument;
 
 	/* Only proceed if an mqtt connection has been established */
 	if( shadowData.mqttConnection != NULL )
 	{
-		/* A buffer containing the update document. It has static duration to prevent
-		 * it from being placed on the call stack. */
-		/*
-		 *  TODO: This is a large buffer, would it be better to allocate from heap?
-		 *  or perform wrapping in _formatShadowUpdate()
-		 */
-//		static char pUpdateDocument[ MAX_SHADOW_SIZE ] = { 0 };
-
-		/* Generate shadow document using a timestamp for the client token. To keep the client token within 6 characters, it is modded by 1000000. */
-//		updateDocumentLength = snprintf(pUpdateDocument, MAX_SHADOW_SIZE, SHADOW_REPORTED_JSON, sizeJSON, updateJSON, ( long unsigned ) ( IotClock_GetTimeMs() % 1000000 ));
-
-		// Get thing name
-		/* Buffer to hold ThingName */
-//		char thingNameBuffer[ MAX_THINGNAME_LEN ] ={0};
-//		int thingLength = MAX_THINGNAME_LEN;
-//		if(EXIT_SUCCESS != NVS_Get(NVS_THING_NAME, thingNameBuffer, &thingLength) )
-//		{
-//			IotLogError( "ERROR, unable to fetch thing name" );
-//			status = EXIT_FAILURE;
-//		}
-//
-//		/* If the null terminator is included in the thing length, remove it */
-//		if( thingNameBuffer[thingLength - 1] == 0 )
-//		{
-//			thingLength--;
-//		}
 
 		if( status == EXIT_SUCCESS )
 		{
@@ -392,8 +347,6 @@ static int updateReportedShadow(const char * updateJSON,
 			updateDocument.thingNameLength = shadowData.thingNameLength;
 			updateDocument.u.update.pUpdateDocument = updateJSON;
 			updateDocument.u.update.updateDocumentLength = sizeJSON;
-//			updateDocument.u.update.pUpdateDocument = pUpdateDocument;
-//			updateDocument.u.update.updateDocumentLength = updateDocumentLength;
 
 			updateStatus = AwsIotShadow_Update( shadowData.mqttConnection,
 													 &updateDocument,
@@ -678,6 +631,12 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 		}
 	}
 }
+
+/* ************************************************************************* */
+/* ************************************************************************* */
+/* **********        I N T E R F A C E   F U N C T I O N S        ********** */
+/* ************************************************************************* */
+/* ************************************************************************* */
 
 /**
  * @brief Set the Shadow callback functions used in this demo.
