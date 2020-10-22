@@ -13,7 +13,9 @@
 #include	<string.h>
 #include	"mjson.h"
 #include	"json.h"
-
+#include	"TimeSync.h"
+#include	"nvs_utility.h"
+#include	"esp_err.h"
 /**
  * @brief Format a JSON Item with zero static levels
  *
@@ -166,4 +168,54 @@ char * json_formatItem2Level( _jsonItem_t * pItem, const char * level1, const ch
 	return itemJSON;
 }
 
+/**
+ * @brief	Format current time as a JSON key-pair, using given key
+ *
+ * Time value is formatted as fixed length ISO 8601 string.
+ * Format buffer is allocated from heap, and must be freed after use.
+ *
+ * @param[in]	key		Key string to use in JSON format
+ * @return		Formatted JSON key-value pair
+ */
+const char * json_formatUTC( const char * key )
+{
+	char utc[ 28 ] = { 0 };
+
+	char *buffer = NULL;
+
+	/* Get Current Time, UTC */
+	getUTC( utc, sizeof( utc ) );
+
+	/* Format timestamp */
+	mjson_printf( &mjson_print_dynamic_buf, &buffer, "{%Q:%Q}", key, utc );
+
+	return buffer;
+}
+
+/**
+ * @brief	Format Serial Number as a JSON key-value pair
+ *
+ * Serial Number is fetched from NVS storage.
+ * Format buffer is allocated from heap, and must be freed after use.
+ *
+ * @return		Formatted JSON key-value pair
+ */
+const char * json_formatSerialNumber( void )
+{
+    esp_err_t xRet;
+	char sernum[13] = { 0 };
+	char *buffer = NULL;
+	size_t length = sizeof( sernum );
+
+	/* Get Serial Number from NVS */
+    xRet = NVS_Get(NVS_SERIAL_NUM, sernum, &length );
+
+	if( xRet == ESP_OK )
+	{
+		/* Format serial number */
+		mjson_printf( &mjson_print_dynamic_buf, &buffer, "{%Q:%Q}", "serialNumber", sernum );
+	}
+
+	return buffer;
+}
 

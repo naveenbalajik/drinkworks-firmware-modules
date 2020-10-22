@@ -42,5 +42,7 @@ typedef	struct
 
 char * json_formatItem0Level( _jsonItem_t * pItem );
 char * json_formatItem2Level( _jsonItem_t * pItem, const char * level1, const char * level2 );
+const char * json_formatUTC( const char * key );
+const char * json_formatSerialNumber( void );
 
 #endif		/*	_JSON_H_	*/

@@ -40,64 +40,58 @@ static sysParam_t	sysParamData =
 
 
 /**
- * @brief	Create a client token using a timestamp
- *
- * For the freertos shadow service, a client token is required for all shadow updates.
- * The client token must be unique at any given time, but may be reused once the update
- * is completed. A timestamp is used for the client token in this case.
- *
- *  To keep the client token within 6 characters, it is modded by 1000000.
- */
-static char * _makeToken( void )
-{
-	static char tokenBuffer[ 7 ];
-
-	snprintf( tokenBuffer, sizeof( tokenBuffer ), "%06lu", ( long unsigned ) ( IotClock_GetTimeMs() % 1000000 ));
-	return tokenBuffer;
-}
-
-/**
  * @brief Format System Parameter Update
  *
  * Build a System Parameter Update document, based on the bUpdate flags in the table.
  */
+/* FIXME: don't look at bUpdate flasgs at the moment, output full list every period */
 static char * _formatSysParmUpdate( void )
 {
-	int32_t	len;
-	char * temp = NULL;
-	char * mergeOutput = NULL;
-	char * outputJSON = NULL;
+	const char * bufferA = NULL;
+	const char * bufferB = NULL;
+	const char * mergeOutput = NULL;
 	_jsonItem_t *pItem;
 
-    /* Start by creating a client token */
-	len = mjson_printf( &mjson_print_dynamic_buf, &outputJSON, "{%Q:%Q}", "clientToken", _makeToken() );
+	IotLogInfo( "_formatSysParmUpdate" );
+
+	/* SerialNumber */
+	bufferA = json_formatSerialNumber();
+
+	/* Timestamp */
+	bufferB = json_formatUTC( "createdAt" );
+
+	/* merge header items */
+	mjson_merge( bufferA, strlen( bufferA ), bufferB, strlen( bufferB ), mjson_print_dynamic_buf, &mergeOutput );
+	free( bufferA );
+	bufferA = mergeOutput;
+	mergeOutput = NULL;
+	free( bufferB );
+	bufferB = NULL;
 
     /* Iterate through Shadow Item List */
     for( pItem = sysParamData.config->pList; pItem->key != NULL; ++pItem )
     {
-    	/* For any item that needs updating */
-    	if( pItem->bUpdate )
-    	{
+/* For any item that needs updating */
+//    	if( pItem->bUpdate )
+//    	{
 			/* Create a new json document for just that item */
-    		temp = json_formatItem0Level( pItem );
+    		bufferB = json_formatItem0Level( pItem );
 
-      		/* Merge the new Item Document with the static shadow JSON. Output to mergeOutput */
-    		len = mjson_merge(outputJSON, len, temp, strlen( temp ), mjson_print_dynamic_buf, &mergeOutput);
-
-    		/* Point the outputJSON to the merged output and free the merged output and the temp key pair */
-    		free( outputJSON );
-    		outputJSON = mergeOutput;
+      		/* Merge the new Item Document with the previous. Output to mergeOutput */
+    		mjson_merge( bufferA, strlen( bufferA ), bufferB, strlen( bufferB ), mjson_print_dynamic_buf, &mergeOutput );
+    		free( bufferA );
+    		bufferA = mergeOutput;
     		mergeOutput = NULL;
-    		free( temp );
-    		temp = NULL;
+    		free( bufferB );
+    		bufferB = NULL;
 
     		/* clear the update flag */
     		/* TODO: clearing flags would be better after an MQTT acceptance */
-    		pItem->bUpdate = false;
-     	}
+//    		pItem->bUpdate = false;
+//     	}
     }
 
-	return outputJSON;
+	return bufferA;
 }
 
 /**
@@ -122,14 +116,13 @@ static void publishParams( const char *topic, const char *pJson )
 			/* Use Time Value as context */
 //			_evtrec.contextTime =  getTimeValue();
 //			publishCallback.pCallbackContext = &_evtrec.contextTime;
-#ifndef	FOR_DEBUG
+
 			printf( "publishParams: %s\n--> %s\n\n", pJson, topic );
-#else
 			mqtt_SendMsgToTopic( topic, strlen( topic ), pJson, strlen( pJson ), NULL );
-#endif
+
 //			mqtt_SendMsgToTopic( topic, strlen( topic ), pJson, strlen( pJson ), &publishCallback );
 
-			vPortFree( pJson );					/* free buffer after if is processed */
+			free( pJson );					/* free buffer after if is processed */
 
 		}
 	}
@@ -203,6 +196,7 @@ int32_t sysParam_init( _sysParamConfig_t * config )
 	{
         return ESP_FAIL;
     }
+    else
     {
     	IotLogInfo( "sys_param created" );
     }
