@@ -11,10 +11,14 @@
 #include	<stdint.h>
 #include	<stdbool.h>
 #include	<string.h>
+#include	"freertos/FreeRTOS.h"
 #include	"freertos/task.h"
+#include	"platform/iot_clock.h"
+#include	"json.h"
 #include	"mjson.h"
 #include	"mqtt.h"
 #include	"sysParam.h"
+#include	"shadow_updates.h"
 
 /* Debug Logging */
 #include "sysParam_logging.h"
@@ -34,87 +38,6 @@ static sysParam_t	sysParamData =
 	.config = NULL,
 };
 
-/**
- * @brief Update a SysParam Item
- *
- *	Assumes that Item has a Section
- *
- * @param[in] pItem			Pointer to SysParam Item
- */
-static char * _formatJsonItem( _sysParamItem_t * pItem )
-{
-
-	char *itemJSON = NULL;
-
-	switch( pItem->jType )
-	{
-		case JSON_STRING:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%Q}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					pItem->jValue.string
-					);
-			break;
-
-		case JSON_NUMBER:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%f}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.number
-					);
-			break;
-
-		case JSON_INTEGER:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.integer
-					);
-			break;
-
-		case JSON_UINT16:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.integerU16
-					);
-			break;
-
-		case JSON_UINT32:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.integerU32
-					);
-			break;
-
-		case JSON_BOOL:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%B}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.truefalse
-					);
-			break;
-
-		case JSON_NONE:
-		default:
-			break;
-	}
-
-	return itemJSON;
-}
 
 /**
  * @brief	Create a client token using a timestamp
@@ -144,19 +67,19 @@ static char * _formatSysParmUpdate( void )
 	char * temp = NULL;
 	char * mergeOutput = NULL;
 	char * outputJSON = NULL;
-	_sysParamItem_t *pItem;
+	_jsonItem_t *pItem;
 
     /* Start by creating a client token */
 	len = mjson_printf( &mjson_print_dynamic_buf, &outputJSON, "{%Q:%Q}", "clientToken", _makeToken() );
 
     /* Iterate through Shadow Item List */
-    for( pItem = sysParamData.list; pItem->key != NULL; ++pItem )
+    for( pItem = sysParamData.config->pList; pItem->key != NULL; ++pItem )
     {
     	/* For any item that needs updating */
     	if( pItem->bUpdate )
     	{
 			/* Create a new json document for just that item */
-    		temp = _formatJsonItem( pItem );
+    		temp = json_formatItem0Level( pItem );
 
       		/* Merge the new Item Document with the static shadow JSON. Output to mergeOutput */
     		len = mjson_merge(outputJSON, len, temp, strlen( temp ), mjson_print_dynamic_buf, &mergeOutput);
@@ -168,7 +91,10 @@ static char * _formatSysParmUpdate( void )
     		free( temp );
     		temp = NULL;
 
-    	}
+    		/* clear the update flag */
+    		/* TODO: clearing flags would be better after an MQTT acceptance */
+    		pItem->bUpdate = false;
+     	}
     }
 
 	return outputJSON;
@@ -196,8 +122,11 @@ static void publishParams( const char *topic, const char *pJson )
 			/* Use Time Value as context */
 //			_evtrec.contextTime =  getTimeValue();
 //			publishCallback.pCallbackContext = &_evtrec.contextTime;
-
+#ifndef	FOR_DEBUG
+			printf( "publishParams: %s\n--> %s\n\n", pJson, topic );
+#else
 			mqtt_SendMsgToTopic( topic, strlen( topic ), pJson, strlen( pJson ), NULL );
+#endif
 //			mqtt_SendMsgToTopic( topic, strlen( topic ), pJson, strlen( pJson ), &publishCallback );
 
 			vPortFree( pJson );					/* free buffer after if is processed */
@@ -218,8 +147,6 @@ static void publishParams( const char *topic, const char *pJson )
  */
 static void _sysParamTask(void *arg)
 {
-	esp_err_t err;
-
 	const char * pJson;
 
 	vTaskDelay( 10000 / portTICK_PERIOD_MS );
@@ -237,11 +164,11 @@ static void _sysParamTask(void *arg)
 			/* get Event Records from FIFO, push to AWS */
 			if( shadowUpdates_getProductionRecordTopic() )
 			{
-				publishRecords( sysParamData.config->topicPoduction, pJson );		/* Prod */
+				publishParams( sysParamData.config->topicProduction, pJson );		/* Prod */
 			}
 			else
 			{
-				publishRecords( sysParamData.config->topicDevelop, pJson );		/* Dev */
+				publishParams( sysParamData.config->topicDevelop, pJson );		/* Dev */
 			}
 
     	}
@@ -267,7 +194,7 @@ int32_t sysParam_init( _sysParamConfig_t * config )
 	esp_err_t	err = ESP_OK;
 
 	/* save the system parameter configuration */
-	_sysParamData.config = config;
+	sysParamData.config = config;
 
 
 	/* Create Task on new thread */

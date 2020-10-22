@@ -10,7 +10,9 @@
 
 #include "aws_iot_shadow.h"
 #include "nvs_utility.h"
+#include	"json.h"
 
+#ifdef DEPRECIATED
 typedef enum
 {
 	JSON_NONE,
@@ -31,15 +33,17 @@ typedef union
 	uint32_t *integerU32;
 	bool *truefalse;
 } json_value_t;
+#endif
 
 typedef void (* _shadowDeltaCallback_t)( void *pItem, const uint8_t *pData, uint16_t size );
 typedef void (* updateCompleteCallback_t)( void  *pItem );
 
 typedef	struct {
-	const char *			section;
-	const char *			key;
-	const json_type_t		jType;
-	json_value_t			jValue;
+	_jsonItem_t				jItem;
+//	const char *			section;
+//	const char *			key;
+//	const json_type_t		jType;
+//	json_value_t			jValue;
 //	_shadowDeltaCallback_t	handler;
 	updateCompleteCallback_t handler;			/**< Callback function called upon shadow item update complete */
 	bool					bUpdate;			/**< If true, Shadow update is required for item */
