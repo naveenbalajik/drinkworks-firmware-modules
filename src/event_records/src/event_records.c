@@ -235,57 +235,13 @@ const char EventRecordPublishTopicPoduction[] = "$aws/rules/Homebar_event_record
 const char shadowLastPublishedIndex[] = "LastPublishedIndex";
 
 /**
- * @brief	Format Byte Array as a string with a tag and size
+ * @brief	Format Byte Array as a hex string
  *
- *	A format buffer is allocated from the heap, and the array formated.
- *	If the string option is selected, the array is printed as an ASCII string, with
- *	null characters ('\0' being ignored.  The string is formated with quotes.
- *
- *	The caller must release the buffer when done with it.
+ *	A static format buffer is used, and the array formated.
  *
  *	@param[in]	pData	Pointer to byte array
  *	@param[in]	size	Size of byte array to be printed
  */
-/* FIXME - merge functionality with formatByteArray() */
-#ifdef	DYNAMIC
-static char * formatHexByteArray(const uint8_t *pData, size_t size )
-{
-	int i;
-	int n;
-	char *buffer, *ptr;
-	int formatByteLength = 3;
-	const int formatOverhead = 1;			/* just need terminator */
-	size_t	remaining;
-
-	formatByteLength = 2;
-
-	/* Allocate a buffer */
-	remaining = ( size * formatByteLength ) + formatOverhead;
-	buffer = pvPortMalloc( remaining );
-
-	if( NULL != buffer )
-	{
-		IotLogInfo( "formatHexByteArray: Allocated %d byte buffer", remaining );
-
-		ptr = buffer;
-
-		/* format each byte */
-		for (i = 0; i < size; ++i)
-		{
-			/* Keep ptr pointing to end of formatted string */
-			ptr += n;
-			remaining -= n;
-			n = snprintf( ptr, remaining, "%02x", *pData );
-
-			pData++;
-		}
-		IotLogInfo( "formatHexByteArray: %s", buffer );
-
-
-	}
-	return buffer;
-}
-#else
 const char* pszNibbleToHex = {"0123456789ABCDEF"};
 
 static char * formatHexByteArray(const uint8_t *pData, size_t size )
@@ -311,7 +267,6 @@ static char * formatHexByteArray(const uint8_t *pData, size_t size )
 	return rawBuffer;
 }
 
-#endif
 /**
  * @brief	Look-up text for status value
  *
@@ -442,6 +397,148 @@ static double convertPressure( uint16_t ADC)
  * @param[in]	size				Dispense Record size, in bytes
  * @return		Pointer to formatted JSON record
  */
+#ifndef OLD_EVENT_FORMAT
+static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t size )
+{
+	char * pCommon = NULL;
+	char * pSpecial = NULL;
+	char * pJSON = NULL;
+
+	int32_t	lenCommon = 0, lenSpecial = 0;
+
+	/* format Date/Time per ISO 8601 */
+	char *DateTimeString = formatDateTime( pDispenseRecord );
+	char *RawString = formatHexByteArray( ( uint8_t * ) pDispenseRecord, size );
+
+	switch( pDispenseRecord->Status )
+	{
+		/* Normal Dispense Records */
+		case	eNoError:
+		case	eUnknown_Error:
+		case	eTop_of_Tank_Error:
+		case	eCarbonator_Fill_Timeout_Error:
+		case	eOver_Pressure_Error:
+		case	eCarbonation_Timeout_Error:
+		case	eError_Recovery_Brew:
+		case	eHandle_Lift_Error:
+		case	ePuncture_Mechanism_Error:
+		case	eCarbonation_Mechanism_Error:
+			/* Cold Water Tank Temperature (optional, only present if sufficient size) */
+			if( CWT_ENTRY_MIN_SIZE <= size )
+			{
+				lenSpecial = mjson_printf( &mjson_print_dynamic_buf, &pSpecial,
+						"{%Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%f}",
+						"CatalogID",       pDispenseRecord->PodId,
+						"BeverageID",      pDispenseRecord->SKUId,
+						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
+						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
+						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature)
+						);
+			}
+			else
+			{
+				lenSpecial = mjson_printf( &mjson_print_dynamic_buf, &pSpecial,
+						"{%Q:%d, %Q:%d, %Q:%d, %Q:%f}",
+						"CatalogID",       pDispenseRecord->PodId,
+						"BeverageID",      pDispenseRecord->SKUId,
+						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
+						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure )
+						);
+			}
+			break;
+
+		/* Firmware Update */
+		case	eFirmware_Update_Passed:
+			/* Firmware Version (optional, only present if sufficient size) */
+			if( FIRMWARE_ENTRY_MIN_SIZE <= size )
+			{
+				lenSpecial = mjson_printf( &mjson_print_dynamic_buf, &pSpecial,
+						"{%Q:%f}",
+						"FirmwareVersion", ( ( ( double ) pDispenseRecord->FirmwareVersion ) / 100 )
+						);
+			}
+			break;
+
+		/* Freeze Event Update (optional, only present if sufficient size) */
+		case	eFreezeEventUpdate:
+			if( FREEZE_ENTRY_MIN_SIZE <= size )
+			{
+				lenSpecial = mjson_printf( &mjson_print_dynamic_buf, &pSpecial,
+						"{%Q:%d}",
+						"FreezeEvents",    pDispenseRecord->FreezeEvents
+						);
+			}
+			break;
+
+		/* Extended Pressure */
+		case	eCritical_Error_ExtendedOPError:
+			lenSpecial = mjson_printf( &mjson_print_dynamic_buf, &pSpecial,
+					"{%Q:%f}",
+					"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure )
+					);
+			break;
+
+		/* Over Temperature */
+		case	eCritical_Error_OverTemp:
+			if( CWT_ENTRY_MIN_SIZE <= size )
+			{
+				lenSpecial = mjson_printf( &mjson_print_dynamic_buf, &pSpecial,
+						"{%Q:%f}",
+						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature)
+						);
+			}
+			break;
+
+		/* Error, status is valid */
+		case	eCleaning_Cycle_Completed:
+		case	eRinsing_Cycle_Completed:
+		case	eCO2_Module_Attached:
+		case	eFirmware_Update_Failed:
+		case	eDrain_Cycle_Complete:
+		case	eCritical_Error_PuncMechFail:
+		case	eCritical_Error_TrickleFillTmout:
+		case	eCritical_Error_ClnRinCWTFillTmout:
+		case	eCritical_Error_BadMemClear:
+		case	eBLE_ModuleReset:
+		case	eBLE_IdleStatus:
+		case	eBLE_StandbyStatus:
+		case	eBLE_ConnectedStatus:
+		case	eBLE_HealthTimeout:
+		case	eBLE_ErrorState:
+		case	eBLE_MultiConnectStat:
+		case	eBLE_MaxCriticalTimeout:
+			break;
+
+		/* Unknown Status */
+		default:
+			pDispenseRecord->Status = eUnknownStatus;
+			/* fall through */
+
+	}
+
+	/* format the common elements */
+	lenCommon = mjson_printf( &mjson_print_dynamic_buf, &pCommon,
+			"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%Q}",
+			"Index",           pDispenseRecord->index,
+			"DateTime",        DateTimeString,
+			"Status",          pDispenseRecord->Status,
+			"StatusText",      statusText( pDispenseRecord->Status ),
+			"raw",             RawString
+			);
+
+	vPortFree( DateTimeString );				/* free date/time buffer */
+
+	/* Merge the common and special buffers */
+	mjson_merge(pCommon, lenCommon, pSpecial, lenSpecial, mjson_print_dynamic_buf, &pJSON);
+
+	/* Free format buffers */
+	free( pCommon );
+	free( pSpecial );
+
+	return( pJSON );
+}
+
+#else
 static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t size )
 {
 	char * formatBuffer = NULL;
@@ -598,6 +695,7 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 #endif
 	return( formatBuffer );
 }
+#endif
 
 /**
  * @brief Event Record Data Command handler
