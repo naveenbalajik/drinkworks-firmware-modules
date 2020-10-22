@@ -335,7 +335,6 @@ static int updateReportedShadow(const char * updateJSON,
 	int status = EXIT_SUCCESS;
 	AwsIotShadowError_t updateStatus = AWS_IOT_SHADOW_STATUS_PENDING;
 	AwsIotShadowDocumentInfo_t updateDocument = AWS_IOT_SHADOW_DOCUMENT_INFO_INITIALIZER;
-
 	/* Only proceed if an mqtt connection has been established */
 	if( shadowData.mqttConnection != NULL )
 	{
@@ -367,8 +366,6 @@ static int updateReportedShadow(const char * updateJSON,
 		else
 		{
 			IotLogInfo( "Sent Shadow update" );
-			printf( "Sent Shadow update\n" );
-			mqtt_IsConnected();	/*debug */
 		}
 	}
 	return status;
@@ -627,6 +624,7 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 				/* Call UpdateCompleteCallback handler, if present */
 				if( pItem->handler != NULL )
 				{
+					IotLogInfo( "shadow update[%s]:handler", pItem->key );
 					pItem->handler( pItem );
 				}
 			}

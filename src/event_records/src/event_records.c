@@ -222,9 +222,12 @@ static event_records_t _evtrec =
 
 /**
  * @brief	MQTT topics for Event Records (develop and production)
+ *
+ * Basic Ingest, which is a lower cost data flow, uses Rule names for the topic
+ * starting with "$aws/rules/"
  */
-const char EventRecordPublishTopicDevelop[] = "Homebar-event-record-devel";
-const char EventRecordPublishTopicPoduction[] = "Homebar-event-record-prod";
+const char EventRecordPublishTopicDevelop[] = "$aws/rules/Homebar_event_record_devel";
+const char EventRecordPublishTopicPoduction[] = "$aws/rules/Homebar_event_record_prod";
 
 /**
  * @brief	Shadow variable for index of last published event record
@@ -958,16 +961,13 @@ static void publishRecords( const char *topic )
 		case ePublishRead:
 			if( mqtt_IsConnected() )
 			{
-				printf( "publishRecords(1): mqttConnection = %p\n", *mqtt_getConnection() );
 				nRecords = fifo_size( _evtrec.fifoHandle );
 				if( 0 < nRecords )
 				{
 					/* Limit number of records per message */
 					nRecords = ( MAX_RECORDS_PER_MESSAGE < nRecords ) ? MAX_RECORDS_PER_MESSAGE : nRecords;
 
-					printf( "publishRecords(2): mqttConnection = %p\n", *mqtt_getConnection() );
 					jsonBuffer = readRecords( nRecords );
-					printf( "publishRecords(3): mqttConnection = %p\n", *mqtt_getConnection() );
 					if( NULL != jsonBuffer )
 					{
 //						IotLogDebug( jsonBuffer );				/* Log message will likely be truncated */
@@ -983,7 +983,6 @@ static void publishRecords( const char *topic )
 						_evtrec.contextTime =  getTimeValue();
 						publishCallback.pCallbackContext = &_evtrec.contextTime;
 
-						printf( "publishRecords(4): mqttConnection = %p\n", *mqtt_getConnection() );
 						mqtt_SendMsgToTopic( topic, strlen( topic ), jsonBuffer, strlen( jsonBuffer ), &publishCallback );
 
 						vPortFree( jsonBuffer );					/* free buffer after if is processed */
@@ -1005,7 +1004,11 @@ static void publishRecords( const char *topic )
 					fifo_commitRead( _evtrec.fifoHandle, true );
 
 #ifndef	NEW_SHADOW
+					/* Track Last Published Index */
+					_evtrec.lastPublishedIndex = _evtrec.highestReadIndex;
+
 					/* Update Last Published Index, NVS will be updated by shadow module */
+					IotLogInfo( "Update Last Published Index: %d", _evtrec.lastPublishedIndex );
 					shadowUpdates_publishedIndex( _evtrec.lastPublishedIndex, &vEventRecordShadowUpdateComplete );
 
 					/* Clear flags */
@@ -1106,26 +1109,12 @@ static void _eventRecordsTask(void *arg)
 
     while( 1 )
 	{
-		printf( "_eventRecordsTask: while ... ");
-		mqtt_IsConnected();
     	/* Only process records if user has opted in to Data Sharing */
     	if( shadowUpdates_getDataShare() )
     	{
 
-			/* debug */
-			if( mqtt_IsConnected() )
-			{
-				printf( "_eventRecordsTask(1): mqttConnection = %p\n", *mqtt_getConnection() );
-			}
-
 			/* fetch Dispense Records from Host, put to FIFO*/
 			fetchRecords();
-
-			/* debug */
-			if( mqtt_IsConnected() )
-			{
-				printf( "_eventRecordsTask(2): mqttConnection = %p\n", *mqtt_getConnection() );
-			}
 
 			/* get Event Records from FIFO, push to AWS */
 			if( shadowUpdates_getProductionRecordTopic() )
@@ -1205,7 +1194,7 @@ int32_t eventRecords_init( fifo_handle_t fifo, NVS_Items_t nvsKey )
 	bleInterface_registerUpdateCB( eDispRecCountIndex, &vRecordCountUpdate );
 
 	/* Create Task on new thread */
-    xTaskCreate( _eventRecordsTask, "eventRecords_task", EVENT_RECORD_STACK_SIZE, NULL, EVENT_RECORD_TASK_PRIORITY, &_evtrec.taskHandle );
+    xTaskCreate( _eventRecordsTask, "event_record", EVENT_RECORD_STACK_SIZE, NULL, EVENT_RECORD_TASK_PRIORITY, &_evtrec.taskHandle );
     if( NULL == _evtrec.taskHandle )
 	{
         return ESP_FAIL;

@@ -127,7 +127,6 @@ typedef struct
 	_mqttDisconnectedCallback_t disconnectedCallback;
 	const char *			pLWAT;													/**< Last Will and Testament message */
 //	void * 					callbackParams;
-
 } mqttData_t;
 
 static mqttData_t mqttData =
@@ -158,7 +157,7 @@ static void _mqttDisconnectCallback(void * param, IotMqttCallbackParam_t * mqttC
     switch( mqttCallbackParams->u.disconnectReason )
     {
         case IOT_MQTT_DISCONNECT_CALLED:
-            IotLogInfo( "Mqtt disconnected due to invoking diconnect function.\r\n" );
+            IotLogInfo( "Mqtt disconnected due to invoking disconnect function.\r\n" );
             break;
 
         case IOT_MQTT_BAD_PACKET_RECEIVED:
@@ -193,10 +192,6 @@ static void _mqttDisconnectCallback(void * param, IotMqttCallbackParam_t * mqttC
  */
 bool	mqtt_IsConnected( void )
 {
-	if( mqttData.bMqttConnected )
-	{
-		printf( "mqtt_IsConnected(): mqttConnection = %p\n", *mqtt_getConnection() );
-	}
 	return mqttData.bMqttConnected;
 }
 
@@ -278,7 +273,6 @@ esp_err_t	mqtt_SendMsgToTopic( const char* topic, uint32_t topicLen, const char*
 
 	if( err == ESP_OK )
 	{
-		printf("mqtt_SendMsgToTopic: pMqttConnection = %p\n", *mqttData.pMqttConnection );
 		IotMqttError_t qos1Result = IotMqtt_Publish( *mqttData.pMqttConnection, &msgInfo, 0, pCallbackInfo, NULL );
 		if( qos1Result != IOT_MQTT_STATUS_PENDING )
 		{
@@ -315,7 +309,7 @@ esp_err_t _establishMqttConnection( void )
     IotMqttConnectInfo_t connectInfo = IOT_MQTT_CONNECT_INFO_INITIALIZER;
     IotMqttPublishInfo_t willInfo    = IOT_MQTT_PUBLISH_INFO_INITIALIZER;
 	char willTopicName[50];
-	IotMqttConnection_t pMqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
+	static IotMqttConnection_t pMqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
 
 	/* Set the members of the network info not set by the initializer. This
 	 * struct provided information on the transport layer to the MQTT connection. */
@@ -357,7 +351,6 @@ esp_err_t _establishMqttConnection( void )
 	IotLogInfo( "IotMqtt_Connect completed: %d", connectStatus );
 
     mqttData.pMqttConnection = &pMqttConnection;
-	printf("_establishMqttConnection: *mqttData.pMqttConnection = %p\n", *mqttData.pMqttConnection );
 
 	if( connectStatus != IOT_MQTT_SUCCESS )
 	{
@@ -560,14 +553,14 @@ static void mqtt_task( void *arg )
 		{
 			case eMqttInitialize:
 				mqttData.mqttState = eMqttUnprovisioned;
-				printf("mqtt -> Unprovisioned\n");
+				IotLogDebug( "mqtt -> Unprovisioned\n" );
 				break;
 
 			case eMqttUnprovisioned:
 				if( mqttData.bConnectionParameters == true )
 				{
 					mqttData.mqttState = eMqttDisconnected;
-					printf("mqtt -> Disconnected\n");
+					IotLogDebug( "mqtt -> Disconnected\n" );
 				}
 				else
 				{
@@ -585,7 +578,7 @@ static void mqtt_task( void *arg )
 				if( mqttData.bMqttConnected )
 				{
 					mqttData.mqttState = eMqttConnected;
-					printf("mqtt -> Connected\n");
+					IotLogDebug( "mqtt -> Connected\n" );
 				}
 				else
 				{
@@ -597,15 +590,12 @@ static void mqtt_task( void *arg )
 					}
 					else
 					{
-						printf("mqtt_task: before _establishMqttConnection(), bMqttConnected = %d\n", mqttData.bMqttConnected );
 						_establishMqttConnection();
 
 						/* check if now connected, if not delay before retrying */
 						if( mqttData.bMqttConnected == false )
 						{
-							printf("mqtt_task: before ConnectionRetryDelay(), bMqttConnected = %d\n", mqttData.bMqttConnected );
 							_connectionRetryDelay();
-							printf("mqtt_task: after ConnectionRetryDelay(), bMqttConnected = %d\n", mqttData.bMqttConnected );
 						}
 					}
 				}
@@ -615,7 +605,7 @@ static void mqtt_task( void *arg )
 				if (mqttData.bMqttConnected == false )
 				{
 					mqttData.mqttState = eMqttDisconnected;
-					printf("mqtt -> Disconnected\n");
+					IotLogDebug( "mqtt -> Disconnected\n" );
 				}
 				else
 				{
