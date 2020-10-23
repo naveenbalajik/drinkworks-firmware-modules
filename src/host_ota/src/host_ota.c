@@ -1093,6 +1093,7 @@ int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb )
 	bleInterface_registerUpdateCB( eOtaStatusIndex, &vOtaStatusUpdate );
 
 	/* Create Task on new thread */
+#ifndef	NO_HOST_OTA_TASK
     xTaskCreate( _hostOtaTask, "HostOta_task", HOST_OTA_STACK_SIZE, NULL, HOST_OTA_TASK_PRIORITY, &_hostota.taskHandle );
     if( NULL == _hostota.taskHandle )
 	{
@@ -1101,7 +1102,9 @@ int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb )
     {
     	IotLogInfo( "host_ota_task created" );
     }
-
+#else
+    IotLogInfo( "\n\n*** Host OTA Task Bypassed ***\n\n" );
+#endif
     return	ESP_OK;
 }
 

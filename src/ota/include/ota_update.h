@@ -8,9 +8,7 @@
 #ifndef _OTA_UPDATE_H_
 #define _OTA_UPDATE_H_
 
-int OTAUpdate_startTask( 	void * pNetworkServerInfo,
-							IotMqttConnection_t * pMqttConnection,
-                            const char * pIdentifier,
+int OTAUpdate_startTask( 	const char * pIdentifier,
                             void * pNetworkCredentialInfo,
                             const IotNetworkInterface_t * pNetworkInterface,
 							IotSemaphore_t *pSemaphore );

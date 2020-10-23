@@ -174,79 +174,6 @@ void _fetchFromNvs( _shadowItem_t * pItem )
 	}
 }
 
-#ifdef	DEPRECIATED
-/**
- * @brief Update a Shadow Item
- *
- *	Assumes that Item has a Section
- *
- * @param[in] pItem			Pointer to Shadow Item
- */
-static char * _formatJsonItem( _shadowItem_t * pItem )
-{
-
-	char *itemJSON = NULL;
-
-	switch( pItem->jType )
-	{
-		case JSON_STRING:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%Q}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					pItem->jValue.string
-					);
-			break;
-
-		case JSON_NUMBER:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%f}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.number
-					);
-			break;
-
-		case JSON_INTEGER:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.integer
-					);
-			break;
-
-		case JSON_UINT32:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.integerU32
-					);
-			break;
-
-		case JSON_BOOL:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%B}}}}",
-					"state",
-					"reported",
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.truefalse
-					);
-			break;
-
-		case JSON_NONE:
-		default:
-			break;
-	}
-
-	return itemJSON;
-}
-#endif
 
 /**
  * @brief	Create a client token using a timestamp
@@ -541,7 +468,14 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 			pItem = &pShadowItem->jItem;
 
 			/* assemble a match string */
-			snprintf( matchstr, sizeof( matchstr ), "$.current.state.reported.%s.%s", pItem->section, pItem->key );
+	    	if( pItem->section == NULL )
+	    	{
+	    		snprintf( matchstr, sizeof( matchstr ), "$.current.state.reported.%s", pItem->key );
+	    	}
+	    	else
+	    	{
+	    		snprintf( matchstr, sizeof( matchstr ), "$.current.state.reported.%s.%s", pItem->section, pItem->key );
+	    	}
 			IotLogDebug( "_shadowUpdatedCallback: matchstr = %s", matchstr );
 
 			switch( pItem->jType )

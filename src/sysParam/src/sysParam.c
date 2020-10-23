@@ -138,7 +138,7 @@ static void publishParams( const char *topic, const char *pJson )
  * @param[in] arg 	Not used
  *
  */
-static void _sysParamTask(void *arg)
+static void _sysParamTask( void *arg )
 {
 	const char * pJson;
 

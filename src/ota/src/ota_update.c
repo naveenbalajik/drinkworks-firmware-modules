@@ -71,6 +71,37 @@
 
 static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 
+#define	OTA_UPDATE_STACK_SIZE    ( 3076 )
+
+#define	OTA_UPDATE_TASK_PRIORITY	( 7 )
+
+typedef	enum
+{
+	eOtaTaskInit,
+	eOtaTaskRun,
+	eOtaTaskComplete,
+	eOtaTaskSuspend,
+	eOtaTaskResume
+} _otaTaskState_t;
+
+
+typedef	struct
+{
+	TaskHandle_t				taskHandle;									/**< handle for OTA Update Task */
+	_otaTaskState_t				taskState;
+	bool						bConnected;
+	OTA_State_t					eState;
+	OTA_ConnectionContext_t		connectionCtx;
+	const char * 				pIdentifier;
+	IotSemaphore_t	*			pHostUpdateComplete;
+} otaData_t;
+
+static otaData_t otaData =
+{
+	.taskState = eOtaTaskInit,
+	.pHostUpdateComplete = NULL,
+};
+
 /**
  * @brief Network types allowed for OTA. Only support OTA over Wifi
  */
@@ -94,7 +125,7 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 /**
  * @brief The base interval in seconds for retrying network connection.
  */
-#define OTA_CONN_RETRY_BASE_INTERVAL_SECONDS    ( 2U )
+//#define OTA_CONN_RETRY_BASE_INTERVAL_SECONDS    ( 2U )
 
 /**
  * @brief The delay used in the main OTA Demo task loop to periodically output the OTA
@@ -105,12 +136,12 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 /**
  * @brief The maximum interval in seconds for retrying network connection.
  */
-#define OTA_CONN_RETRY_MAX_INTERVAL_SECONDS     ( 360U )
+//#define OTA_CONN_RETRY_MAX_INTERVAL_SECONDS     ( 360U )
 
 /**
  * @brief Connection retry interval in seconds.
  */
-static int _retryInterval = OTA_CONN_RETRY_BASE_INTERVAL_SECONDS;
+//static int _retryInterval = OTA_CONN_RETRY_BASE_INTERVAL_SECONDS;
 
 /**
  * @brief OTA agent state
@@ -129,8 +160,6 @@ static const char * _pStateStr[ eOTA_AgentState_All ] =
     "ShuttingDown",
     "Stopped"
 };
-
-static IotSemaphore_t	*pHostUpdateComplete = NULL;
 
 /* secondaryota.patch.txt */
 
@@ -346,7 +375,7 @@ OTA_Err_t prvPAL_SetPlatformImageState_customer( uint32_t ulServerFileID, OTA_Im
 
 /* end of secondaryota_patch.txt */
 
-
+#ifdef	DEPRECIATED
 
 /**
  * @brief Delay before retrying network connection up to a maximum interval.
@@ -512,6 +541,151 @@ static void vRunOTAUpdate(		void * pNetworkServerInfo,
 
 }
 
+#endif
+
+/**
+ * @brief	OTA Update Task
+ */
+
+static void _OTAUpdateTask( void *arg )
+{
+
+	/* Only need to override the default callbacks that are needed, other than xCompleteCallback */
+    OTA_PAL_Callbacks_t otaCallbacks = {
+        .xAbort                    = NULL,	// prvPAL_Abort_customer,
+        .xActivateNewImage         = NULL,	// prvPAL_ActivateNewImage_customer,
+        .xCloseFile                = NULL,	// prvPAL_CloseFile_customer,
+        .xCreateFileForRx          = NULL,	// prvPAL_CreateFileForRx_customer,
+        .xGetPlatformImageState    = prvPAL_GetPlatformImageState_customer,
+        .xResetDevice              = NULL,	// prvPAL_ResetDevice_customer,
+        .xSetPlatformImageState    = prvPAL_SetPlatformImageState_customer,
+        .xWriteBlock               = NULL,	// prvPAL_WriteBlock_customer,
+        .xCompleteCallback         = App_OTACompleteCallback,
+        .xCustomJobCallback        = NULL	// otaDemoCustomJobCallback
+    };
+
+	/* Continually loop until OTA process is completed */
+	for( ; ; )
+	{
+		otaData.bConnected = mqtt_IsConnected();
+		otaData.eState = OTA_GetAgentState();
+
+		switch( otaData.taskState )
+		{
+
+			case eOtaTaskInit:
+				if( otaData.bConnected )
+				{
+					/* Short delay after MQTT connection is established */
+					vTaskDelay( 5000 / portTICK_PERIOD_MS );
+
+					/* Once connected, get the MQTT connection reference */
+					otaData.connectionCtx.pvControlClient = *mqtt_getConnection();
+
+					IotLogInfo( "_OTAUpdateTask: MQTT Connected" );
+
+					/*
+					 * If Agent is not already running, initialize the OTA Agent, using internal init function,
+					 * so PAL callbacks can be overridden
+					 */
+					OTA_AgentInit_internal( ( void * ) ( &otaData.connectionCtx ),
+											( const uint8_t * ) ( otaData.pIdentifier ),
+											&otaCallbacks,
+											( TickType_t ) ~0 );
+					IotLogInfo( "ota -> Run" );
+					otaData.taskState = eOtaTaskRun;
+				}
+				else
+				{
+					/* wait for MQTT connection */
+					vTaskDelay( 100 / portTICK_PERIOD_MS );
+				}
+				break;
+
+			case eOtaTaskRun:
+				if( otaData.eState == eOTA_AgentState_Stopped )
+				{
+					IotLogInfo( "OTA Agent Stopped. Disconnecting" );
+					IotLogInfo( "ota -> Complete" );
+					otaData.taskState = eOtaTaskComplete;
+				}
+				else if( otaData.bConnected == false )
+				{
+					/* If MQTT connection is broken */
+					IotLogInfo( "OTA Agent Disconnected. Suspending" );
+					vTaskDelay( 100 / portTICK_PERIOD_MS );
+
+					/* Send Suspend event to OTA agent.*/
+					if( OTA_Suspend() == kOTA_Err_None )
+					{
+						/* Command accepted - transition to Suspend state */
+						IotLogInfo( "ota -> Suspend" );
+						otaData.taskState = eOtaTaskSuspend;
+					}
+					else
+					{
+						/* Command not accepted - where to now? */
+					}
+				}
+				else
+				{
+					/* Periodically output statistics */
+					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u\r\n", _pStateStr[ otaData.eState ],
+								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
+
+					/* Wait - one second. */
+					IotClock_SleepMs( OTA_TASK_DELAY_SECONDS * 1000 );
+				}
+				break;
+
+
+			case eOtaTaskSuspend:
+				/* When agent transitions to Suspended state, wait for reconnection */
+				if( otaData.eState == eOTA_AgentState_Suspended )
+				{
+					IotLogInfo( "ota -> Resume" );
+					otaData.taskState = eOtaTaskResume;
+				}
+				else
+				{
+					/* Wait for OTA Agent to process the suspend event. */
+					IotClock_SleepMs( OTA_TASK_DELAY_SECONDS * 1000 );
+				}
+				break;
+
+			case eOtaTaskResume:
+				if( otaData.bConnected )
+				{
+					IotLogInfo( "OTA Agent Suspended. Resuming" );
+					OTA_Resume( &otaData.connectionCtx );
+					/*
+					 * Agent is already running, use standard OTA Agent initialization function.
+					 * This will clear OTA statistics for new connection.
+					 */
+					OTA_AgentInit( ( void * ) ( &otaData.connectionCtx ),
+								   ( const uint8_t * ) ( otaData.pIdentifier ),
+								   App_OTACompleteCallback,
+								   ( TickType_t ) ~0 );
+
+					/* transition to Run State */
+					IotLogInfo( "ota -> Run" );
+					otaData.taskState = eOtaTaskRun;
+				}
+				break;
+
+			case eOtaTaskComplete:
+				IotLogInfo( "OTA Agent Stopped. Disconnecting" );
+				vTaskDelay( 100 / portTICK_PERIOD_MS );
+				/* Try to close the MQTT connection. */
+//				if( *pMqttConnection != NULL )
+//				{
+//					IotMqtt_Disconnect( *pMqttConnection, 0 );
+//				}
+				/* FIXME - Why would we disconnect the MQTT connection? What should we do or completion */
+				break;
+		}
+	}
+}
 
 /*-----------------------------------------------------------*/
 /* The OTA agent has completed the update job or determined that we're in
@@ -550,9 +724,9 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
 
      	IotLogInfo( "Secondary Processor Update, activated ... post semaphore" );
 
-    	if( pHostUpdateComplete != NULL )
+    	if( otaData.pHostUpdateComplete != NULL )
     	{
-    		IotSemaphore_Post( pHostUpdateComplete );
+    		IotSemaphore_Post( otaData.pHostUpdateComplete );
     	}
     	else
     	{
@@ -593,20 +767,16 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
 /**
  * @brief	Start the OTA Update Task
  *
- * @param[in] pNetworkServerInfo Passed to the MQTT connect function when
- * establishing the MQTT connection.
- * @param[in] pMqttConnection	Pointer to the MQTT connection
- * @param[in] pIdentifier NULL-terminated MQTT client identifier.
- * @param[in] pNetworkCredentialInfo Passed to the MQTT connect function when
- * establishing the MQTT connection.
- * @param[in] pNetworkInterface The network interface to use for this demo.
+ * @param[in] pMqttConnection			Pointer to the MQTT connection
+ * @param[in] pIdentifier				NULL-terminated MQTT client identifier.
+ * @param[in] pNetworkCredentialInfo	Passed to the OTA Agent
+ * @param[in] pNetworkInterface			The network interface used by the OTA Agent
+ * @param[in] pSemaphore				Update Complete Semaphore
  *
- * @return `EXIT_SUCCESS` if the demo completes successfully; `EXIT_FAILURE` otherwise.
+ * @return `EXIT_SUCCESS` if the ota task is successfully created; `EXIT_FAILURE` otherwise.
  */
 
-int OTAUpdate_startTask( 	void * pNetworkServerInfo,
-							IotMqttConnection_t * pMqttConnection,
-                            const char * pIdentifier,
+int OTAUpdate_startTask( 	const char * pIdentifier,
                             void * pNetworkCredentialInfo,
                             const IotNetworkInterface_t * pNetworkInterface,
 							IotSemaphore_t *pSemaphore )
@@ -620,10 +790,25 @@ int OTAUpdate_startTask( 	void * pNetworkServerInfo,
     }
 
     /* Save the Semaphore */
-    pHostUpdateComplete = pSemaphore;
-	IotLogInfo( "OTAUpdate_startTask: pHostUpdateComplete = %p", pHostUpdateComplete );
+    otaData.pHostUpdateComplete = pSemaphore;
+	IotLogInfo( "OTAUpdate_startTask: pHostUpdateComplete = %p", otaData.pHostUpdateComplete );
 
-    vRunOTAUpdate(pNetworkServerInfo, pMqttConnection, pNetworkInterface, pNetworkCredentialInfo, pIdentifier );
+	/* Update the connection context shared with OTA Agent.*/
+	otaData.connectionCtx.pxNetworkInterface = ( void * ) pNetworkInterface;
+	otaData.connectionCtx.pvNetworkCredentials = pNetworkCredentialInfo;
+	otaData.pIdentifier = pIdentifier;
+
+	/* Create Task on new thread */
+    xTaskCreate( _OTAUpdateTask, "ota_update", OTA_UPDATE_STACK_SIZE, NULL, OTA_UPDATE_TASK_PRIORITY, &otaData.taskHandle );
+
+    if( NULL == otaData.taskHandle )
+	{
+    	xRet = EXIT_FAILURE;
+    }
+    else
+    {
+    	IotLogInfo( "ota_update created" );
+    }
 
     return xRet;
 }

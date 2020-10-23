@@ -16,14 +16,15 @@
 #include	"TimeSync.h"
 #include	"nvs_utility.h"
 #include	"esp_err.h"
+
 /**
- * @brief Format a JSON Item with zero static levels
+ * @brief Format a JSON Item as a simple key-value pair
  *
- *	Assumes that Item has a Section
+ *	Buffer is allocated from heap and must be freed after use.
  *
  * @param[in] pItem			Pointer to JSON Item
  */
-char * json_formatItem0Level( _jsonItem_t * pItem )
+static char * _formatItem( _jsonItem_t * pItem )
 {
 
 	char *itemJSON = NULL;
@@ -31,48 +32,42 @@ char * json_formatItem0Level( _jsonItem_t * pItem )
 	switch( pItem->jType )
 	{
 		case JSON_STRING:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%Q}}",
-					pItem->section,
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%Q}",
 					pItem->key,
 					pItem->jValue.string
 					);
 			break;
 
 		case JSON_NUMBER:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%f}}",
-					pItem->section,
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%f}",
 					pItem->key,
 					*pItem->jValue.number
 					);
 			break;
 
 		case JSON_INTEGER:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%d}}",
-					pItem->section,
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%d}",
 					pItem->key,
 					*pItem->jValue.integer
 					);
 			break;
 
 		case JSON_UINT16:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%d}}",
-					pItem->section,
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%d}",
 					pItem->key,
 					*pItem->jValue.integerU16
 					);
 			break;
 
 		case JSON_UINT32:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%d}}",
-					pItem->section,
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%d}",
 					pItem->key,
 					*pItem->jValue.integerU32
 					);
 			break;
 
 		case JSON_BOOL:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:%B}}",
-					pItem->section,
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%B}",
 					pItem->key,
 					*pItem->jValue.truefalse
 					);
@@ -87,83 +82,81 @@ char * json_formatItem0Level( _jsonItem_t * pItem )
 }
 
 /**
- * @brief Format a JSON Item with two static levels
+ * @brief Format a JSON Item with zero static levels
  *
- *	Assumes that Item has a Section
+ *	Section value is optional
+ *	Buffer is allocated from heap and must be freed after use.
  *
  * @param[in] pItem			Pointer to JSON Item
+ */
+char * json_formatItem0Level( _jsonItem_t * pItem )
+{
+
+	char *itemJSON = NULL;
+	char *keyValue = NULL;
+
+	/* format the base key-value pair */
+	keyValue = _formatItem( pItem );
+
+	/* Add optional section value */
+	if( pItem->section != NULL )
+	{
+		mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%s}", pItem->section, keyValue );
+		free( keyValue );
+	}
+	else
+	{
+		itemJSON = keyValue;
+	}
+
+	return itemJSON;
+}
+
+/**
+ * @brief Format a JSON Item with one static level
+ *
+ *	Section value is optional
+ *	Buffer is allocated from heap and must be freed after use.
+ *
+ * @param[in] pItem			Pointer to JSON Item
+ * @param[in] level1		Level1 Key value
+ */
+char * json_formatItem1Level( _jsonItem_t * pItem, const char * level1 )
+{
+
+	char *itemJSON = NULL;
+	char *section = NULL;
+
+	/* format the base key-value pair with option section */
+	section = json_formatItem0Level( pItem );
+
+	mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%s}", level1, section );
+	free( section );
+
+	return itemJSON;
+}
+
+/**
+ * @brief Format a JSON Item with two static levels
+ *
+ *	Section value is optional
+ *	Buffer is allocated from heap and must be freed after use.
+ *
+ * @param[in] pItem			Pointer to JSON Item
+ * @param[in] level1		Level1 Key value
+ * @param[in] level2		Level2 Key value
  */
 char * json_formatItem2Level( _jsonItem_t * pItem, const char * level1, const char * level2 )
 {
 
 	char *itemJSON = NULL;
+	char *lower = NULL;
 
-	switch( pItem->jType )
-	{
-		case JSON_STRING:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%Q}}}}",
-					level1,
-					level2,
-					pItem->section,
-					pItem->key,
-					pItem->jValue.string
-					);
-			break;
+	/* format the base key-value pair with option section, and 1 static level */
+	lower = json_formatItem1Level( pItem, level2 );
 
-		case JSON_NUMBER:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%f}}}}",
-					level1,
-					level2,
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.number
-					);
-			break;
-
-		case JSON_INTEGER:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
-					level1,
-					level2,
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.integer
-					);
-			break;
-
-		case JSON_UINT16:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
-					level1,
-					level2,
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.integerU16
-					);
-			break;
-
-		case JSON_UINT32:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%d}}}}",
-					level1,
-					level2,
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.integerU32
-					);
-			break;
-
-		case JSON_BOOL:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:{%Q:{%Q:{%Q:%B}}}}",
-					level1,
-					level2,
-					pItem->section,
-					pItem->key,
-					*pItem->jValue.truefalse
-					);
-			break;
-
-		case JSON_NONE:
-		default:
-			break;
-	}
+	mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%s}", level1, lower );
+	free( lower );
 
 	return itemJSON;
 }
