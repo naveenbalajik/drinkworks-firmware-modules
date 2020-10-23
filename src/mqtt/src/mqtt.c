@@ -185,109 +185,6 @@ static void _mqttDisconnectCallback(void * param, IotMqttCallbackParam_t * mqttC
 }
 
 
-/**
- * @brief 	Getter for the MQTT connection status
- *
- * @return 	true is connected. false otherwise
- */
-bool	mqtt_IsConnected( void )
-{
-	return mqttData.bMqttConnected;
-}
-
-/**
- * @brief 	Disconnect the current MQTT connection if there is one
- */
-void mqtt_disconnectMqttConnection( void )
-{
-
-	printf( "mqtt_disconnectMqttConnection\n");
-	if( mqttData.pMqttConnection != NULL )
-	{
-		IotMqtt_Disconnect( *mqttData.pMqttConnection, IOT_MQTT_FLAG_CLEANUP_ONLY );
-		mqttData.pMqttConnection = NULL;
-	}
-
-	mqttData.bMqttConnected = false;
-
-}
-
-/**
- * @brief 	Get the handle of the current MQTT connection
- *
- * @return    Handle of the current MQTT connection
- */
-IotMqttConnection_t *	mqtt_getConnection( void )
-{
-	return mqttData.pMqttConnection;
-}
-
-/**
- * @brief 	Get the Client Identifier (ThingName)
- *
- * @return    Pointer to Client Identifier (NULL terminated)
- */
-const char * mqtt_getIdentifier( void )
-{
-	return mqttData.pIdentifier;
-}
-
-/**
- * @brief	Send an MQTT message to a designated topic. QoS for the message will be 1. A provided callback will be returned upon completion of the message
- *
- * @param[in]    topic      	Topic name where the message will be sent
- * @param[in]    topicLen  		Topic name length.
- * @param[in]    msgBuf       	Message to send to the buffer
- * @param[in]    msgLen        	Message length
- * @param[out]   pCallbackInfo 	Callback information for when the function completes
- *
- * @return `ESP_OK` if publish message queued; `ESP_FAIL` if function fails before queuing of a publish operation
- * otherwise.
- */
-esp_err_t	mqtt_SendMsgToTopic( const char* topic, uint32_t topicLen, const char* msgBuf, uint32_t msgLen, const IotMqttCallbackInfo_t * pCallbackInfo )
-{
-
-	esp_err_t err = ESP_OK;
-
-	IotMqttPublishInfo_t msgInfo = IOT_MQTT_PUBLISH_INFO_INITIALIZER;
-
-	msgInfo.qos = IOT_MQTT_QOS_1;
-	msgInfo.pTopicName = topic;
-	msgInfo.topicNameLength = topicLen;
-	msgInfo.pPayload = msgBuf;
-	msgInfo.payloadLength = msgLen;
-	msgInfo.retryMs = PUBLISH_RETRY_MS;
-	msgInfo.retryLimit = PUBLISH_RETRY_LIMIT;
-
-	if( msgLen >= MAX_MQTT_PAYLOAD_LEN )
-	{
-		IotLogError( "Error: Message payload over max MQTT message size (128kB)" );
-		err = ESP_FAIL;
-	}
-
-	if( mqttData.pMqttConnection == NULL )
-	{
-		IotLogError( "Error: No active MQTT connection. Cannot send msg to topic" );
-		err = ESP_FAIL;
-	}
-
-	if( err == ESP_OK )
-	{
-		IotMqttError_t qos1Result = IotMqtt_Publish( *mqttData.pMqttConnection, &msgInfo, 0, pCallbackInfo, NULL );
-		if( qos1Result != IOT_MQTT_STATUS_PENDING )
-		{
-			IotLogError( "Error publishing MQTT message to topic. Err:%d", qos1Result );
-			err = ESP_FAIL;
-		}
-	}
-
-	if( err == ESP_OK )
-	{
-		IotLogInfo("Queued publish message to Topic %.*s", topicLen, topic);
-	}
-
-	return err;
-}
 
 /**
  * @brief	Establish an MQTT Connection, using Client Identifier and setting Last Will and Testament message
@@ -485,14 +382,6 @@ esp_err_t mqtt_establishMqttConnection(
 #endif
 
 /**
- * @brief	Deinitialization function for the MQTT library. Frees resources associated with the mqtt library
- */
-void	mqtt_Cleanup(void)
-{
-	IotMqtt_Cleanup();
-}
-
-/**
  * @brief Delay before retrying network connection up to a maximum interval.
  */
 static void _connectionRetryDelay( void )
@@ -517,28 +406,6 @@ static void _connectionRetryDelay( void )
 
     /* Delay for the calculated time interval .*/
     IotClock_SleepMs( retryIntervalwithJitter * 1000 );
-}
-
-/**
- * @brief	Set the MQTT Connection parameters
- *
- * Parameters are saved in static mqttData structure for establishing MQTT connection.
- *
- * @param[in]    pNetworkServerInfo      Passed to the MQTT connect function when establishing the MQTT connection.
- * @param[in]    pNetworkCredentialInfo  Passed to the MQTT connect function when establishing the MQTT connection.
- * @param[in]    pNetworkInterface       Network interface to use for the connection.
- * @param[in]    pIdentifier             Client Identifier (ThingName)
- */
-void mqtt_setConnectionParameters(	void * pNetworkServerInfo,
-									void * pNetworkCredentialInfo,
-									const IotNetworkInterface_t * pNetworkInterface,
-									const char * pIdentifier )
-{
-	mqttData.pNetworkServerInfo = pNetworkServerInfo;
-	mqttData.pNetworkCredentialInfo = pNetworkCredentialInfo;
-	mqttData.pNetworkInterface = pNetworkInterface;
-	mqttData.pIdentifier = pIdentifier;
-	mqttData.bConnectionParameters = true;
 }
 
 /**
@@ -621,6 +488,139 @@ static void mqtt_task( void *arg )
 	}
 }
 
+/* ************************************************************************* */
+/* ************************************************************************* */
+/* **********        I N T E R F A C E   F U N C T I O N S        ********** */
+/* ************************************************************************* */
+/* ************************************************************************* */
+
+/**
+ * @brief 	Getter for the MQTT connection status
+ *
+ * @return 	true is connected. false otherwise
+ */
+bool	mqtt_IsConnected( void )
+{
+	return mqttData.bMqttConnected;
+}
+
+/**
+ * @brief 	Disconnect the current MQTT connection if there is one
+ */
+void mqtt_disconnectMqttConnection( void )
+{
+
+	printf( "mqtt_disconnectMqttConnection\n");
+	if( mqttData.pMqttConnection != NULL )
+	{
+		IotMqtt_Disconnect( *mqttData.pMqttConnection, IOT_MQTT_FLAG_CLEANUP_ONLY );
+		mqttData.pMqttConnection = NULL;
+	}
+
+	mqttData.bMqttConnected = false;
+
+}
+
+/**
+ * @brief 	Get the handle of the current MQTT connection
+ *
+ * @return    Handle of the current MQTT connection
+ */
+IotMqttConnection_t *	mqtt_getConnection( void )
+{
+	return mqttData.pMqttConnection;
+}
+
+/**
+ * @brief 	Get the Client Identifier (ThingName)
+ *
+ * @return    Pointer to Client Identifier (NULL terminated)
+ */
+const char * mqtt_getIdentifier( void )
+{
+	return mqttData.pIdentifier;
+}
+
+/**
+ * @brief	Send an MQTT message to a designated topic. QoS for the message will be 1. A provided callback will be returned upon completion of the message
+ *
+ * @param[in]    topic      	Topic name where the message will be sent
+ * @param[in]    topicLen  		Topic name length.
+ * @param[in]    msgBuf       	Message to send to the buffer
+ * @param[in]    msgLen        	Message length
+ * @param[out]   pCallbackInfo 	Callback information for when the function completes
+ *
+ * @return `ESP_OK` if publish message queued; `ESP_FAIL` if function fails before queuing of a publish operation
+ * otherwise.
+ */
+esp_err_t	mqtt_SendMsgToTopic( const char* topic, uint32_t topicLen, const char* msgBuf, uint32_t msgLen, const IotMqttCallbackInfo_t * pCallbackInfo )
+{
+
+	esp_err_t err = ESP_OK;
+
+	IotMqttPublishInfo_t msgInfo = IOT_MQTT_PUBLISH_INFO_INITIALIZER;
+
+	msgInfo.qos = IOT_MQTT_QOS_1;
+	msgInfo.pTopicName = topic;
+	msgInfo.topicNameLength = topicLen;
+	msgInfo.pPayload = msgBuf;
+	msgInfo.payloadLength = msgLen;
+	msgInfo.retryMs = PUBLISH_RETRY_MS;
+	msgInfo.retryLimit = PUBLISH_RETRY_LIMIT;
+
+	if( msgLen >= MAX_MQTT_PAYLOAD_LEN )
+	{
+		IotLogError( "Error: Message payload over max MQTT message size (128kB)" );
+		err = ESP_FAIL;
+	}
+
+	if( mqttData.pMqttConnection == NULL )
+	{
+		IotLogError( "Error: No active MQTT connection. Cannot send msg to topic" );
+		err = ESP_FAIL;
+	}
+
+	if( err == ESP_OK )
+	{
+		IotMqttError_t qos1Result = IotMqtt_Publish( *mqttData.pMqttConnection, &msgInfo, 0, pCallbackInfo, NULL );
+		if( qos1Result != IOT_MQTT_STATUS_PENDING )
+		{
+			IotLogError( "Error publishing MQTT message to topic. Err:%d", qos1Result );
+			err = ESP_FAIL;
+		}
+	}
+
+	if( err == ESP_OK )
+	{
+		IotLogInfo("Queued publish message to Topic %.*s", topicLen, topic);
+	}
+
+	return err;
+}
+
+/**
+ * @brief	Set the MQTT Connection parameters
+ *
+ * Parameters are saved in static mqttData structure for establishing MQTT connection.
+ *
+ * @param[in]    pNetworkServerInfo      Passed to the MQTT connect function when establishing the MQTT connection.
+ * @param[in]    pNetworkCredentialInfo  Passed to the MQTT connect function when establishing the MQTT connection.
+ * @param[in]    pNetworkInterface       Network interface to use for the connection.
+ * @param[in]    pIdentifier             Client Identifier (ThingName)
+ */
+void mqtt_setConnectionParameters(	void * pNetworkServerInfo,
+									void * pNetworkCredentialInfo,
+									const IotNetworkInterface_t * pNetworkInterface,
+									const char * pIdentifier )
+{
+	mqttData.pNetworkServerInfo = pNetworkServerInfo;
+	mqttData.pNetworkCredentialInfo = pNetworkCredentialInfo;
+	mqttData.pNetworkInterface = pNetworkInterface;
+	mqttData.pIdentifier = pIdentifier;
+	mqttData.bConnectionParameters = true;
+}
+
+
 /**
  * @brief	Initialize the MQTT library and set a callback that triggers on a connection with the MQTT broker
  *
@@ -677,3 +677,12 @@ esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnected
 	return err;
 
 }
+
+/**
+ * @brief	Deinitialization function for the MQTT library. Frees resources associated with the mqtt library
+ */
+void	mqtt_Cleanup(void)
+{
+	IotMqtt_Cleanup();
+}
+
