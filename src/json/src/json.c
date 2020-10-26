@@ -53,14 +53,14 @@ static char * _formatItem( _jsonItem_t * pItem )
 			break;
 
 		case JSON_UINT16:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%d}",
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%u}",
 					pItem->key,
 					*pItem->jValue.integerU16
 					);
 			break;
 
 		case JSON_UINT32:
-			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%d}",
+			mjson_printf( &mjson_print_dynamic_buf, &itemJSON, "{%Q:%u}",
 					pItem->key,
 					*pItem->jValue.integerU32
 					);

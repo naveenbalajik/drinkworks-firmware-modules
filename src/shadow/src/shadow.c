@@ -31,6 +31,8 @@
 #include "iot_json_utils.h"
 #include "mjson.h"
 
+#include	"TimeSync.h"
+
 /* Max thing name length */
 #define	MAX_THINGNAME_LEN	128
 
@@ -58,6 +60,7 @@ typedef struct
     const char * 			pThingName;							/**< Thing Name pointer */
     size_t					thingNameLength;    				/**< Length of Shadow Thing Name. */
     _shadowItem_t *			itemList;							/**< Pointer to list of Shadow Items */
+	time_t					contextTime;						/**< Time value used as context for Shadow callback */
 
 } shadowData_t;
 
@@ -219,7 +222,6 @@ static char * _formatShadowUpdate( void )
     	{
 			/* Create a new json document for just that item */
     		temp = json_formatItem2Level( pItem, "state", "reported" );
-//    		temp = _formatJsonItem( pItem );
 
       		/* Merge the new Item Document with the static shadow JSON. Output to mergeOutput */
     		len = mjson_merge(staticShadowJSON, len, temp, strlen( temp ), mjson_print_dynamic_buf, &mergeOutput);
@@ -235,6 +237,30 @@ static char * _formatShadowUpdate( void )
     }
 
 	return staticShadowJSON;
+}
+
+/**
+ * @brief	Callback Handler for Shadow Update
+ */
+static void _shadowUpdateCallback( void * reference,  AwsIotShadowCallbackParam_t * param )
+{
+	time_t *context = reference;
+
+	if( ( param->callbackType == AWS_IOT_SHADOW_UPDATE_COMPLETE ) && ( *context == shadowData.contextTime ) )
+	{
+		if( param->u.operation.result == AWS_IOT_SHADOW_SUCCESS )
+		{
+			IotLogInfo( "Shadow Update: Success" );
+		}
+		else if( param->u.operation.result == AWS_IOT_SHADOW_TIMEOUT )
+		{
+			IotLogError( "Shadow Update: Timeout Error" );
+		}
+		else
+		{
+			IotLogError(" Shadow Update: Error[%d]", param->u.operation.result );
+		}
+	}
 }
 
 /**
@@ -271,9 +297,19 @@ static int updateReportedShadow(const char * updateJSON,
 	int status = EXIT_SUCCESS;
 	AwsIotShadowError_t updateStatus = AWS_IOT_SHADOW_STATUS_PENDING;
 	AwsIotShadowDocumentInfo_t updateDocument = AWS_IOT_SHADOW_DOCUMENT_INFO_INITIALIZER;
+	AwsIotShadowCallbackInfo_t updateCallback = AWS_IOT_SHADOW_CALLBACK_INFO_INITIALIZER;
+
 	/* Only proceed if an mqtt connection has been established */
 	if( shadowData.mqttConnection != NULL )
 	{
+
+		/* If caller has not request a callback, use a generic callback */
+//		if( pCallbackInfo == NULL )
+//		{
+		shadowData.contextTime = getTimeValue();
+		updateCallback.pCallbackContext = &shadowData.contextTime;
+		updateCallback.function = _shadowUpdateCallback;
+//		}
 
 		if( status == EXIT_SUCCESS )
 		{
@@ -286,12 +322,9 @@ static int updateReportedShadow(const char * updateJSON,
 			updateStatus = AwsIotShadow_Update( shadowData.mqttConnection,
 													 &updateDocument,
 													 0,
-													 pCallbackInfo,
+													 &updateCallback,
+//													 pCallbackInfo,
 													 NULL);
-		}
-		else
-		{
-			IotLogError("Error updating shadow. No MQTT Connection");
 		}
 
 		if( updateStatus != AWS_IOT_SHADOW_STATUS_PENDING )
@@ -303,6 +336,11 @@ static int updateReportedShadow(const char * updateJSON,
 		{
 			IotLogInfo( "Sent Shadow update" );
 		}
+	}
+	else
+	{
+		IotLogError("Error updating shadow. No MQTT Connection");
+		status = EXIT_FAILURE;
 	}
 	return status;
 }
@@ -581,12 +619,6 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 	}
 }
 
-/* ************************************************************************* */
-/* ************************************************************************* */
-/* **********        I N T E R F A C E   F U N C T I O N S        ********** */
-/* ************************************************************************* */
-/* ************************************************************************* */
-
 /**
  * @brief Set the Shadow callback functions used in this demo.
  *
@@ -643,6 +675,12 @@ static int _setShadowCallbacks( IotSemaphore_t * pDeltaSemaphore,
 
     return status;
 }
+
+/* ************************************************************************* */
+/* ************************************************************************* */
+/* **********        I N T E R F A C E   F U N C T I O N S        ********** */
+/* ************************************************************************* */
+/* ************************************************************************* */
 
 /**
  * @brief	Shadow Connect
@@ -709,7 +747,8 @@ void shadow_updateReported( void )
 	if( shadowData.mqttConnection != NULL )
 	{
 		updateDocument = _formatShadowUpdate();
-		IotLogInfo( "Update Document = %s", updateDocument );
+//		IotLogInfo( "Update Document = %s", updateDocument );
+		printf( "\n\nUpdate Document = %s\n\n", updateDocument );
 
 		/* Update shadow */
 		updateReportedShadow( updateDocument, strlen( updateDocument), NULL );

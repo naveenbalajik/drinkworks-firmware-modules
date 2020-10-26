@@ -198,7 +198,7 @@ static void _mqttDisconnectCallback(void * param, IotMqttCallbackParam_t * mqttC
  * @return `EXIT_SUCCESS` if the connection is successfully established; `EXIT_FAILURE`
  * otherwise.
  */
-esp_err_t _establishMqttConnection( void )
+static esp_err_t _establishMqttConnection( void )
 {
 	esp_err_t err = ESP_OK;
 	IotMqttError_t connectStatus     = IOT_MQTT_STATUS_PENDING;
