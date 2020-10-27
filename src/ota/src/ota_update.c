@@ -630,8 +630,9 @@ static void _OTAUpdateTask( void *arg )
 				else
 				{
 					/* Periodically output statistics */
-					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u\r\n", _pStateStr[ otaData.eState ],
-								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
+					printf(" OTA Statistics should be here\n" );
+//					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u\r\n", _pStateStr[ otaData.eState ],
+//								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
 
 					/* Wait - one second. */
 					IotClock_SleepMs( OTA_TASK_DELAY_SECONDS * 1000 );
@@ -656,8 +657,10 @@ static void _OTAUpdateTask( void *arg )
 			case eOtaTaskResume:
 				if( otaData.bConnected )
 				{
+					printf( "OTA Agent Suspended. OTA_Resume()\n" );
 					IotLogInfo( "OTA Agent Suspended. Resuming" );
 					OTA_Resume( &otaData.connectionCtx );
+					printf( "OTA Agent Suspended. OTA_AgentInit(), state = %s\n", _pStateStr[ otaData.eState ] );
 					/*
 					 * Agent is already running, use standard OTA Agent initialization function.
 					 * This will clear OTA statistics for new connection.
@@ -668,8 +671,13 @@ static void _OTAUpdateTask( void *arg )
 								   ( TickType_t ) ~0 );
 
 					/* transition to Run State */
+					printf( "ota -> Run\n" );
 					IotLogInfo( "ota -> Run" );
 					otaData.taskState = eOtaTaskRun;
+				}
+				else
+				{
+					vTaskDelay( 1000 / portTICK_PERIOD_MS );
 				}
 				break;
 

@@ -42,7 +42,7 @@
 
 #define	MQTT_STACK_SIZE    ( 4096 + 1024 )
 
-#define	MQTT_TASK_PRIORITY	( 15 )
+#define	MQTT_TASK_PRIORITY	( 5 )
 
 #define	MQTT_TASK_NAME	( "MqttTask" )
 /**
@@ -141,6 +141,8 @@ static mqttData_t mqttData =
 	.retryInterval = MQTT_CONN_RETRY_BASE_INTERVAL_SECONDS,
 };
 
+static IotMqttConnection_t _mqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
+
 
 /**
  * @brief Disconnect callback for the loss of an MQTT connection. Tracks the connected parameters
@@ -175,7 +177,7 @@ static void _mqttDisconnectCallback(void * param, IotMqttCallbackParam_t * mqttC
 
     mqttData.bMqttConnected = false;
 
-    mqttData.pMqttConnection = NULL;
+    *mqttData.pMqttConnection = NULL;
 
     if( mqttData.disconnectedCallback != NULL )
     {
@@ -189,12 +191,6 @@ static void _mqttDisconnectCallback(void * param, IotMqttCallbackParam_t * mqttC
 /**
  * @brief	Establish an MQTT Connection, using Client Identifier and setting Last Will and Testament message
  *
- * @param[in]    pNetworkServerInfo      Passed to the MQTT connect function when establishing the MQTT connection.
- * @param[in]    pNetworkCredentialInfo  Passed to the MQTT connect function when establishing the MQTT connection.
- * @param[in]    pNetworkInterface       Network interface to use for the connection.
- * @param[in]    pIdentifier             Client Identifier (ThingName)
- * @param[out]   pMqttConnection         Set to the handle to the new MQTT connection.
- *
  * @return `EXIT_SUCCESS` if the connection is successfully established; `EXIT_FAILURE`
  * otherwise.
  */
@@ -206,7 +202,7 @@ static esp_err_t _establishMqttConnection( void )
     IotMqttConnectInfo_t connectInfo = IOT_MQTT_CONNECT_INFO_INITIALIZER;
     IotMqttPublishInfo_t willInfo    = IOT_MQTT_PUBLISH_INFO_INITIALIZER;
 	char willTopicName[50];
-	static IotMqttConnection_t pMqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
+//	static IotMqttConnection_t pMqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
 
 	/* Set the members of the network info not set by the initializer. This
 	 * struct provided information on the transport layer to the MQTT connection. */
@@ -238,16 +234,22 @@ static esp_err_t _establishMqttConnection( void )
 	connectInfo.clientIdentifierLength = ( uint16_t ) strlen( mqttData.pIdentifier );
 	connectInfo.pWillInfo = &willInfo;
 
+printf( "_establishMqttConnection( %p, %p, %p, %s)\n", networkInfo.u.setup.pNetworkServerInfo, networkInfo.u.setup.pNetworkCredentialInfo, networkInfo.pNetworkInterface, connectInfo.pClientIdentifier );
 
+printf( "  calling IotMqtt_Connect( %p, %p, %ld, %p)\n", &networkInfo,
+        &connectInfo,
+        CONN_TIMEOUT_MS,
+		 &_mqttConnection );
 	/* Connect to the broker. */
 	connectStatus = IotMqtt_Connect( &networkInfo,
                                      &connectInfo,
                                      CONN_TIMEOUT_MS,
-									 &pMqttConnection );
+									 &_mqttConnection );
 
+printf( "  IotMqtt_Connect completed: %d\n", connectStatus );
 	IotLogInfo( "IotMqtt_Connect completed: %d", connectStatus );
 
-    mqttData.pMqttConnection = &pMqttConnection;
+    mqttData.pMqttConnection = &_mqttConnection;
 
 	if( connectStatus != IOT_MQTT_SUCCESS )
 	{
@@ -457,6 +459,7 @@ static void mqtt_task( void *arg )
 					}
 					else
 					{
+						printf( "  calling _establishMqttConnection()\n" );
 						_establishMqttConnection();
 
 						/* check if now connected, if not delay before retrying */
@@ -511,10 +514,11 @@ void mqtt_disconnectMqttConnection( void )
 {
 
 	printf( "mqtt_disconnectMqttConnection\n");
-	if( mqttData.pMqttConnection != NULL )
+	if( *mqttData.pMqttConnection != NULL )
 	{
+//		IotMqtt_Disconnect( *mqttData.pMqttConnection, 0 );
 		IotMqtt_Disconnect( *mqttData.pMqttConnection, IOT_MQTT_FLAG_CLEANUP_ONLY );
-		mqttData.pMqttConnection = NULL;
+		*mqttData.pMqttConnection = NULL;
 	}
 
 	mqttData.bMqttConnected = false;
@@ -574,7 +578,7 @@ esp_err_t	mqtt_SendMsgToTopic( const char* topic, uint32_t topicLen, const char*
 		err = ESP_FAIL;
 	}
 
-	if( mqttData.pMqttConnection == NULL )
+	if( *mqttData.pMqttConnection == NULL )
 	{
 		IotLogError( "Error: No active MQTT connection. Cannot send msg to topic" );
 		err = ESP_FAIL;
@@ -618,6 +622,7 @@ void mqtt_setConnectionParameters(	void * pNetworkServerInfo,
 	mqttData.pNetworkInterface = pNetworkInterface;
 	mqttData.pIdentifier = pIdentifier;
 	mqttData.bConnectionParameters = true;
+	printf( "mqtt_setConnectionParameters( %p, %p, %p, %s)\n", pNetworkServerInfo, pNetworkCredentialInfo, pNetworkInterface, pIdentifier );
 }
 
 
