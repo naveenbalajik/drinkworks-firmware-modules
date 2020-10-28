@@ -199,6 +199,9 @@ static char * _makeToken( void )
  * @brief Format Shadow Update
  *
  * Build and send a Shadow reported document, based on the bUpdate flags in the table.
+ * Format buffer is allocated from heap and must be released after processing
+ *
+ * @return	Pointer to JSON document.  NULL is no shadow items have bUpdate flag set.
  */
 static char * _formatShadowUpdate( void )
 {
@@ -208,6 +211,7 @@ static char * _formatShadowUpdate( void )
 	char * staticShadowJSON = NULL;
     _shadowItem_t *pShadowItem;
     _jsonItem_t *pItem;
+    bool	bUpdateNeeded = false;
 
     /* Start by creating a client token */
 	len = mjson_printf( &mjson_print_dynamic_buf, &staticShadowJSON, "{%Q:%Q}", "clientToken", _makeToken() );
@@ -233,7 +237,16 @@ static char * _formatShadowUpdate( void )
     		free( temp );
     		temp = NULL;
 
+    		bUpdateNeeded = true;
+
     	}
+    }
+
+    /* If no update is needed, free format buffer and return NULL */
+    if( bUpdateNeeded == false )
+    {
+    	free( staticShadowJSON );
+    	staticShadowJSON = NULL;
     }
 
 	return staticShadowJSON;
@@ -452,10 +465,13 @@ static void _shadowDeltaCallback( void * pCallbackContext,
     if( deltaFound )
     {
     	updateDocument = _formatShadowUpdate();
+    	if( updateDocument != NULL )
+    	{
     	IotLogInfo( "Update Document = %s", updateDocument );
-    	/* Update shadow */
-    	updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
-    	free( updateDocument );
+			/* Update shadow */
+			updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
+			free( updateDocument );
+    	}
     }
     /* Post to the delta semaphore to unblock the thread sending Shadow updates. */
 //    IotSemaphore_Post( pDeltaSemaphore );
@@ -738,7 +754,13 @@ int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName 
     return status;
 }
 
-
+/**
+ * @brief	Update the Report Shadow State
+ *
+ * A JSON shadow document is formatted, using the bUpdate flags of the shadow items.
+ * If one or more items have their bUpdate flag set, the JSON document will be valid
+ * and will be published, updating the reported state of the device shadow.
+ */
 void shadow_updateReported( void )
 {
 	char *updateDocument;
@@ -747,12 +769,16 @@ void shadow_updateReported( void )
 	if( shadowData.mqttConnection != NULL )
 	{
 		updateDocument = _formatShadowUpdate();
-//		IotLogInfo( "Update Document = %s", updateDocument );
-		printf( "\n\nUpdate Document = %s\n\n", updateDocument );
 
-		/* Update shadow */
-		updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
-		free( updateDocument );
+		if( updateDocument != NULL )
+		{
+	//		IotLogInfo( "Update Document = %s", updateDocument );
+			printf( "\n\nUpdate Document = %s\n\n", updateDocument );
+
+			/* Update shadow */
+			updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
+			free( updateDocument );
+		}
 	}
 }
 

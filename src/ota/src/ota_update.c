@@ -580,9 +580,9 @@ static void _OTAUpdateTask( void *arg )
 					vTaskDelay( 5000 / portTICK_PERIOD_MS );
 
 					/* Once connected, get the MQTT connection reference */
-					otaData.connectionCtx.pvControlClient = *mqtt_getConnection();
+					otaData.connectionCtx.pvControlClient = mqtt_getConnection();
 
-					IotLogInfo( "_OTAUpdateTask: MQTT Connected" );
+					IotLogInfo( "_OTAUpdateTask: MQTT Connected (%p)", otaData.connectionCtx.pvControlClient );
 
 					/*
 					 * If Agent is not already running, initialize the OTA Agent, using internal init function,
@@ -630,9 +630,9 @@ static void _OTAUpdateTask( void *arg )
 				else
 				{
 					/* Periodically output statistics */
-					printf(" OTA Statistics should be here\n" );
-//					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u\r\n", _pStateStr[ otaData.eState ],
-//								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
+//					printf(" OTA Statistics should be here\n" );
+					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u\r\n", _pStateStr[ otaData.eState ],
+								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
 
 					/* Wait - one second. */
 					IotClock_SleepMs( OTA_TASK_DELAY_SECONDS * 1000 );
@@ -661,6 +661,11 @@ static void _OTAUpdateTask( void *arg )
 					IotLogInfo( "OTA Agent Suspended. Resuming" );
 					OTA_Resume( &otaData.connectionCtx );
 					printf( "OTA Agent Suspended. OTA_AgentInit(), state = %s\n", _pStateStr[ otaData.eState ] );
+
+					printf( " *** otaData.connectionCtx.pvControlClient = %p, pMqttConnection = %p\n",
+							otaData.connectionCtx.pvControlClient,
+							mqtt_getConnection() );
+					otaData.connectionCtx.pvControlClient =	mqtt_getConnection();
 					/*
 					 * Agent is already running, use standard OTA Agent initialization function.
 					 * This will clear OTA statistics for new connection.

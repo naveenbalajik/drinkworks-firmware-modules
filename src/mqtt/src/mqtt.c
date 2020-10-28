@@ -117,7 +117,7 @@ typedef struct
 	mqttState_t				mqttState;
 	int						retryInterval;
 	void * 					pNetworkServerInfo;
-	IotMqttConnection_t * 	pMqttConnection;
+	IotMqttConnection_t 	pMqttConnection;
 	const IotNetworkInterface_t *	pNetworkInterface;
 	void * 					pNetworkCredentialInfo;
 	const char *			pIdentifier;
@@ -177,7 +177,7 @@ static void _mqttDisconnectCallback(void * param, IotMqttCallbackParam_t * mqttC
 
     mqttData.bMqttConnected = false;
 
-    *mqttData.pMqttConnection = NULL;
+    mqttData.pMqttConnection = NULL;
 
     if( mqttData.disconnectedCallback != NULL )
     {
@@ -249,7 +249,7 @@ printf( "  calling IotMqtt_Connect( %p, %p, %ld, %p)\n", &networkInfo,
 printf( "  IotMqtt_Connect completed: %d\n", connectStatus );
 	IotLogInfo( "IotMqtt_Connect completed: %d", connectStatus );
 
-    mqttData.pMqttConnection = &_mqttConnection;
+    mqttData.pMqttConnection = _mqttConnection;
 
 	if( connectStatus != IOT_MQTT_SUCCESS )
 	{
@@ -514,11 +514,11 @@ void mqtt_disconnectMqttConnection( void )
 {
 
 	printf( "mqtt_disconnectMqttConnection\n");
-	if( *mqttData.pMqttConnection != NULL )
+	if( mqttData.pMqttConnection != NULL )
 	{
 //		IotMqtt_Disconnect( *mqttData.pMqttConnection, 0 );
-		IotMqtt_Disconnect( *mqttData.pMqttConnection, IOT_MQTT_FLAG_CLEANUP_ONLY );
-		*mqttData.pMqttConnection = NULL;
+		IotMqtt_Disconnect( mqttData.pMqttConnection, IOT_MQTT_FLAG_CLEANUP_ONLY );
+		mqttData.pMqttConnection = NULL;
 	}
 
 	mqttData.bMqttConnected = false;
@@ -530,7 +530,7 @@ void mqtt_disconnectMqttConnection( void )
  *
  * @return    Handle of the current MQTT connection
  */
-IotMqttConnection_t *	mqtt_getConnection( void )
+IotMqttConnection_t	mqtt_getConnection( void )
 {
 	return mqttData.pMqttConnection;
 }
@@ -578,7 +578,7 @@ esp_err_t	mqtt_SendMsgToTopic( const char* topic, uint32_t topicLen, const char*
 		err = ESP_FAIL;
 	}
 
-	if( *mqttData.pMqttConnection == NULL )
+	if( mqttData.pMqttConnection == NULL )
 	{
 		IotLogError( "Error: No active MQTT connection. Cannot send msg to topic" );
 		err = ESP_FAIL;
@@ -586,7 +586,7 @@ esp_err_t	mqtt_SendMsgToTopic( const char* topic, uint32_t topicLen, const char*
 
 	if( err == ESP_OK )
 	{
-		IotMqttError_t qos1Result = IotMqtt_Publish( *mqttData.pMqttConnection, &msgInfo, 0, pCallbackInfo, NULL );
+		IotMqttError_t qos1Result = IotMqtt_Publish( mqttData.pMqttConnection, &msgInfo, 0, pCallbackInfo, NULL );
 		if( qos1Result != IOT_MQTT_STATUS_PENDING )
 		{
 			IotLogError( "Error publishing MQTT message to topic. Err:%d", qos1Result );

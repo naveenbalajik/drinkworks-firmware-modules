@@ -47,7 +47,7 @@ void mqtt_disconnectMqttConnection( void) ;
  *
  * @return    Handle of the current MQTT connection
  */
-IotMqttConnection_t	* mqtt_getConnection( void );
+IotMqttConnection_t	mqtt_getConnection( void );
 
 /**
  * @brief 	Get the Client Identifier (ThingName)
