@@ -103,16 +103,6 @@
 #define FLEET_PROV_SEMAPHORE_MAX_VAL				(1024)
 
  /**
- * @brief Topic to register and fleet provision thing with AWS
- */
-#define REGISTER_AND_PROVISION_TOPIC				"$aws/provisioning-templates/DW_FleetProvision_Template/provision/json"
-
- /**
- * @brief Topic to request certificate from AWS
- */
-#define CERT_CREATE_REQUEST_AWS_TOPIC_NAME			"$aws/certificates/create/json"
-
- /**
  * @brief Length of final certificate array
  */
 #define FINAL_CERT_MAX_LENGTH						(2048)
@@ -121,6 +111,48 @@
  * @brief Length of final key array
  */
 #define	FINAL_KEY_MAX_LENGTH						(2048)
+
+
+ /**
+ * @brief Topic to request certificate from AWS
+ */
+#define CERT_CREATE_REQUEST_AWS_TOPIC_NAME			"$aws/certificates/create/json"
+
+ /**
+ * @brief Return topic for an accepted certificate creation
+ */
+#define CERT_CREATE_RETURN_TOPIC_ACCEPTED			"$aws/certificates/create/json/accepted"
+
+ /**
+ * @brief Return topic for a rejected certificate creation
+ */
+#define CERT_CREATE_RETURN_TOPIC_REJECTED			"$aws/certificates/create/json/rejected"
+
+ /**
+ * @brief Topic to register and fleet provision thing with AWS. Wildcard is replaced by template name by init function
+ */
+#define PROVISION_TOPIC_STUCTURE					"$aws/provisioning-templates/*/provision/json"
+
+
+/**
+ * @brief Fleet provisioning template name. This will dictate what topics the fleet provisioning request is sent to
+ */
+static char * pTemplateName = NULL;
+
+/**
+ * @brief Fleet provisioning template request topic. Set by init
+ */
+static char * pProvisionRequestTopic = NULL;
+
+/**
+ * @brief Fleet provisioning accepted topic. Set by init
+ */
+static char * pProvisionRequestAcceptedTopic = NULL;
+
+/**
+ * @brief Fleet provisioning rejected topic. Set by init
+ */
+static char * pProvisionRequestRejectedTopic = NULL;
 
  /**
  * @brief Static array for final certificate. Temporary storage for the cert until AWS responds 'Accepted' to the register thing request
@@ -792,8 +824,8 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 	// Subscribe to certificate created accepted/rejected topics
 	const char* pCertCreatedReturnTopics[CERT_CREATED_SUBSCRIBE_TOPIC_CNT] =
 	{
-		"$aws/certificates/create/json/accepted",
-		"$aws/certificates/create/json/rejected",
+		CERT_CREATE_RETURN_TOPIC_ACCEPTED,
+		CERT_CREATE_RETURN_TOPIC_REJECTED,
 	};
 
 	err = _subscribeTopics(mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT, _certificateCreateSubscriptionCallback, NULL);
@@ -886,6 +918,67 @@ int32_t fleetProv_FinalCredentialsInit(void * pNetworkServerInfo, void* pCredent
 	}
 
 	_fleetProvCleanup();
+
+	return err;
+}
+
+/**
+ * @brief Replaces wildcard in a string and appends another string to the end of the string
+ * Note: All inputs to the function must be strings (null terminated)
+ *
+ * @param[in] strWithWildcard		Fleet provisioning template name to use for provisioning
+ *
+ * @return ESP_OK if successful, error otherwise
+ */
+static char * _replaceWildcardAppend(const char * strWithWildcard, const char * replacement, const char * additions)
+{
+	int index = 0;
+	// Allocate memory for the new string
+	char * newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement) + strlen(additions));
+	// Set the newly allocated array to the string with wildcard
+	memcpy(newString, strWithWildcard, strlen(strWithWildcard));
+	// Find the wildcard
+	char * wildcardPosition = strchr(strWithWildcard, "*");
+	index = (int) wildcardPosition - strWithWildcard;
+	// Replace the wildcard with the replacement string
+	strcpy(newString[index], replacement);
+	index += strlen(replacement) + 1;
+	// Refill the end of the string
+	strcpy(newString[index], wildcardPosition + 1);
+	index += strlen(wildcardPosition + 1) + 1;
+	// Place any additions on the end of the string
+	if(additions != NULL){
+		strcpy(newString[index], additions);
+	}
+
+	return newString;
+}
+
+/**
+ * @brief Initialize the fleet provisioning
+ *
+ * @param[in] pProvTemplateName		Fleet provisioning template name to use for provisioning
+ *
+ * @return ESP_OK if successful, error otherwise
+ */
+int32_t fleetProv_Init(const char * pProvTemplateName)
+{
+	esp_err_t err = ESP_OK;
+
+	// Set the template name
+	if(pProvTemplateName != NULL){
+		pTemplateName = pProvTemplateName;
+	}
+	else{
+		err = ESP_FAIL;
+	}
+
+
+	if(err == ESP_OK){
+		pProvisionRequestTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, NULL);
+		pProvisionRequestAcceptedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/accepted");
+		pProvisionRequestRejectedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/rejected");
+	}
 
 	return err;
 }
