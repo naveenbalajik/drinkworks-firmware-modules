@@ -376,8 +376,6 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 
     char * updateDocument;
 
-    printf( "_shadowDeltaCallback\n" );
-
     /* Iterate through Shadow Item list */
     for( pShadowItem = shadowData.itemList; pShadowItem->jItem.key != NULL; ++pShadowItem )
     {
@@ -513,7 +511,6 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 //			pCallbackParam->u.callback.documentLength,
 //			pCallbackParam->u.callback.pDocument );
 
-    printf( "_shadowUpdatedCallback\n" );
 	/* Don't try to process the document if it is very small */
 	if( pCallbackParam->u.callback.documentLength > MIN_UPDATE_LEN )
 	{
@@ -734,8 +731,6 @@ int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName 
         status = EXIT_FAILURE;
     }
 
-    printf( "shadow_connect: mqttConnection = %p\n", mqttConnection );
-
     /* Save MQTT Connection for future use */
     shadowData.mqttConnection = mqttConnection;
 
@@ -763,14 +758,13 @@ int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName 
  * @brief	Shadow Disconnect
  *
  * This function should called upon an MQTT disconnect.
- * The hope is that by clearing the callbacks that they can be re-subscribed to
+ * By clearing the callbacks here, they can be re-subscribed to
  * upon reconnection.
  */
 void shadow_disconnect( void )
 {
 
-	printf( "shadow_disconnect\n" );
-
+	IotLogInfo( "shadow_disconnect" );
 
     /* Remove the Delta callback */
     AwsIotShadow_SetDeltaCallback( shadowData.mqttConnection,
@@ -805,8 +799,7 @@ void shadow_updateReported( void )
 
 		if( updateDocument != NULL )
 		{
-	//		IotLogInfo( "Update Document = %s", updateDocument );
-			printf( "\n\nUpdate Document = %s\n\n", updateDocument );
+			IotLogInfo( "Update Document = %s", updateDocument );
 
 			/* Update shadow */
 			_updateReportedShadow( updateDocument, strlen( updateDocument), NULL );

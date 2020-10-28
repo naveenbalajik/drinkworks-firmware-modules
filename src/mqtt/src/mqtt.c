@@ -126,7 +126,6 @@ typedef struct
 	_mqttConnectedCallback_t connectedCallback;
 	_mqttDisconnectedCallback_t disconnectedCallback;
 	const char *			pLWAT;													/**< Last Will and Testament message */
-//	void * 					callbackParams;
 } mqttData_t;
 
 static mqttData_t mqttData =
@@ -137,7 +136,6 @@ static mqttData_t mqttData =
 	.bMqttConnected = false,
 	.connectedCallback = NULL,
 	.disconnectedCallback = NULL,
-//	.callbackParams = NULL,
 	.retryInterval = MQTT_CONN_RETRY_BASE_INTERVAL_SECONDS,
 };
 
@@ -187,7 +185,6 @@ static void _mqttDisconnectCallback(void * param, IotMqttCallbackParam_t * mqttC
 }
 
 
-
 /**
  * @brief	Establish an MQTT Connection, using Client Identifier and setting Last Will and Testament message
  *
@@ -202,7 +199,6 @@ static esp_err_t _establishMqttConnection( void )
     IotMqttConnectInfo_t connectInfo = IOT_MQTT_CONNECT_INFO_INITIALIZER;
     IotMqttPublishInfo_t willInfo    = IOT_MQTT_PUBLISH_INFO_INITIALIZER;
 	char willTopicName[50];
-//	static IotMqttConnection_t pMqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
 
 	/* Set the members of the network info not set by the initializer. This
 	 * struct provided information on the transport layer to the MQTT connection. */
@@ -234,19 +230,12 @@ static esp_err_t _establishMqttConnection( void )
 	connectInfo.clientIdentifierLength = ( uint16_t ) strlen( mqttData.pIdentifier );
 	connectInfo.pWillInfo = &willInfo;
 
-printf( "_establishMqttConnection( %p, %p, %p, %s)\n", networkInfo.u.setup.pNetworkServerInfo, networkInfo.u.setup.pNetworkCredentialInfo, networkInfo.pNetworkInterface, connectInfo.pClientIdentifier );
-
-printf( "  calling IotMqtt_Connect( %p, %p, %ld, %p)\n", &networkInfo,
-        &connectInfo,
-        CONN_TIMEOUT_MS,
-		 &_mqttConnection );
 	/* Connect to the broker. */
 	connectStatus = IotMqtt_Connect( &networkInfo,
                                      &connectInfo,
                                      CONN_TIMEOUT_MS,
 									 &_mqttConnection );
 
-printf( "  IotMqtt_Connect completed: %d\n", connectStatus );
 	IotLogInfo( "IotMqtt_Connect completed: %d", connectStatus );
 
     mqttData.pMqttConnection = _mqttConnection;
@@ -270,7 +259,6 @@ printf( "  IotMqtt_Connect completed: %d\n", connectStatus );
 		/* If connected callback is registered, call it */
 		if( mqttData.connectedCallback != NULL )
 		{
-//			mqttData.connectedCallback( mqttData.callbackParams );
 			mqttData.connectedCallback( );
 		}
 	}
@@ -278,110 +266,6 @@ printf( "  IotMqtt_Connect completed: %d\n", connectStatus );
 	return err;
 }
 
-#ifdef	DEPRECIATED
-/**
- * @brief	Establish an MQTT Connection, using Client Identifier and setting Last Will and Testament message
- *
- * @param[in]    pNetworkServerInfo      Passed to the MQTT connect function when establishing the MQTT connection.
- * @param[in]    pNetworkCredentialInfo  Passed to the MQTT connect function when establishing the MQTT connection.
- * @param[in]    pNetworkInterface       Network interface to use for the connection.
- * @param[in]    pIdentifier             Client Identifier (ThingName)
- * @param[out]   pMqttConnection         Set to the handle to the new MQTT connection.
- *
- * @return `EXIT_SUCCESS` if the connection is successfully established; `EXIT_FAILURE`
- * otherwise.
- */
-esp_err_t mqtt_establishMqttConnection(
-                        void * pNetworkServerInfo,
-                        void * pNetworkCredentialInfo,
-                        const IotNetworkInterface_t * pNetworkInterface,
-                        const char * pIdentifier,
-                        IotMqttConnection_t * pMqttConnection )
-{
-	esp_err_t err = ESP_OK;
-	IotMqttError_t connectStatus     = IOT_MQTT_STATUS_PENDING;
-	IotMqttNetworkInfo_t networkInfo = IOT_MQTT_NETWORK_INFO_INITIALIZER;
-    IotMqttConnectInfo_t connectInfo = IOT_MQTT_CONNECT_INFO_INITIALIZER;
-    IotMqttPublishInfo_t willInfo    = IOT_MQTT_PUBLISH_INFO_INITIALIZER;
-	char willTopicName[50];
-
-	/* Set the members of the network info not set by the initializer. This
-	 * struct provided information on the transport layer to the MQTT connection. */
-	networkInfo.createNetworkConnection        = true;
-	networkInfo.u.setup.pNetworkServerInfo     = pNetworkServerInfo;
-	networkInfo.u.setup.pNetworkCredentialInfo = pNetworkCredentialInfo;
-	networkInfo.pNetworkInterface              = pNetworkInterface;
-
-	// Set callback for disconnect
-	IotMqttCallbackInfo_t mqttCallbackInfo		= IOT_MQTT_CALLBACK_INFO_INITIALIZER;
-	mqttCallbackInfo.function					= _mqttDisconnectCallback;
-	networkInfo.disconnectCallback				= mqttCallbackInfo;
-
-	/* Set the members of the Last Will and Testament (LWT) message info. The
-	 * MQTT server will publish the LWT message if this client disconnects
-	 * unexpectedly. */
-	snprintf( willTopicName, 50, WILL_TOPIC_NAME_TEMPLATE, pIdentifier );
-	willInfo.pTopicName      = willTopicName;
-	willInfo.topicNameLength = strlen( willTopicName );
-	willInfo.pPayload        = WILL_MESSAGE;
-	willInfo.payloadLength   = WILL_MESSAGE_LENGTH;
-	IotLogInfo( "Will topic = %s, message = %s", willInfo.pTopicName, willInfo.pPayload );
-
-	/* Set the members of the connection info not set by the initializer. */
-	connectInfo.awsIotMqttMode = true;
-	connectInfo.cleanSession = true;
-	connectInfo.keepAliveSeconds = MQTT_KEEPALIVE_SECONDS;
-	connectInfo.pClientIdentifier = pIdentifier;
-	connectInfo.clientIdentifierLength = ( uint16_t ) strlen( pIdentifier );
-	connectInfo.pWillInfo = &willInfo;
-
-
-	/* Connect to the broker. */
-	connectStatus = IotMqtt_Connect( &networkInfo,
-                                     &connectInfo,
-                                     CONN_TIMEOUT_MS,
-                                     pMqttConnection );
-
-	if( connectStatus != IOT_MQTT_SUCCESS )
-	{
-		IotLogError( "ERROR: MQTT CONNECT returned error %s.", IotMqtt_strerror( connectStatus ) );
-		/* Do we need to clean up a failed MQTT connection ? */
-//		vMqttAppDeleteNetworkConnection( &xConnection );
-		err = connectStatus;
-	}
-	else
-	{
-		_mqttConnected = true;
-		_pCurrentMqttConnection = *pMqttConnection;
-		IotLogInfo( "Mqtt connection established" );
-		IotLogInfo( "MQTT demo client identifier is %.*s (length %hu).",
-		                    connectInfo.clientIdentifierLength,
-		                    connectInfo.pClientIdentifier,
-		                    connectInfo.clientIdentifierLength );
-
-		_connectedCallback(_callbackParams);
-
-	}
-
-	if(err == ESP_OK){
-		uint8_t updateRetryCount = 0;
-		// Attempt to update the shadow to connected up to three times
-		err = _updateShadowConnected(pIdentifier);
-		while(err != ESP_OK && updateRetryCount < 2){
-			IotLogError( "Error updating Shadow to connected. Retrying..." );
-			err = _updateShadowConnected(pIdentifier);
-			updateRetryCount++;
-		}
-		// If the shadow cannot be updated to connected, disconnect the connection
-		if(err != ESP_OK){
-			IotLogError( "Error: Retry of shadow connect failed. Disconnecting MQTT connection" );
-			mqtt_disconnectMqttConnection();
-		}
-	}
-
-	return err;
-}
-#endif
 
 /**
  * @brief Delay before retrying network connection up to a maximum interval.
@@ -412,6 +296,9 @@ static void _connectionRetryDelay( void )
 
 /**
  * @brief	MQTT Task
+ *
+ * The MQTT state machine runs as a separate task.  It handles connections, disconnections,
+ * and reconnections.
  */
 static void mqtt_task( void *arg )
 {
@@ -422,14 +309,14 @@ static void mqtt_task( void *arg )
 		{
 			case eMqttInitialize:
 				mqttData.mqttState = eMqttUnprovisioned;
-				IotLogDebug( "mqtt -> Unprovisioned\n" );
+				IotLogDebug( "mqtt -> Unprovisioned" );
 				break;
 
 			case eMqttUnprovisioned:
 				if( mqttData.bConnectionParameters == true )
 				{
 					mqttData.mqttState = eMqttDisconnected;
-					IotLogDebug( "mqtt -> Disconnected\n" );
+					IotLogDebug( "mqtt -> Disconnected" );
 				}
 				else
 				{
@@ -447,7 +334,7 @@ static void mqtt_task( void *arg )
 				if( mqttData.bMqttConnected )
 				{
 					mqttData.mqttState = eMqttConnected;
-					IotLogDebug( "mqtt -> Connected\n" );
+					IotLogDebug( "mqtt -> Connected" );
 				}
 				else
 				{
@@ -459,7 +346,6 @@ static void mqtt_task( void *arg )
 					}
 					else
 					{
-						printf( "  calling _establishMqttConnection()\n" );
 						_establishMqttConnection();
 
 						/* check if now connected, if not delay before retrying */
@@ -475,7 +361,7 @@ static void mqtt_task( void *arg )
 				if (mqttData.bMqttConnected == false )
 				{
 					mqttData.mqttState = eMqttDisconnected;
-					IotLogDebug( "mqtt -> Disconnected\n" );
+					IotLogDebug( "mqtt -> Disconnected" );
 				}
 				else
 				{
@@ -513,10 +399,9 @@ bool	mqtt_IsConnected( void )
 void mqtt_disconnectMqttConnection( void )
 {
 
-	printf( "mqtt_disconnectMqttConnection\n");
+	IotLogInfo( "mqtt_disconnectMqttConnection");
 	if( mqttData.pMqttConnection != NULL )
 	{
-//		IotMqtt_Disconnect( *mqttData.pMqttConnection, 0 );
 		IotMqtt_Disconnect( mqttData.pMqttConnection, IOT_MQTT_FLAG_CLEANUP_ONLY );
 		mqttData.pMqttConnection = NULL;
 	}
@@ -622,7 +507,6 @@ void mqtt_setConnectionParameters(	void * pNetworkServerInfo,
 	mqttData.pNetworkInterface = pNetworkInterface;
 	mqttData.pIdentifier = pIdentifier;
 	mqttData.bConnectionParameters = true;
-	printf( "mqtt_setConnectionParameters( %p, %p, %p, %s)\n", pNetworkServerInfo, pNetworkCredentialInfo, pNetworkInterface, pIdentifier );
 }
 
 
@@ -667,8 +551,7 @@ esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnected
 //		}
 
 		/* Create Task */
-#ifndef LATER
-		printf( "Create mqtt_task\n" );
+		IotLogDebug( "Create mqtt_task" );
 	    xTaskCreate( mqtt_task, MQTT_TASK_NAME, MQTT_STACK_SIZE, NULL, MQTT_TASK_PRIORITY, &mqttData.taskHandle );
 	    if( NULL == mqttData.taskHandle )
 		{
@@ -676,7 +559,6 @@ esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnected
 	    }
 
 	    IotLogInfo( "%s created", MQTT_TASK_NAME );
-#endif
 	}
 
 	return err;
