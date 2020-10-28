@@ -42,7 +42,7 @@
 
 #define	MQTT_STACK_SIZE    ( 4096 + 1024 )
 
-#define	MQTT_TASK_PRIORITY	( 5 )
+#define	MQTT_TASK_PRIORITY	( 15 )
 
 #define	MQTT_TASK_NAME	( "MqttTask" )
 /**

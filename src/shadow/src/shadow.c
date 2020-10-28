@@ -303,7 +303,7 @@ static void _shadowUpdateCallback( void * reference,  AwsIotShadowCallbackParam_
  * @return `EXIT_SUCCESS` if all Shadow updates were sent; `EXIT_FAILURE`
  * otherwise.
  */
-static int updateReportedShadow(const char * updateJSON,
+static int _updateReportedShadow(const char * updateJSON,
 							int	sizeJSON,
 							const AwsIotShadowCallbackInfo_t * pCallbackInfo)
 {
@@ -375,6 +375,8 @@ static void _shadowDeltaCallback( void * pCallbackContext,
     _jsonItem_t *pItem;
 
     char * updateDocument;
+
+    printf( "_shadowDeltaCallback\n" );
 
     /* Iterate through Shadow Item list */
     for( pShadowItem = shadowData.itemList; pShadowItem->jItem.key != NULL; ++pShadowItem )
@@ -469,7 +471,7 @@ static void _shadowDeltaCallback( void * pCallbackContext,
     	{
     	IotLogInfo( "Update Document = %s", updateDocument );
 			/* Update shadow */
-			updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
+			_updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
 			free( updateDocument );
     	}
     }
@@ -511,6 +513,7 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 //			pCallbackParam->u.callback.documentLength,
 //			pCallbackParam->u.callback.pDocument );
 
+    printf( "_shadowUpdatedCallback\n" );
 	/* Don't try to process the document if it is very small */
 	if( pCallbackParam->u.callback.documentLength > MIN_UPDATE_LEN )
 	{
@@ -731,6 +734,8 @@ int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName 
         status = EXIT_FAILURE;
     }
 
+    printf( "shadow_connect: mqttConnection = %p\n", mqttConnection );
+
     /* Save MQTT Connection for future use */
     shadowData.mqttConnection = mqttConnection;
 
@@ -755,6 +760,34 @@ int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName 
 }
 
 /**
+ * @brief	Shadow Disconnect
+ *
+ * This function should called upon an MQTT disconnect.
+ * The hope is that by clearing the callbacks that they can be re-subscribed to
+ * upon reconnection.
+ */
+void shadow_disconnect( void )
+{
+
+	printf( "shadow_disconnect\n" );
+
+
+    /* Remove the Delta callback */
+    AwsIotShadow_SetDeltaCallback( shadowData.mqttConnection,
+    		shadowData.pThingName,
+			shadowData.thingNameLength,
+			0,
+            NULL );
+
+    /* Remove the Updated callback */
+    AwsIotShadow_SetUpdatedCallback( shadowData.mqttConnection,
+    		shadowData.pThingName,
+			shadowData.thingNameLength,
+            0,
+            NULL );
+}
+
+/**
  * @brief	Update the Report Shadow State
  *
  * A JSON shadow document is formatted, using the bUpdate flags of the shadow items.
@@ -776,7 +809,7 @@ void shadow_updateReported( void )
 			printf( "\n\nUpdate Document = %s\n\n", updateDocument );
 
 			/* Update shadow */
-			updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
+			_updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
 			free( updateDocument );
 		}
 	}
@@ -813,7 +846,12 @@ int shadow_init(void)
 
 }
 
-void shadow_InitDeltaCallbacks( _shadowItem_t *pShadowItemList )
+/**
+ * @brief	Initialize Shadow Item List
+ *
+ * @param[in]	pShadowItemList		Pointer to list of Shadow Items
+ */
+void shadow_initItemList( _shadowItem_t *pShadowItemList )
 {
 	_shadowItem_t *pShadowItem;
 

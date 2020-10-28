@@ -78,9 +78,11 @@ typedef	struct {
 int shadow_init(void);
 
 
-void shadow_InitDeltaCallbacks( _shadowItem_t *pShadowDeltaList );
+void shadow_initItemList( _shadowItem_t *pShadowDeltaList );
 
 int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName );
+
+void shadow_disconnect( void );
 
 void shadow_updateReported( void );
 
