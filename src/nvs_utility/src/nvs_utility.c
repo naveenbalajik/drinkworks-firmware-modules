@@ -542,6 +542,15 @@ int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, void* pInput, void* pSize )
 
 	if( err == ESP_OK )
 	{
+		if( pInput == NULL)
+		{
+			IotLogError( "NVS_Set pInput = NULL, key = %s", pItem->nvsKey );
+			err = ESP_FAIL;
+		}
+	}
+
+	if( err == ESP_OK )
+	{
 		switch( pItem->type )
 		{
 			case NVS_TYPE_U8:
