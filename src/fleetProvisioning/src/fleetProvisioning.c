@@ -74,7 +74,7 @@
 /**
  * @brief The timeout for MQTT operations.
  */
-#define MQTT_TIMEOUT_MS								( 5000 )
+#define MQTT_TIMEOUT_MS								( 15000 )
 
  /**
  * @brief A PUBLISH message is retried if no response is received within this
@@ -103,16 +103,6 @@
 #define FLEET_PROV_SEMAPHORE_MAX_VAL				(1024)
 
  /**
- * @brief Topic to register and fleet provision thing with AWS
- */
-#define REGISTER_AND_PROVISION_TOPIC				"$aws/provisioning-templates/DW_FleetProvision_Template/provision/json"
-
- /**
- * @brief Topic to request certificate from AWS
- */
-#define CERT_CREATE_REQUEST_AWS_TOPIC_NAME			"$aws/certificates/create/json"
-
- /**
  * @brief Length of final certificate array
  */
 #define FINAL_CERT_MAX_LENGTH						(2048)
@@ -121,6 +111,43 @@
  * @brief Length of final key array
  */
 #define	FINAL_KEY_MAX_LENGTH						(2048)
+
+
+ /**
+ * @brief Topic to request certificate from AWS
+ */
+#define CERT_CREATE_REQUEST_AWS_TOPIC_NAME			"$aws/certificates/create/json"
+
+ /**
+ * @brief Return topic for an accepted certificate creation
+ */
+#define CERT_CREATE_RETURN_TOPIC_ACCEPTED			"$aws/certificates/create/json/accepted"
+
+ /**
+ * @brief Topic to register and fleet provision thing with AWS. Wildcard is replaced by template name by init function
+ */
+#define PROVISION_TOPIC_STUCTURE					"$aws/provisioning-templates/*/provision/json"
+
+
+/**
+ * @brief Fleet provisioning template name. This will dictate what topics the fleet provisioning request is sent to
+ */
+static char * pTemplateName = NULL;
+
+/**
+ * @brief Fleet provisioning template request topic. Set by init
+ */
+static char * pProvisionRequestTopic = NULL;
+
+/**
+ * @brief Fleet provisioning accepted topic. Set by init
+ */
+static char * pProvisionRequestAcceptedTopic = NULL;
+
+/**
+ * @brief Fleet provisioning rejected topic. Set by init
+ */
+static char * pProvisionRequestRejectedTopic = NULL;
 
  /**
  * @brief Static array for final certificate. Temporary storage for the cert until AWS responds 'Accepted' to the register thing request
@@ -296,6 +323,25 @@ static void _fleetProvCleanup(void){
 		vPortFree(finalKey);
 		finalKey = NULL;
 	}
+
+	if(NULL != pProvisionRequestTopic)
+	{
+		vPortFree(pProvisionRequestTopic);
+		pProvisionRequestTopic = NULL;
+	}
+
+	if(NULL != pProvisionRequestAcceptedTopic)
+	{
+		vPortFree(pProvisionRequestAcceptedTopic);
+		pProvisionRequestAcceptedTopic = NULL;
+	}
+
+	if(NULL != pProvisionRequestRejectedTopic)
+	{
+		vPortFree(pProvisionRequestRejectedTopic);
+		pProvisionRequestRejectedTopic = NULL;
+	}
+
 }
 
 
@@ -514,7 +560,7 @@ static void _certificateCreateSubscriptionCallback(void* param1, IotMqttCallback
 	const char* pPayload = pPublish->u.message.info.pPayload;
 
 	/* If the message was received on the accepted topic of certificate creation then parse message */
-	if (strncmp(pPublish->u.message.pTopicFilter, "$aws/certificates/create/json/accepted", sizeof("$aws/certificates/create/json/accepted") - 1) == 0)
+	if (strncmp(pPublish->u.message.pTopicFilter, CERT_CREATE_RETURN_TOPIC_ACCEPTED, sizeof(CERT_CREATE_RETURN_TOPIC_ACCEPTED) - 1) == 0)
 	{
 		/* Use JSMN parser to extract keys. */
 		jsmn_parser p;
@@ -774,6 +820,11 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 {
 	esp_err_t err;
 
+	if(pProvisionRequestTopic == NULL){
+		IotLogError( "Error, provisioning topic not set. Need to call init to set." );
+		return ESP_FAIL;
+	}
+
 	/*MQTT connection for final certificate request*/
 	IotMqttConnection_t mqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
 
@@ -792,8 +843,8 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 	// Subscribe to certificate created accepted/rejected topics
 	const char* pCertCreatedReturnTopics[CERT_CREATED_SUBSCRIBE_TOPIC_CNT] =
 	{
-		"$aws/certificates/create/json/accepted",
-		"$aws/certificates/create/json/rejected",
+		CERT_CREATE_RETURN_TOPIC_ACCEPTED,
+		CERT_CREATE_RETURN_TOPIC_REJECTED,
 	};
 
 	err = _subscribeTopics(mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT, _certificateCreateSubscriptionCallback, NULL);
@@ -806,8 +857,8 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 	// Subscribe to fleet provisioning accepted/rejected topics
 	const char* pFleetProvReturnTopics[FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT] =
 	{
-		"$aws/provisioning-templates/DW_FleetProvision_Template/provision/json/accepted",
-		"$aws/provisioning-templates/DW_FleetProvision_Template/provision/json/rejected",
+		pProvisionRequestAcceptedTopic,
+		pProvisionRequestRejectedTopic,
 	};
 	err = _subscribeTopics( mqttConnection, pFleetProvReturnTopics, FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT, _fleetProvSubscriptionCallback, &fleetProvisioningReceived );
 	if (err != ESP_OK) {
@@ -886,6 +937,86 @@ int32_t fleetProv_FinalCredentialsInit(void * pNetworkServerInfo, void* pCredent
 	}
 
 	_fleetProvCleanup();
+
+	return err;
+}
+
+/**
+ * @brief Replaces wildcard in a string and appends another string to the end of the string
+ * Note: All inputs to the function must be strings (null terminated)
+ * Note: Output string will be dynamically allocated
+ *
+ * @param[in] strWithWildcard		String with wildcard
+ *
+ * @return Pointer to new string allocation if successful. NULL if failed
+ */
+static char * _replaceWildcardAppend(const char * strWithWildcard, const char * replacement, const char * additions)
+{
+	int err = ESP_OK;
+	int index = 0;
+	char * wildcardPosition = NULL;
+
+	// Allocate memory for the new string
+	char * newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement) + strlen(additions), sizeof(char));
+	if(newString == NULL){
+		err = ESP_FAIL;
+		IotLogError("Error: Could not allocate memory for new string with replaced wildcard");
+	}
+
+	if(err == ESP_OK){
+		// Set the newly allocated array to the string with wildcard
+		memcpy(newString, strWithWildcard, strlen(strWithWildcard));
+		// Find the wildcard
+		wildcardPosition = strchr(strWithWildcard, 42);
+		index = wildcardPosition - strWithWildcard;
+		if(wildcardPosition == NULL){
+			err = ESP_FAIL;
+			free(newString);
+			newString = NULL;
+			IotLogError("Error: Wildcard not found in string");
+		}
+	}
+
+	if(err ==ESP_OK){
+		// Replace the wildcard with the replacement string
+		strcpy(newString + index, replacement);
+		index += strlen(replacement);
+		// Refill the end of the string
+		strcpy(newString + index, wildcardPosition + 1);
+		index += strlen(wildcardPosition + 1);
+		// Place any additions on the end of the string
+		if(additions != NULL){
+			strcpy(newString + index, additions);
+		}
+	}
+
+	return newString;
+}
+
+/**
+ * @brief Initialize the fleet provisioning
+ *
+ * @param[in] pProvTemplateName		Fleet provisioning template name to use for provisioning
+ *
+ * @return ESP_OK if successful, error otherwise
+ */
+int32_t fleetProv_Init(const char * pProvTemplateName)
+{
+	esp_err_t err = ESP_OK;
+
+	// Set the template name
+	if(pProvTemplateName != NULL){
+		pTemplateName = pProvTemplateName;
+	}
+	else{
+		err = ESP_FAIL;
+	}
+
+	if(err == ESP_OK){
+		pProvisionRequestTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, NULL);
+		pProvisionRequestAcceptedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/accepted");
+		pProvisionRequestRejectedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/rejected");
+	}
 
 	return err;
 }
