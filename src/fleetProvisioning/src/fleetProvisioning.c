@@ -205,6 +205,67 @@ static int _replaceCharsInString(char* str, int strSize, const char* oldWord, co
 
 }
 
+/**
+ * @brief Replaces wildcard in a string and appends another string to the end of the string
+ * Note: All inputs to the function must be strings (null terminated)
+ * Note: Output string will be dynamically allocated
+ *
+ * @param[in] strWithWildcard		String with wildcard
+ *
+ * @return Pointer to new string allocation if successful. NULL if failed
+ */
+static char * _replaceWildcardAppend(const char * strWithWildcard, const char * replacement, const char * additions)
+{
+	int err = ESP_OK;
+	int index = 0;
+	char * newString;
+	char * wildcardPosition = NULL;
+
+	// Allocate memory for the new string
+	if(additions == NULL)
+	{
+		newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement), sizeof(char));
+	}
+	else
+	{
+		newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement) + strlen(additions), sizeof(char));
+	}
+	if(newString == NULL)
+	{
+		err = ESP_FAIL;
+		IotLogError("Error: Could not allocate memory for new string with replaced wildcard");
+	}
+
+	if(err == ESP_OK){
+		// Set the newly allocated array to the string with wildcard
+		memcpy(newString, strWithWildcard, strlen(strWithWildcard));
+		// Find the wildcard
+		wildcardPosition = strchr(strWithWildcard, 42);
+		index = wildcardPosition - strWithWildcard;
+		if(wildcardPosition == NULL){
+			err = ESP_FAIL;
+			free(newString);
+			newString = NULL;
+			IotLogError("Error: Wildcard not found in string");
+		}
+	}
+
+	if(err ==ESP_OK){
+		// Replace the wildcard with the replacement string
+		strcpy(newString + index, replacement);
+		index += strlen(replacement);
+		// Refill the end of the string
+		strcpy(newString + index, wildcardPosition + 1);
+		index += strlen(wildcardPosition + 1);
+		// Place any additions on the end of the string
+		if(additions != NULL){
+			strcpy(newString + index, additions);
+		}
+	}
+
+	return newString;
+}
+
 
 /**
  * @brief Establish a new connection to the MQTT server.
@@ -338,7 +399,6 @@ static uint32_t _fleetProvisionRequest(IotMqttConnection_t mqttConnection, const
 
 	// Create an mjson document with the certificate ownership token
 	char * provisionPayload = NULL;
-	printf("%.*s\r\n", sizeCertOwnershipToken, pCertOwnershipToken);
 	mjson_printf(&mjson_print_dynamic_buf, &provisionPayload,"{%Q:%.*s, %Q: {%Q:%Q, %Q:%Q}}", \
 															"certificateOwnershipToken", \
 															sizeCertOwnershipToken, pCertOwnershipToken, \
@@ -352,7 +412,6 @@ static uint32_t _fleetProvisionRequest(IotMqttConnection_t mqttConnection, const
 	// Set the publish payload to the
 	publishInfo.pPayload = provisionPayload;
 	publishInfo.payloadLength = strlen(provisionPayload);
-	printf("%.*s\r\n", strlen(provisionPayload), provisionPayload);
 	IotMqtt_Publish(mqttConnection,
 									&publishInfo,
 									0,
@@ -407,6 +466,8 @@ static int32_t _setFinalCredsToPKCS11Object(void)
 
 	err = setPKCS11CredObjectParams(&xParams);
 	if (err != ESP_OK) {
+		NVS_EraseKey(NVS_CLAIM_CERT);
+		NVS_EraseKey(NVS_CLAIM_PRIVATE_KEY);
 		IotLogError( "FAILED to set final creds to PKCS11 object" );
 	}
 
@@ -430,7 +491,6 @@ static void _fleetProvSubscriptionCallback(void* param1, IotMqttCallbackParam_t*
 	const char* pPayload = pPublish->u.message.info.pPayload;
 
 	IotLogInfo( "Message received from topic:%.*s", pPublish->u.message.topicFilterLength, pPublish->u.message.pTopicFilter );
-	printf("%.*s\r\n",pPublish->u.message.info.payloadLength , pPayload);
 
 	// Ensure that the message came in on the accepted topic
 	if(memcmp(pPublish->u.message.pTopicFilter, pProvisionRequestAcceptedTopic, strlen(pProvisionRequestAcceptedTopic)) == 0)
@@ -440,8 +500,12 @@ static void _fleetProvSubscriptionCallback(void* param1, IotMqttCallbackParam_t*
 		// Look for the thing name in the message
 		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.thingName", &val, &len))
 		{
+			// Extract thing name (max thing name length is 23)
+			char thingName[24] = {0};
+			memcpy(thingName, val+1, len-2);
+
 			// Store thing name in NVS memory
-			err = _storeThingName(val);
+			err = _storeThingName(thingName);
 
 			if(err == ESP_OK){
 				err = _setFinalCredsToPKCS11Object();
@@ -530,14 +594,14 @@ static void _certificateCreateSubscriptionCallback(void* param1, IotMqttCallback
 		int parsedParametersFound = 0;
 		char *val;
 		int len = 0;
-		printf("MJSON find1: %d\r\n", mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.certificateOwnershipToken", (const char **)&val, &len));
+		// Find the certificate ownership token
 		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.certificateOwnershipToken", (const char **)&val, &len))
 		{
 			// Send the ownership token along with the device parameters
 			_fleetProvisionRequest(pPublish->mqttConnection, val, len);
 			parsedParametersFound++;
 		}
-		printf("MJSON find2: %d\r\n", mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.certificatePem", (const char **)&val, &len));
+		// Find the certificate file
 		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.certificatePem", (const char **)&val, &len))
 		{
 			// Copy the certificate into a new buffer before storing in the final cert
@@ -546,19 +610,17 @@ static void _certificateCreateSubscriptionCallback(void* param1, IotMqttCallback
 			if(cert != NULL){
 				finalCertLength = _replaceCharsInString(cert, len - 2, "\\n", "\n");
 				finalCert = pvPortMalloc(finalCertLength);
-				printf("Final Cert: %.*s\r\n", finalCertLength, finalCert);
 				memcpy(finalCert, cert, finalCertLength);
 				parsedParametersFound++;
 				free(cert);
 			}
 		}
-		printf("MJSON find3: %d\r\n", mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.privateKey", (const char **)&val, &len));
+		// Find the private key
 		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.privateKey", (const char **)&val, &len))
 		{
 			finalKeyLength = _replaceCharsInString(val + 1, len - 2, "\\n", "\n");
 			finalKey = pvPortMalloc(finalKeyLength);
-			printf("Final Key: %.*s\r\n", finalKeyLength, val);
-			memcpy(finalKey, val, finalKeyLength);
+			memcpy(finalKey, val + 1, finalKeyLength);
 			parsedParametersFound++;
 		}
 
@@ -899,67 +961,6 @@ int32_t fleetProv_FinalCredentialsInit(void * pNetworkServerInfo, void* pCredent
 	_fleetProvCleanup();
 
 	return err;
-}
-
-/**
- * @brief Replaces wildcard in a string and appends another string to the end of the string
- * Note: All inputs to the function must be strings (null terminated)
- * Note: Output string will be dynamically allocated
- *
- * @param[in] strWithWildcard		String with wildcard
- *
- * @return Pointer to new string allocation if successful. NULL if failed
- */
-static char * _replaceWildcardAppend(const char * strWithWildcard, const char * replacement, const char * additions)
-{
-	int err = ESP_OK;
-	int index = 0;
-	char * newString;
-	char * wildcardPosition = NULL;
-
-	// Allocate memory for the new string
-	if(additions == NULL)
-	{
-		newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement), sizeof(char));
-	}
-	else
-	{
-		newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement) + strlen(additions), sizeof(char));
-	}
-	if(newString == NULL)
-	{
-		err = ESP_FAIL;
-		IotLogError("Error: Could not allocate memory for new string with replaced wildcard");
-	}
-
-	if(err == ESP_OK){
-		// Set the newly allocated array to the string with wildcard
-		memcpy(newString, strWithWildcard, strlen(strWithWildcard));
-		// Find the wildcard
-		wildcardPosition = strchr(strWithWildcard, 42);
-		index = wildcardPosition - strWithWildcard;
-		if(wildcardPosition == NULL){
-			err = ESP_FAIL;
-			free(newString);
-			newString = NULL;
-			IotLogError("Error: Wildcard not found in string");
-		}
-	}
-
-	if(err ==ESP_OK){
-		// Replace the wildcard with the replacement string
-		strcpy(newString + index, replacement);
-		index += strlen(replacement);
-		// Refill the end of the string
-		strcpy(newString + index, wildcardPosition + 1);
-		index += strlen(wildcardPosition + 1);
-		// Place any additions on the end of the string
-		if(additions != NULL){
-			strcpy(newString + index, additions);
-		}
-	}
-
-	return newString;
 }
 
 /**
