@@ -338,6 +338,7 @@ void fifo_reset( fifo_handle_t fifo )
 		fifo->tail = 0;
 		fifo->activeTail = 0;
 		fifo->full = FIFO_NOT_FULL;
+		err = NVS_Set( fifo->controlsKey, &fifo->controls, NULL );			// Update NVS
 	}
 }
 
