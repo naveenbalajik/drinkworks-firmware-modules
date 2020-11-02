@@ -43,8 +43,8 @@
 /* DW Ble Gap for SN lookup */
 #include "bleGap.h"
 
-/* jsmn include*/
-#include "jsmn.h"
+/* mjson include*/
+#include "mjson.h"
 
 /* tcpIP connection parameters */
 #include "aws_clientcredential.h"
@@ -74,7 +74,7 @@
 /**
  * @brief The timeout for MQTT operations.
  */
-#define MQTT_TIMEOUT_MS								( 5000 )
+#define MQTT_TIMEOUT_MS								( 15000 )
 
  /**
  * @brief A PUBLISH message is retried if no response is received within this
@@ -103,16 +103,6 @@
 #define FLEET_PROV_SEMAPHORE_MAX_VAL				(1024)
 
  /**
- * @brief Topic to register and fleet provision thing with AWS
- */
-#define REGISTER_AND_PROVISION_TOPIC				"$aws/provisioning-templates/DW_FleetProvision_Template/provision/json"
-
- /**
- * @brief Topic to request certificate from AWS
- */
-#define CERT_CREATE_REQUEST_AWS_TOPIC_NAME			"$aws/certificates/create/json"
-
- /**
  * @brief Length of final certificate array
  */
 #define FINAL_CERT_MAX_LENGTH						(2048)
@@ -121,6 +111,48 @@
  * @brief Length of final key array
  */
 #define	FINAL_KEY_MAX_LENGTH						(2048)
+
+
+ /**
+ * @brief Topic to request certificate from AWS
+ */
+#define CERT_CREATE_REQUEST_AWS_TOPIC_NAME			"$aws/certificates/create/json"
+
+ /**
+ * @brief Return topic for an accepted certificate creation
+ */
+#define CERT_CREATE_RETURN_TOPIC_ACCEPTED			"$aws/certificates/create/json/accepted"
+
+ /**
+ * @brief Return topic for a rejected certificate creation
+ */
+#define CERT_CREATE_RETURN_TOPIC_REJECTED			"$aws/certificates/create/json/rejected"
+
+ /**
+ * @brief Topic to register and fleet provision thing with AWS. Wildcard is replaced by template name by init function
+ */
+#define PROVISION_TOPIC_STUCTURE					"$aws/provisioning-templates/*/provision/json"
+
+
+/**
+ * @brief Fleet provisioning template name. This will dictate what topics the fleet provisioning request is sent to
+ */
+static char * pTemplateName = NULL;
+
+/**
+ * @brief Fleet provisioning template request topic. Set by init
+ */
+static char * pProvisionRequestTopic = NULL;
+
+/**
+ * @brief Fleet provisioning accepted topic. Set by init
+ */
+static char * pProvisionRequestAcceptedTopic = NULL;
+
+/**
+ * @brief Fleet provisioning rejected topic. Set by init
+ */
+static char * pProvisionRequestRejectedTopic = NULL;
 
  /**
  * @brief Static array for final certificate. Temporary storage for the cert until AWS responds 'Accepted' to the register thing request
@@ -133,23 +165,6 @@ static unsigned int		finalCertLength = 0;
 */
 static unsigned char 	*finalKey = NULL;
 static unsigned int		finalKeyLength = 0;
-
- /**
- * @brief Checks that a json token equals a string
- *
- * @param[in] json The full json message
- * @param[in] tok A jsmn token from the json message
- * @param[in] s	A string to compare the current token to
- *
- * @return 0 if equal. -1 if not equal
- */
-static int _jsoneq(const char* json, jsmntok_t* tok, const char* s) {
-	if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
-		strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
-		return 0;
-	}
-	return -1;
-}
 
 /**
 * @brief Replaces characters in string with specified characters
@@ -190,34 +205,67 @@ static int _replaceCharsInString(char* str, int strSize, const char* oldWord, co
 
 }
 
- /**
-  * @brief Get Parameters for AWS IoT Thing creation
-  *
-  * Create a JSON parameter block to be returned to AWS IoT in response to receiving a
-  * <i>certificateOwnershipToken</i>.  These parameters can be used to validate the
-  * provisioning request and to construct the Thing name.
-  *
-  * It is assumed that the destination buffer has sufficient space to hold the constructed
-  * parameter block (i.e. no length checking is performed).
-  *
-  * @param[out] pStr Destination pointer
-  */
-static void _getParameters(char* pStr)
+/**
+ * @brief Replaces wildcard in a string and appends another string to the end of the string
+ * Note: All inputs to the function must be strings (null terminated)
+ * Note: Output string will be dynamically allocated
+ *
+ * @param[in] strWithWildcard		String with wildcard
+ *
+ * @return Pointer to new string allocation if successful. NULL if failed
+ */
+static char * _replaceWildcardAppend(const char * strWithWildcard, const char * replacement, const char * additions)
 {
-	char sernum[13] = {0};
-	size_t length = sizeof( sernum );
-	const char fmt[] = "\",\"parameters\": {\"SerialNumber\": \"%s\", \"MACaddress\": \"%02x:%02x:%02x:%02x:%02x:%02x\"}}";
-	uint8_t wifi_addr[6];
+	int err = ESP_OK;
+	int index = 0;
+	char * newString;
+	char * wildcardPosition = NULL;
 
-	// Get WiFi MAC Address (byte reversed)
-	esp_wifi_get_mac(WIFI_IF_STA, wifi_addr);
+	// Allocate memory for the new string
+	if(additions == NULL)
+	{
+		newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement), sizeof(char));
+	}
+	else
+	{
+		newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement) + strlen(additions), sizeof(char));
+	}
+	if(newString == NULL)
+	{
+		err = ESP_FAIL;
+		IotLogError("Error: Could not allocate memory for new string with replaced wildcard");
+	}
 
-	// Get Serial Number from NV storage	
-	bleGap_fetchSerialNumber(sernum, &length);
+	if(err == ESP_OK){
+		// Set the newly allocated array to the string with wildcard
+		memcpy(newString, strWithWildcard, strlen(strWithWildcard));
+		// Find the wildcard
+		wildcardPosition = strchr(strWithWildcard, 42);
+		index = wildcardPosition - strWithWildcard;
+		if(wildcardPosition == NULL){
+			err = ESP_FAIL;
+			free(newString);
+			newString = NULL;
+			IotLogError("Error: Wildcard not found in string");
+		}
+	}
 
-	// Construct parameters definition, JSON format
-	sprintf(pStr, fmt, sernum, wifi_addr[5], wifi_addr[4], wifi_addr[3], wifi_addr[2], wifi_addr[1], wifi_addr[0]);
+	if(err ==ESP_OK){
+		// Replace the wildcard with the replacement string
+		strcpy(newString + index, replacement);
+		index += strlen(replacement);
+		// Refill the end of the string
+		strcpy(newString + index, wildcardPosition + 1);
+		index += strlen(wildcardPosition + 1);
+		// Place any additions on the end of the string
+		if(additions != NULL){
+			strcpy(newString + index, additions);
+		}
+	}
+
+	return newString;
 }
+
 
 /**
  * @brief Establish a new connection to the MQTT server.
@@ -296,6 +344,25 @@ static void _fleetProvCleanup(void){
 		vPortFree(finalKey);
 		finalKey = NULL;
 	}
+
+	if(NULL != pProvisionRequestTopic)
+	{
+		vPortFree(pProvisionRequestTopic);
+		pProvisionRequestTopic = NULL;
+	}
+
+	if(NULL != pProvisionRequestAcceptedTopic)
+	{
+		vPortFree(pProvisionRequestAcceptedTopic);
+		pProvisionRequestAcceptedTopic = NULL;
+	}
+
+	if(NULL != pProvisionRequestRejectedTopic)
+	{
+		vPortFree(pProvisionRequestRejectedTopic);
+		pProvisionRequestRejectedTopic = NULL;
+	}
+
 }
 
 
@@ -310,34 +377,51 @@ static void _fleetProvCleanup(void){
  *
  * @return 	ESP_OK
  */
-static uint32_t _fleetProvisionWithAWS(IotMqttConnection_t mqttConnection, const char* pCertOwnershipToken, int sizeCertOwnershipToken)
+static uint32_t _fleetProvisionRequest(IotMqttConnection_t mqttConnection, const char* pCertOwnershipToken, int sizeCertOwnershipToken)
 {
 	IotMqttPublishInfo_t publishInfo = IOT_MQTT_PUBLISH_INFO_INITIALIZER;
-
-	/* Get WiFi MAC Address (byte reversed) to attach to end of message*/
-	uint8_t wifi_addr[6];
-	esp_wifi_get_mac(WIFI_IF_STA, wifi_addr);
-
 	publishInfo.qos = IOT_MQTT_QOS_1;
 	publishInfo.retryMs = PUBLISH_RETRY_MS;
 	publishInfo.retryLimit = PUBLISH_RETRY_LIMIT;
-	publishInfo.pTopicName = REGISTER_AND_PROVISION_TOPIC;
-	publishInfo.topicNameLength = sizeof(REGISTER_AND_PROVISION_TOPIC) - 1;
+	publishInfo.pTopicName = pProvisionRequestTopic;
+	publishInfo.topicNameLength = strlen(pProvisionRequestTopic);
 
-	char provisionPayload[1024] = { 0 };
-	strcat(provisionPayload, "{\"certificateOwnershipToken\":\"");
-	memcpy(provisionPayload + 30, pCertOwnershipToken, sizeCertOwnershipToken);
+	// Get the parameter information for the fleet provisioning response
+	char sernum[16] = {0};
+	size_t length = sizeof( sernum );
+	// Get Serial Number from NV storage
+	bleGap_fetchSerialNumber(sernum, &length);
+	/* Get WiFi MAC Address (byte reversed) to attach to end of message*/
+	uint8_t wifi_addr[6];
+	esp_wifi_get_mac(WIFI_IF_STA, wifi_addr);
+	char macAddress[18] = {0};
+	sprintf(macAddress, "%02x:%02x:%02x:%02x:%02x:%02x", wifi_addr[5], wifi_addr[4], wifi_addr[3], wifi_addr[2], wifi_addr[1], wifi_addr[0]);
 
-	_getParameters(&provisionPayload[strlen(provisionPayload)]);
+	// Create an mjson document with the certificate ownership token
+	char * provisionPayload = NULL;
+	mjson_printf(&mjson_print_dynamic_buf, &provisionPayload,"{%Q:%.*s, %Q: {%Q:%Q, %Q:%Q}}", \
+															"certificateOwnershipToken", \
+															sizeCertOwnershipToken, pCertOwnershipToken, \
+															"parameters", \
+															"SerialNumber", \
+															sernum, \
+															"MACaddress", \
+															macAddress
+															);
 
+	// Set the publish payload to the
 	publishInfo.pPayload = provisionPayload;
 	publishInfo.payloadLength = strlen(provisionPayload);
-
 	IotMqtt_Publish(mqttConnection,
 									&publishInfo,
 									0,
 									NULL,
 									NULL);
+
+	if(NULL != provisionPayload)
+	{
+		free(provisionPayload);
+	}
 
 	return ESP_OK;
 }
@@ -382,6 +466,8 @@ static int32_t _setFinalCredsToPKCS11Object(void)
 
 	err = setPKCS11CredObjectParams(&xParams);
 	if (err != ESP_OK) {
+		NVS_EraseKey(NVS_CLAIM_CERT);
+		NVS_EraseKey(NVS_CLAIM_PRIVATE_KEY);
 		IotLogError( "FAILED to set final creds to PKCS11 object" );
 	}
 
@@ -406,59 +492,49 @@ static void _fleetProvSubscriptionCallback(void* param1, IotMqttCallbackParam_t*
 
 	IotLogInfo( "Message received from topic:%.*s", pPublish->u.message.topicFilterLength, pPublish->u.message.pTopicFilter );
 
-	// Get thing name
-	// Use JSMN parser to extract keys.
-	jsmn_parser p;
-	jsmntok_t t[128];
-	jsmn_init(&p);
-	int r, i;
-	bool thingNameFound = 0;
-	r = jsmn_parse(&p, pPayload, pPublish->u.message.info.payloadLength, t, sizeof(t) / sizeof(t[0]));
-
-	if( r < 0 )
+	// Ensure that the message came in on the accepted topic
+	if(memcmp(pPublish->u.message.pTopicFilter, pProvisionRequestAcceptedTopic, strlen(pProvisionRequestAcceptedTopic)) == 0)
 	{
-		IotLogError( "Failed to parse JSON: %d", r );
-	}
-	/* Assume the top-level element is an object */
-	else if( ( r < 1 ) || ( t[ 0 ].type != JSMN_OBJECT ) )
-	{
-		IotLogError( "JSON Fail. Object expected but not found" );
-	}
-	/* Loop over all keys of the root object */
-	else{
-		for (i = 1; i < r; i++){
-			if (_jsoneq(pPayload, &t[i], "thingName") == 0){
-				char thingNameBuffer[32];
-				thingNameFound = 1;
-				snprintf(thingNameBuffer, sizeof(thingNameBuffer), "%.*s", t[i + 1].end - t[i + 1].start, pPayload + t[i + 1].start);
+		const char *val;
+		int len = 0;
+		// Look for the thing name in the message
+		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.thingName", &val, &len))
+		{
+			// Extract thing name (max thing name length is 23)
+			char thingName[24] = {0};
+			memcpy(thingName, val+1, len-2);
 
-				// Store thing name in NVS memory
-				err = _storeThingName(thingNameBuffer);
+			// Store thing name in NVS memory
+			err = _storeThingName(thingName);
 
-				if(err == ESP_OK){
-					err = _setFinalCredsToPKCS11Object();
-				}
-				/* The cert/key should be set to nvs memory after they PKCS11 objects are set.
-				 This is because the fleet provisioning call checks for the existence of credentials in nvs to confirm they are set.
-				 We want to avoid the scenario where are the credentials are set in nvs but fail to get saved as a PKCS11 object */
-				if(err == ESP_OK){
-					err = NVS_Set(NVS_FINAL_PRIVATE_KEY, finalKey, &finalKeyLength);
-				}
-				if(err == ESP_OK){
-					err = NVS_Set(NVS_FINAL_CERT, finalCert, &finalCertLength);
-				}
+			if(err == ESP_OK){
+				err = _setFinalCredsToPKCS11Object();
+			}
+			/* The cert/key should be set to nvs memory after they PKCS11 objects are set.
+			 This is because the fleet provisioning call checks for the existence of credentials in nvs to confirm they are set.
+			 We want to avoid the scenario where are the credentials are set in nvs but fail to get saved as a PKCS11 object */
+			if(err == ESP_OK){
+				err = NVS_Set(NVS_FINAL_PRIVATE_KEY, finalKey, &finalKeyLength);
+			}
+			if(err == ESP_OK){
+				err = NVS_Set(NVS_FINAL_CERT, finalCert, &finalCertLength);
+			}
 
-				if(err == ESP_OK){
-					/* Increment the number of PUBLISH messages received. */
-					IotSemaphore_Post(pPublishesReceived);
-				}
+			if(err == ESP_OK){
+				/* Increment the number of PUBLISH messages received. */
+				IotSemaphore_Post(pPublishesReceived);
 			}
 		}
+		else
+		{
+			IotLogError( "Failed. Unable to find thing name in message" );
+		}
+	}
+	else
+	{
+		IotLogError( "Failed. Message Received from Fleet Provisioning Rejected Topic" );
 	}
 
-	if (!thingNameFound) {
-		IotLogError( "Failed. Unable to find thing name in message" );
-	}
 }
 
 /**
@@ -512,53 +588,45 @@ static void _certificateCreateSubscriptionCallback(void* param1, IotMqttCallback
 {
 	IotLogInfo( "Message received from topic:%.*s", pPublish->u.message.topicFilterLength, pPublish->u.message.pTopicFilter );
 	const char* pPayload = pPublish->u.message.info.pPayload;
-
 	/* If the message was received on the accepted topic of certificate creation then parse message */
-	if (strncmp(pPublish->u.message.pTopicFilter, "$aws/certificates/create/json/accepted", sizeof("$aws/certificates/create/json/accepted") - 1) == 0)
+	if (strncmp(pPublish->u.message.pTopicFilter, CERT_CREATE_RETURN_TOPIC_ACCEPTED, sizeof(CERT_CREATE_RETURN_TOPIC_ACCEPTED) - 1) == 0)
 	{
-		/* Use JSMN parser to extract keys. */
-		jsmn_parser p;
-		jsmntok_t t[128];
-		jsmn_init(&p);
-		int r, i;
 		int parsedParametersFound = 0;
-		r = jsmn_parse(&p, pPayload, pPublish->u.message.info.payloadLength, t, sizeof(t) / sizeof(t[0]));
-
-		if( r < 0 )
+		char *val;
+		int len = 0;
+		// Find the certificate ownership token
+		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.certificateOwnershipToken", (const char **)&val, &len))
 		{
-			IotLogError( "Failed to parse JSON: %d", r );
+			// Send the ownership token along with the device parameters
+			_fleetProvisionRequest(pPublish->mqttConnection, val, len);
+			parsedParametersFound++;
 		}
-		/* Assume the top-level element is an object */
-		else if( ( r < 1 ) || ( t[ 0 ].type != JSMN_OBJECT ) )
+		// Find the certificate file
+		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.certificatePem", (const char **)&val, &len))
 		{
-			IotLogError( "JSON Fail. Object expected but not found" );
+			// Copy the certificate into a new buffer before storing in the final cert
+			char * cert = (char *) calloc(len, sizeof(char));
+			memcpy(cert, val + 1, len - 2);
+			if(cert != NULL){
+				finalCertLength = _replaceCharsInString(cert, len - 2, "\\n", "\n");
+				finalCert = pvPortMalloc(finalCertLength);
+				memcpy(finalCert, cert, finalCertLength);
+				parsedParametersFound++;
+				free(cert);
+			}
 		}
-		/* Loop over all keys of the root object */
-		else {
-			for (i = 1; i < r; i++) {
-				if (_jsoneq(pPayload, &t[i], "certificateOwnershipToken") == 0) {
-					// Send the ownership token along with the device parameters
-					_fleetProvisionWithAWS(pPublish->mqttConnection, pPayload + t[i + 1].start, t[i + 1].end - t[i + 1].start);
-					parsedParametersFound++;
-				}
-				else if (_jsoneq(pPayload, &t[i], "certificatePem") == 0) {
-					finalCertLength = _replaceCharsInString((char*)pPayload + t[i + 1].start, t[i + 1].end - t[i + 1].start, "\\n", "\n");
-					finalCert = pvPortMalloc(finalCertLength);
-					memcpy(finalCert, (uint8_t*)pPayload + t[i + 1].start, finalCertLength);
-					parsedParametersFound++;
-				}
-				else if (_jsoneq(pPayload, &t[i], "privateKey") == 0) {
-					finalKeyLength = _replaceCharsInString((char*)pPayload + t[i + 1].start, t[i + 1].end - t[i + 1].start, "\\n", "\n");
-					finalKey = pvPortMalloc(finalKeyLength);
-					memcpy(finalKey, (uint8_t*)pPayload + t[i + 1].start, finalKeyLength);
-					parsedParametersFound++;
-				}
-			}
+		// Find the private key
+		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.privateKey", (const char **)&val, &len))
+		{
+			finalKeyLength = _replaceCharsInString(val + 1, len - 2, "\\n", "\n");
+			finalKey = pvPortMalloc(finalKeyLength);
+			memcpy(finalKey, val + 1, finalKeyLength);
+			parsedParametersFound++;
+		}
 
-			if( parsedParametersFound < 3 )
-			{
-				IotLogError( "Failed to find ownershipToken, cert, or private key in message" );
-			}
+		if( parsedParametersFound < 3 )
+		{
+			IotLogError( "Failed to find ownershipToken, cert, or private key in message" );
 		}
 	}
 	else {
@@ -774,6 +842,11 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 {
 	esp_err_t err;
 
+	if(pProvisionRequestTopic == NULL){
+		IotLogError( "Error, provisioning topic not set. Need to call init to set." );
+		return ESP_FAIL;
+	}
+
 	/*MQTT connection for final certificate request*/
 	IotMqttConnection_t mqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
 
@@ -792,8 +865,8 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 	// Subscribe to certificate created accepted/rejected topics
 	const char* pCertCreatedReturnTopics[CERT_CREATED_SUBSCRIBE_TOPIC_CNT] =
 	{
-		"$aws/certificates/create/json/accepted",
-		"$aws/certificates/create/json/rejected",
+		CERT_CREATE_RETURN_TOPIC_ACCEPTED,
+		CERT_CREATE_RETURN_TOPIC_REJECTED,
 	};
 
 	err = _subscribeTopics(mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT, _certificateCreateSubscriptionCallback, NULL);
@@ -806,8 +879,8 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 	// Subscribe to fleet provisioning accepted/rejected topics
 	const char* pFleetProvReturnTopics[FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT] =
 	{
-		"$aws/provisioning-templates/DW_FleetProvision_Template/provision/json/accepted",
-		"$aws/provisioning-templates/DW_FleetProvision_Template/provision/json/rejected",
+		pProvisionRequestAcceptedTopic,
+		pProvisionRequestRejectedTopic,
 	};
 	err = _subscribeTopics( mqttConnection, pFleetProvReturnTopics, FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT, _fleetProvSubscriptionCallback, &fleetProvisioningReceived );
 	if (err != ESP_OK) {
@@ -886,6 +959,34 @@ int32_t fleetProv_FinalCredentialsInit(void * pNetworkServerInfo, void* pCredent
 	}
 
 	_fleetProvCleanup();
+
+	return err;
+}
+
+/**
+ * @brief Initialize the fleet provisioning
+ *
+ * @param[in] pProvTemplateName		Fleet provisioning template name to use for provisioning
+ *
+ * @return ESP_OK if successful, error otherwise
+ */
+int32_t fleetProv_Init(const char * pProvTemplateName)
+{
+	esp_err_t err = ESP_OK;
+
+	// Set the template name
+	if(pProvTemplateName != NULL){
+		pTemplateName = (char*) pProvTemplateName;
+	}
+	else{
+		err = ESP_FAIL;
+	}
+
+	if(err == ESP_OK){
+		pProvisionRequestTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, NULL);
+		pProvisionRequestAcceptedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/accepted");
+		pProvisionRequestRejectedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/rejected");
+	}
 
 	return err;
 }
