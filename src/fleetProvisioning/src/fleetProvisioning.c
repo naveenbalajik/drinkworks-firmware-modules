@@ -141,7 +141,7 @@
 /**
  * @brief Fleet Provisioning task priority
  */
-#define	FLEET_PROV_TASK_PRIORITY	( 24 )
+#define	FLEET_PROV_TASK_PRIORITY	( 17 )
 
 /**
  * @brief Fleet Provisioning task handle
