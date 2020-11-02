@@ -133,6 +133,30 @@
  */
 #define PROVISION_TOPIC_STUCTURE					"$aws/provisioning-templates/*/provision/json"
 
+/**
+ * @brief Fleet Provisioning stack size
+ */
+#define FLEET_PROV_STACK_SIZE	( 8192 )
+
+/**
+ * @brief Fleet Provisioning task priority
+ */
+#define	FLEET_PROV_TASK_PRIORITY	( 24 )
+
+/**
+ * @brief Fleet Provisioning task handle
+ */
+static TaskHandle_t _xFleetProvTaskHandle = NULL;
+
+/**
+ * @brief Static instance of the fleet provisioning parameters. Set during initialization
+ */
+static fleetProv_InitParams_t	_fleetProvParams = {0};
+
+/**
+ * @brief Current Status of the fleet provisioning
+ */
+static eFleetProv_Status_t _fleetProvStatus = eFLEETPROV_NOT_INITIALIZED;
 
 /**
  * @brief Fleet provisioning template name. This will dictate what topics the fleet provisioning request is sent to
@@ -928,7 +952,7 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
  *
  * @return ESP_OK if successful, error otherwise
  */
-int32_t fleetProv_FinalCredentialsInit(void * pNetworkServerInfo, void* pCredentials, const IotNetworkInterface_t * pNetworkInterface)
+int32_t _getSetCredentials(void * pNetworkServerInfo, void* pCredentials, const IotNetworkInterface_t * pNetworkInterface)
 {
 	esp_err_t err;
 	uint32_t size;
@@ -964,28 +988,106 @@ int32_t fleetProv_FinalCredentialsInit(void * pNetworkServerInfo, void* pCredent
 }
 
 /**
- * @brief Initialize the fleet provisioning
+ * @brief Fleet provisioning task. This task will determing if the claim/final credentials are set and
+ * request them from AWS if they are not set. This task should maintain a high priority. The task deletes
+ * itself once it has completed setting the credentials.
  *
- * @param[in] pProvTemplateName		Fleet provisioning template name to use for provisioning
+ * @param[in] pArgs		Semaphore that will be posted to once the provisioning completes.
  *
- * @return ESP_OK if successful, error otherwise
  */
-int32_t fleetProv_Init(const char * pProvTemplateName)
+void _fleetProvTask( void * pArgs)
 {
 	esp_err_t err = ESP_OK;
+	IotSemaphore_t * completeSemaphore = (IotSemaphore_t *) pArgs;
 
-	// Set the template name
-	if(pProvTemplateName != NULL){
-		pTemplateName = (char*) pProvTemplateName;
+	_fleetProvStatus = eFLEETPROV_IN_PROCESS;
+
+	if(_fleetProvParams.pConnectionParams != NULL && _fleetProvParams.pCredentials != NULL && _fleetProvParams.pNetworkInterface != NULL)
+	{
+		err = _getSetCredentials(_fleetProvParams.pConnectionParams, _fleetProvParams.pCredentials, _fleetProvParams.pNetworkInterface);
 	}
 	else{
+		IotLogError(" Error: A fleet provisioning parameter is set to NULL ");
 		err = ESP_FAIL;
 	}
 
 	if(err == ESP_OK){
+		_fleetProvStatus = eFLEETPROV_COMPLETED_SUCCESS;
+		// Post to the semaphore indicating the fleet provisioning has been completed
+		IotSemaphore_Post(completeSemaphore);
+		IotLogInfo( "Fleet Prov Completed Successfully " );
+	}
+	else{
+		_fleetProvStatus = eFLEETPROV_COMPLETED_FAILED;
+		IotLogError("Fleet Prov Failed ");
+	}
+
+	// Delete the task once credentials have been proisionined
+	IotLogInfo( " Deleting Fleet Provisioning Task " );
+	vTaskDelete(NULL);
+
+	for(;;)
+	{
+		// Delay task for 10s.
+		vTaskDelay( 10000 / portTICK_PERIOD_MS );
+	}
+
+}
+
+/**
+ * @brief Return the status of the fleet provisioning.
+ *
+ * @return eFleetProv_Status_t type indicating the status
+ */
+int32_t fleetProv_GetStatus( void )
+{
+	return _fleetProvStatus;
+}
+
+/**
+ * @brief Initialize the fleet provisioning task. This function creates a new fleet provisioning task which
+ * set the PKCS11 credentials of the ESP module. The task will request credentials from AWS if no final
+ * credentials exist. If final credentials are not set, have a Wifi connection before calling this task.
+ *
+ * @param[in] pfleetProvInitParams		Initialization parameters for fleet provisioning
+ * @param[in] pSemaphore				Semaphore that will be posted when the fleet provisioning completes
+ *
+ * @return ESP_OK if successful, error otherwise
+ */
+int32_t fleetProv_Init(fleetProv_InitParams_t * pfleetProvInitParams, IotSemaphore_t* pSemaphore)
+{
+	esp_err_t err = ESP_OK;
+
+	// Store the initialization parameters so the external context does not need to exist when the task executes
+	_fleetProvParams.pConnectionParams = pfleetProvInitParams->pConnectionParams;
+	_fleetProvParams.pCredentials = pfleetProvInitParams->pCredentials;
+	_fleetProvParams.pNetworkInterface = pfleetProvInitParams->pNetworkInterface;
+
+	// Set the template name
+	if(pfleetProvInitParams->pProvTemplateName != NULL){
+		pTemplateName = (char*) pfleetProvInitParams->pProvTemplateName;
+	}
+	else{
+		err = ESP_FAIL;
+	}
+	// Set the request, accepted, and rejected topics based on the fleet provisioning input template
+	if(err == ESP_OK){
 		pProvisionRequestTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, NULL);
 		pProvisionRequestAcceptedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/accepted");
 		pProvisionRequestRejectedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/rejected");
+	}
+
+	// Create the fleet provisioning task
+	if(err == ESP_OK){
+		xTaskCreate(_fleetProvTask, "fleetProv", FLEET_PROV_STACK_SIZE, (void *) pSemaphore, FLEET_PROV_TASK_PRIORITY, &_xFleetProvTaskHandle);
+	}
+
+	if(NULL == _xFleetProvTaskHandle){
+		err = ESP_FAIL;
+		IotLogError( "Error Creating Fleet Provisioning Task" );
+	}
+	else{
+		IotLogInfo("Fleet Prov task created");
 	}
 
 	return err;
