@@ -1035,6 +1035,18 @@ void _fleetProvTask( void * pArgs)
 }
 
 /**
+ * @brief Clear out the final credentials from nvs. On subsequent boot the fleet provisioning
+ * will request new credentials from AWS
+ */
+void fleetProv_ClearFinalCredentials(void)
+{
+	NVS_EraseKey(NVS_CLAIM_CERT);
+	NVS_EraseKey(NVS_CLAIM_PRIVATE_KEY);
+	NVS_EraseKey(NVS_FINAL_CERT);
+	NVS_EraseKey(NVS_FINAL_PRIVATE_KEY);
+}
+
+/**
  * @brief Return the status of the fleet provisioning.
  *
  * @return eFleetProv_Status_t type indicating the status

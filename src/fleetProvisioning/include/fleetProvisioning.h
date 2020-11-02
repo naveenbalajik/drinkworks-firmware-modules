@@ -31,6 +31,12 @@ typedef struct{
 }fleetProv_InitParams_t;
 
 /**
+ * @brief Clear out the final credentials from nvs. On subsequent boot the fleet provisioning
+ * will request new credentials from AWS
+ */
+void fleetProv_ClearFinalCredentials(void);
+
+/**
  * @brief Initialize the fleet provisioning task. This function creates a new fleet provisioning task which
  * set the PKCS11 credentials of the ESP module. The task will request credentials from AWS if no final
  * credentials exist. If final credentials are not set, have a Wifi connection before calling this task.
