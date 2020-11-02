@@ -53,14 +53,14 @@ typedef struct
     /* Allows the Shadow update function to wait for the delta callback to complete
      * a state change before continuing. */
     IotSemaphore_t 			deltaSemaphore;
-
-    bool					deltaSemaphoreCreated;
-
-    IotMqttConnection_t		mqttConnection;
+    bool					deltaSemaphoreCreated;				/**< Flag set when delta semaphore is created */
+    IotMqttConnection_t		mqttConnection;						/**< MQTT connection handle */
     const char * 			pThingName;							/**< Thing Name pointer */
     size_t					thingNameLength;    				/**< Length of Shadow Thing Name. */
     _shadowItem_t *			itemList;							/**< Pointer to list of Shadow Items */
 	time_t					contextTime;						/**< Time value used as context for Shadow callback */
+	bool					bConnected;							/**< Shadow connected status */
+	bool					bInitialized;						/**< Flag to ensure shadow library is only initialized once */
 
 } shadowData_t;
 
@@ -69,14 +69,8 @@ static shadowData_t shadowData =
 	.deltaSemaphoreCreated = false,
 	.mqttConnection = NULL,
 	.itemList = NULL,
+	.bConnected = false,
 };
-
-//static _shadowItem_t *deltaCallbackList = NULL;
-
-/**
- * @brief Flag to ensure shadow library is only initialized once
- */
-static bool _shadowInitialized = false;
 
 /**
  * @brief	Store Shadow Item value in associated NVS storage
@@ -751,6 +745,12 @@ int shadow_connect( IotMqttConnection_t mqttConnection, const char * pThingName 
         status = _setShadowCallbacks( &shadowData.deltaSemaphore, mqttConnection, shadowData.pThingName, shadowData.thingNameLength );
     }
 
+    /* Set the Shadow connected flag */
+    if( status == EXIT_SUCCESS )
+    {
+        shadowData.bConnected = true;
+    }
+
     return status;
 }
 
@@ -765,6 +765,9 @@ void shadow_disconnect( void )
 {
 
 	IotLogInfo( "shadow_disconnect" );
+
+	/* Clear the Shadow connected flag */
+    shadowData.bConnected = false;
 
     /* Remove the Delta callback */
     AwsIotShadow_SetDeltaCallback( shadowData.mqttConnection,
@@ -792,8 +795,11 @@ void shadow_updateReported( void )
 {
 	char *updateDocument;
 
-	/* Only proceed if an mqtt connection has been established, otherwise the bUpdate flags will get cleared */
-	if( shadowData.mqttConnection != NULL )
+	/*
+	 * Only proceed if the Shadow connected flag is set AND
+	 * an mqtt connection has been established, otherwise the bUpdate flags will get cleared
+	 */
+	if( ( shadowData.bConnected == true ) && ( shadowData.mqttConnection != NULL ) )
 	{
 		updateDocument = _formatShadowUpdate();
 
@@ -820,13 +826,13 @@ int shadow_init(void)
 	IotLogInfo( "shadow_init" );
 
 	/* Initializing the shadow library using the default MQTT timeout. */
-	if( !_shadowInitialized )
+	if( !shadowData.bInitialized )
 	{
 		shadowInitStatus = AwsIotShadow_Init( 0 );
 
 		if( shadowInitStatus == AWS_IOT_SHADOW_SUCCESS )
 		{
-			_shadowInitialized = true;
+			shadowData.bInitialized = true;
 		}
 		else
 		{
