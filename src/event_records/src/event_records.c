@@ -397,7 +397,6 @@ static double convertPressure( uint16_t ADC)
  * @param[in]	size				Dispense Record size, in bytes
  * @return		Pointer to formatted JSON record
  */
-#ifndef OLD_EVENT_FORMAT
 static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t size )
 {
 	char * pCommon = NULL;
@@ -538,164 +537,6 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 	return( pJSON );
 }
 
-#else
-static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t size )
-{
-	char * formatBuffer = NULL;
-	/* format Date/Time per ISO 8601 */
-	char *DateTimeString = formatDateTime( pDispenseRecord );
-	char *RawString = formatHexByteArray( ( uint8_t * ) pDispenseRecord, size );
-
-	switch( pDispenseRecord->Status )
-	{
-		/* Normal Dispense Records */
-		case	eNoError:
-		case	eUnknown_Error:
-		case	eTop_of_Tank_Error:
-		case	eCarbonator_Fill_Timeout_Error:
-		case	eOver_Pressure_Error:
-		case	eCarbonation_Timeout_Error:
-		case	eError_Recovery_Brew:
-		case	eHandle_Lift_Error:
-		case	ePuncture_Mechanism_Error:
-		case	eCarbonation_Mechanism_Error:
-			/* Cold Water Tank Temperature (optional, only present if sufficient size) */
-			if( CWT_ENTRY_MIN_SIZE <= size )
-			{
-				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%f, %Q:%Q}",
-						"Index",           pDispenseRecord->index,
-						"DateTime",        DateTimeString,
-						"Status",          pDispenseRecord->Status,
-						"StatusText",      statusText( pDispenseRecord->Status ),
-						"CatalogID",       pDispenseRecord->PodId,
-						"BeverageID",      pDispenseRecord->SKUId,
-						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
-						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
-						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature),
-						"raw",             RawString
-						);
-			}
-			else
-			{
-				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%d, %Q:%d, %Q:%f, %Q:%Q}",
-						"Index",           pDispenseRecord->index,
-						"DateTime",        DateTimeString,
-						"Status",          pDispenseRecord->Status,
-						"StatusText",      statusText( pDispenseRecord->Status ),
-						"CatalogID",       pDispenseRecord->PodId,
-						"BeverageID",      pDispenseRecord->SKUId,
-						"CycleTime",       pDispenseRecord->ElapsedTime / TICKS_PER_SECOND,
-						"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
-						"raw",             RawString
-						);
-			}
-			break;
-
-		/* Firmware Update */
-		case	eFirmware_Update_Passed:
-			/* Firmware Version (optional, only present if sufficient size) */
-			if( FIRMWARE_ENTRY_MIN_SIZE <= size )
-			{
-				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f, %Q:%Q}",
-						"Index",           pDispenseRecord->index,
-						"DateTime",        DateTimeString,
-						"Status",          pDispenseRecord->Status,
-						"StatusText",      statusText( pDispenseRecord->Status ),
-						"FirmwareVersion", ( ( ( double ) pDispenseRecord->FirmwareVersion ) / 100 ),
-						"raw",             RawString
-						);
-			}
-			break;
-
-		/* Freeze Event Update (optional, only present if sufficient size) */
-		case	eFreezeEventUpdate:
-			if( FREEZE_ENTRY_MIN_SIZE <= size )
-			{
-				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%d, %Q:%Q}",
-						"Index",           pDispenseRecord->index,
-						"DateTime",        DateTimeString,
-						"Status",          pDispenseRecord->Status,
-						"StatusText",      statusText( pDispenseRecord->Status ),
-						"FreezeEvents",    pDispenseRecord->FreezeEvents,
-						"raw",             RawString
-						);
-			}
-			break;
-
-		/* Extended Pressure */
-		case	eCritical_Error_ExtendedOPError:
-			mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f, %Q:%Q}",
-					"Index",           pDispenseRecord->index,
-					"DateTime",        DateTimeString,
-					"Status",          pDispenseRecord->Status,
-					"StatusText",      statusText( pDispenseRecord->Status ),
-					"PeakPressure",    convertPressure( pDispenseRecord->PeakPressure ),
-					"raw",             RawString
-					);
-			break;
-
-		/* Over Temperature */
-		case	eCritical_Error_OverTemp:
-			if( CWT_ENTRY_MIN_SIZE <= size )
-			{
-				mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-						"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%f, %Q:%Q}",
-						"Index",           pDispenseRecord->index,
-						"DateTime",        DateTimeString,
-						"Status",          pDispenseRecord->Status,
-						"StatusText",      statusText( pDispenseRecord->Status ),
-						"CwtTemperature",  convertTemperature( pDispenseRecord->CwtTemperature),
-						"raw",             RawString
-						);
-			}
-			break;
-
-		/* Unknown Status */
-		default:
-			pDispenseRecord->Status = eUnknownStatus;
-			/* fall through */
-
-		/* Error, status is valid */
-		case	eCleaning_Cycle_Completed:
-		case	eRinsing_Cycle_Completed:
-		case	eCO2_Module_Attached:
-		case	eFirmware_Update_Failed:
-		case	eDrain_Cycle_Complete:
-		case	eCritical_Error_PuncMechFail:
-		case	eCritical_Error_TrickleFillTmout:
-		case	eCritical_Error_ClnRinCWTFillTmout:
-		case	eCritical_Error_BadMemClear:
-		case	eBLE_ModuleReset:
-		case	eBLE_IdleStatus:
-		case	eBLE_StandbyStatus:
-		case	eBLE_ConnectedStatus:
-		case	eBLE_HealthTimeout:
-		case	eBLE_ErrorState:
-		case	eBLE_MultiConnectStat:
-		case	eBLE_MaxCriticalTimeout:
-			mjson_printf( &mjson_print_dynamic_buf, &formatBuffer,
-					"{%Q:%d, %Q:%Q, %Q:%d, %Q:%Q, %Q:%Q}",
-					"Index",           pDispenseRecord->index,
-					"DateTime",        DateTimeString,
-					"Status",          pDispenseRecord->Status,
-					"StatusText",      statusText( pDispenseRecord->Status ),
-					"raw",             RawString
-					);
-			break;
-
-	}
-	vPortFree( DateTimeString );				/* free date/time buffer */
-#ifdef	DYNAMIC
-	vPortFree( RawString );						/* free raw format string */
-#endif
-	return( formatBuffer );
-}
-#endif
 
 /**
  * @brief Event Record Data Command handler
@@ -817,7 +658,7 @@ static void fetchRecords( void )
 			requestRecord( _evtrec.nvs.nextRequestIndex );									/* request record */
 			_evtrec.lastRequestIndex = _evtrec.nvs.nextRequestIndex;
 		}
-		else if ( ( _evtrec.nvs.nextRequestIndex + 1 ) < _evtrec.lastReportedIndex )		/* If RequestIndex be incremented, and still be less than reported */
+		else if ( ( _evtrec.nvs.nextRequestIndex + 1 ) < _evtrec.lastReportedIndex )		/* If RequestIndex can be incremented, and still be less than reported */
 		{
 			_evtrec.nvs.nextRequestIndex++;													/* Increment, request record on next pass through */
 		}
@@ -977,7 +818,6 @@ static void vEventRecordPublishComplete(void * reference, IotMqttCallbackParam_t
 	}
 }
 
-#ifndef	NEW_SHADOW
 /**
  * @brief	Event Record Shadow Update Complete Callback
  *
@@ -994,40 +834,6 @@ static void vEventRecordShadowUpdateComplete( _shadowItem_t *pItem )
 	_evtrec.shadowUpdateComplete = true;
 	_evtrec.shadowUpdateSuccess = true;
 }
-
-#else
-/**
- * @brief	Event Record Shadow Update Complete Callback
- *
- * This function is called when the Shadow Update completes.
- * The param structure contains a results field; value AWS_IOT_SHADOW_SUCCESS indicates shadow was successfully updated.
- * If shadow is successfully updated and the context reference matches the value used when sending the update request,
- * the LastPublishIndex will be updated on AWS.
- *
- * @param[in]	reference	Pointer to context reference - a TimeValue is used
- * @param[in]	param		Pointer to callback parameter structure
- */
-static void vEventRecordShadowUpdateComplete( void * reference, AwsIotShadowCallbackParam_t * param)
-{
-	time_t *context = reference;
-
-	_evtrec.shadowUpdateComplete = true;
-
-	if( ( AWS_IOT_SHADOW_SUCCESS == param->u.operation.result ) && ( *context == _evtrec.contextTime ) )
-	{
-		IotLogInfo( "EventRecord: Shadow Update success" );
-		_evtrec.shadowUpdateSuccess = true;
-	}
-	else
-	{
-		IotLogInfo( "EventRecord: Shadow Update failed: result = %d, context received = %d, expected = %d",
-				param->u.operation.result,
-				*context,
-				_evtrec.contextTime );
-	}
-
-}
-#endif
 
 /**
  * @brief	Publish Event Records from FIFO to AWS
@@ -1049,10 +855,6 @@ static void publishRecords( const char *topic )
 
 	char * jsonBuffer = NULL;
 	uint16_t	nRecords;
-#ifdef	NEW_SHADOW
-	int	n;
-	esp_err_t err = ESP_OK;
-#endif
 
 	switch( _evtrec.publishState )
 	{
@@ -1101,7 +903,6 @@ static void publishRecords( const char *topic )
 					IotLogInfo( "publishRecords success - commit FIFO Read(s)" );
 					fifo_commitRead( _evtrec.fifoHandle, true );
 
-#ifndef	NEW_SHADOW
 					/* Track Last Published Index */
 					_evtrec.lastPublishedIndex = _evtrec.highestReadIndex;
 
@@ -1114,40 +915,6 @@ static void publishRecords( const char *topic )
 					_evtrec.shadowUpdateSuccess = false;
 
 					_evtrec.publishState = ePublishWaitShadowUpdate;
-#else
-					/* Save Last Published Index in NVS */
-					_evtrec.lastPublishedIndex = _evtrec.highestReadIndex;
-					NVS_Set( NVS_LAST_PUB_INDEX, &_evtrec.lastPublishedIndex, NULL );
-
-					/* Format Shadow update */
-					n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:%d}", shadowLastPublishedIndex, _evtrec.lastPublishedIndex );
-					IotLogInfo( "shadow update: %s", jsonBuffer );
-
-					/* set callback function */
-					shadowCallback.function = vEventRecordShadowUpdateComplete;
-
-					/* Clear flags */
-					_evtrec.shadowUpdateComplete = false;
-					_evtrec.shadowUpdateSuccess = false;
-
-					/* Use Time Value as context */
-					_evtrec.contextTime =  getTimeValue();
-					shadowCallback.pCallbackContext = &_evtrec.contextTime;
-
-					/* Update Shadow */
-					err =  updateReportedShadow( jsonBuffer, n, &shadowCallback );
-					vPortFree( jsonBuffer );
-
-					if( ESP_OK != err )
-					{
-						IotLogError( "Error updating event record shadow" );
-						_evtrec.publishState = ePublishRead;
-					}
-					else
-					{
-						_evtrec.publishState = ePublishWaitShadowUpdate;
-					}
-#endif
 				}
 				else
 				{
@@ -1321,10 +1088,12 @@ void eventRecords_onChangedTopic( uint32_t lastRecordedEvent )
 	/* Clear the FIFO */
 	fifo_reset( _evtrec.fifoHandle );
 
-	/* Set local indexes to last Recorded Event, for new Topic */
+	/*
+	 * Set local indexes to last Recorded Event, for new Topic.
+	 * Do not change _evtrec.lastReportedIndex - this tracks the last record in the MZ
+	 */
 	_evtrec.nvs.nextRequestIndex = lastRecordedEvent;
 	_evtrec.nvs.lastReceivedIndex = lastRecordedEvent;
-	_evtrec.lastReportedIndex = lastRecordedEvent;
 	_evtrec.lastRequestIndex = lastRecordedEvent;
 
 }
