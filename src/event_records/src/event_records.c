@@ -1281,7 +1281,7 @@ int32_t eventRecords_init( fifo_handle_t fifo, NVS_Items_t nvsKey )
 
 	IotLogInfo( "Initializing Event Records:" );
 	IotLogInfo( "  Handle = %p", ( (uint32_t *) _evtrec.fifoHandle ) );
-	IotLogInfo( "  lastReportedIndex = %d", _evtrec.nvs.lastReceivedIndex );
+	IotLogInfo( "  lastReportedIndex = %d", _evtrec.lastReportedIndex );
 	IotLogInfo( "  lastReceivedIndex = %d", _evtrec.nvs.lastReceivedIndex );
 	IotLogInfo( "  nextRequestIndex = %d",  _evtrec.nvs.nextRequestIndex );
 
@@ -1302,4 +1302,29 @@ int32_t eventRecords_init( fifo_handle_t fifo, NVS_Items_t nvsKey )
     }
 
     return	ESP_OK;
+}
+
+/**
+ * @brief	Changed Topic event handle
+ *
+ * This function is to be registered as the callback function for the Changed Topic Event.
+ * It will be call when the selected Topic (Dev vs. Prod) changes.
+ * The Event FIFO is reset and the Last Recorded Event, for the new Topic, is used
+ * to reset the local indexes.
+ *
+ * @param[in]	lastRecordedEvent	Last event, for newly selected environment (Dev/Prod), that has been published
+ */
+void eventRecords_onChangedTopic( uint32_t lastRecordedEvent )
+{
+	IotLogInfo( "eventRecords_onChangedTopic(%u)", lastRecordedEvent );
+
+	/* Clear the FIFO */
+	fifo_reset( _evtrec.fifoHandle );
+
+	/* Set local indexes to last Recorded Event, for new Topic */
+	_evtrec.nvs.nextRequestIndex = lastRecordedEvent;
+	_evtrec.nvs.lastReceivedIndex = lastRecordedEvent;
+	_evtrec.lastReportedIndex = lastRecordedEvent;
+	_evtrec.lastRequestIndex = lastRecordedEvent;
+
 }

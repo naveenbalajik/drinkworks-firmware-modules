@@ -24,6 +24,8 @@ typedef fifo_t* fifo_handle_t;
 
 fifo_handle_t fifo_init(const NVS_Partitions_t partition, const char * namespace, const char *keyPrefix, const uint16_t nItems, NVS_Items_t controlsKey, NVS_Items_t maxKey );
 
+void fifo_reset( fifo_handle_t fifo );
+
 bool fifo_full( fifo_handle_t fifo );
 
 bool fifo_empty( fifo_handle_t fifo );

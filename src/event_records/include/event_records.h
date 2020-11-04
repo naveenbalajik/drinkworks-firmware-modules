@@ -13,4 +13,6 @@
 
 int32_t eventRecords_init( fifo_handle_t fifo, NVS_Items_t eventRecordKey );
 
+void eventRecords_onChangedTopic( uint32_t lastRecordedEvent );
+
 #endif		/*	EVENT_RECORDS_H	*/
