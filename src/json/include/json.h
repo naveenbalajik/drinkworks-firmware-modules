@@ -17,6 +17,7 @@ typedef enum
 	JSON_NUMBER,
 	JSON_INTEGER,
 	JSON_UINT16,
+	JSON_INT32,
 	JSON_UINT32,
 	JSON_BOOL
 } _json_type_t;
@@ -27,6 +28,7 @@ typedef union
 	double *number;
 	int16_t *integer;
 	uint16_t *integerU16;
+	int32_t *integer32;
 	uint32_t *integerU32;
 	bool *truefalse;
 } _json_value_t;

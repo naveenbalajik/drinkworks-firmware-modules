@@ -444,6 +444,7 @@ uint16_t fifo_size( fifo_handle_t fifo )
 			}
 		}
 	}
+	IotLogInfo( "fifo_size = %d", size );
 	return size;
 }
 

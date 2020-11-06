@@ -192,12 +192,12 @@ typedef struct
 
 	struct event_record_nvs_s
 	{
-		int32_t			lastReceivedIndex;										/**< Record Index received in last Event Record */
+		int32_t			lastReceivedIndex;										/**< Record Index received in last Event Record, -1 if no record received, 0 is a valid index */
 		int32_t			nextRequestIndex;										/**< Record Index to be used for next request */
 	} nvs;																		/**< Control items to be stored in NVS, as a blob */
 
 	bool				updateNvs;												/**< true: nvs items need to be saved in NVS */
-	uint32_t			lastReportedIndex;										/**< last Record Index reported by Host */
+	int32_t				lastReportedIndex;										/**< last Record Index reported by Host */
 	int32_t  			lastRequestIndex;										/**< Record Index used for last request */
 	NVS_Items_t			key;													/**< NVS key to save Event Record nvs items */
 	time_t				contextTime;											/**< Time value used as context for MQTT callback */
@@ -214,7 +214,7 @@ typedef struct
 static event_records_t _evtrec =
 {
 	.updateNvs = false,
-	.lastReportedIndex = 0,
+	.lastReportedIndex = -1,
 	.lastRequestIndex = -1,
 	.publishState = ePublishRead,
 	.highestReadIndex = -1,
@@ -600,9 +600,13 @@ static void vUpdateEventRecordData( uint8_t *pData, uint16_t size )
  */
 static void vRecordCountUpdate( const void *pData, const uint16_t size )
 {
-	const uint32_t	*pCount = pData;
+	const int32_t	*pCount = pData;
 
-	_evtrec.lastReportedIndex = *pCount;
+	/*
+	 * Convert the RecordCount to lastReportedIndex
+	 * Subtract 1: If no records have been written, index = -1
+	 */
+	_evtrec.lastReportedIndex = ( *pCount - 1);
 	IotLogInfo( "lastReportedIndex = %d", _evtrec.lastReportedIndex );
 
 }
@@ -651,14 +655,14 @@ static void fetchRecords( void )
 			);
 
 
-	if( _evtrec.nvs.nextRequestIndex < _evtrec.lastReportedIndex )							/* if records are available */
+	if( _evtrec.nvs.nextRequestIndex <= _evtrec.lastReportedIndex )							/* if records are available */
 	{
 		if( _evtrec.nvs.nextRequestIndex != _evtrec.lastRequestIndex )						/* and request isn't a repeat */
 		{
 			requestRecord( _evtrec.nvs.nextRequestIndex );									/* request record */
 			_evtrec.lastRequestIndex = _evtrec.nvs.nextRequestIndex;
 		}
-		else if ( ( _evtrec.nvs.nextRequestIndex + 1 ) < _evtrec.lastReportedIndex )		/* If RequestIndex can be incremented, and still be less than reported */
+		else if ( ( _evtrec.nvs.nextRequestIndex + 1 ) <= _evtrec.lastReportedIndex )		/* If RequestIndex can be incremented, and still be less than reported */
 		{
 			_evtrec.nvs.nextRequestIndex++;													/* Increment, request record on next pass through */
 		}
@@ -906,13 +910,13 @@ static void publishRecords( const char *topic )
 					/* Track Last Published Index */
 					_evtrec.lastPublishedIndex = _evtrec.highestReadIndex;
 
-					/* Update Last Published Index, NVS will be updated by shadow module */
-					IotLogInfo( "Update Last Published Index: %d", _evtrec.lastPublishedIndex );
-					shadowUpdates_publishedIndex( _evtrec.lastPublishedIndex, &vEventRecordShadowUpdateComplete );
-
 					/* Clear flags */
 					_evtrec.shadowUpdateComplete = false;
 					_evtrec.shadowUpdateSuccess = false;
+
+					/* Update Last Published Index, NVS will be updated by shadow module */
+					IotLogInfo( "Update Last Published Index: %d", _evtrec.lastPublishedIndex );
+					shadowUpdates_publishedIndex( _evtrec.lastPublishedIndex, &vEventRecordShadowUpdateComplete );
 
 					_evtrec.publishState = ePublishWaitShadowUpdate;
 				}
@@ -1081,9 +1085,9 @@ int32_t eventRecords_init( fifo_handle_t fifo, NVS_Items_t nvsKey )
  *
  * @param[in]	lastRecordedEvent	Last event, for newly selected environment (Dev/Prod), that has been published
  */
-void eventRecords_onChangedTopic( uint32_t lastRecordedEvent )
+void eventRecords_onChangedTopic( int32_t lastRecordedEvent )
 {
-	IotLogInfo( "eventRecords_onChangedTopic(%u)", lastRecordedEvent );
+	IotLogInfo( "eventRecords_onChangedTopic(%d)", lastRecordedEvent );
 
 	/* Clear the FIFO */
 	fifo_reset( _evtrec.fifoHandle );

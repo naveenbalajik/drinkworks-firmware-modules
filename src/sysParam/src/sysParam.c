@@ -44,21 +44,21 @@ static sysParam_t	sysParamData =
  *
  * Build a System Parameter Update document, based on the bUpdate flags in the table.
  */
-/* FIXME: don't look at bUpdate flasgs at the moment, output full list every period */
+/* FIXME: don't look at bUpdate flags at the moment, output full list every period */
 static char * _formatSysParmUpdate( void )
 {
-	const char * bufferA = NULL;
-	const char * bufferB = NULL;
-	const char * mergeOutput = NULL;
+	char * bufferA = NULL;
+	char * bufferB = NULL;
+	char * mergeOutput = NULL;
 	_jsonItem_t *pItem;
 
 	IotLogInfo( "_formatSysParmUpdate" );
 
 	/* SerialNumber */
-	bufferA = json_formatSerialNumber();
+	bufferA = ( char * )json_formatSerialNumber();
 
 	/* Timestamp */
-	bufferB = json_formatUTC( "createdAt" );
+	bufferB = ( char * )json_formatUTC( "createdAt" );
 
 	/* merge header items */
 	mjson_merge( bufferA, strlen( bufferA ), bufferB, strlen( bufferB ), mjson_print_dynamic_buf, &mergeOutput );
@@ -99,7 +99,7 @@ static char * _formatSysParmUpdate( void )
  *
  */
 /* TODO: Add callback, look for rejection */
-static void publishParams( const char *topic, const char *pJson )
+static void publishParams( const char *topic, char *pJson )
 {
 //	IotMqttCallbackInfo_t publishCallback = IOT_MQTT_CALLBACK_INFO_INITIALIZER;
 
@@ -140,7 +140,7 @@ static void publishParams( const char *topic, const char *pJson )
  */
 static void _sysParamTask( void *arg )
 {
-	const char * pJson;
+	char * pJson;
 
 	vTaskDelay( 10000 / portTICK_PERIOD_MS );
 
@@ -184,8 +184,6 @@ static void _sysParamTask( void *arg )
  */
 int32_t sysParam_init( _sysParamConfig_t * config )
 {
-	esp_err_t	err = ESP_OK;
-
 	/* save the system parameter configuration */
 	sysParamData.config = config;
 

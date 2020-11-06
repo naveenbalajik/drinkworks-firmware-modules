@@ -98,6 +98,10 @@ void _storeInNvs( _shadowItem_t * pItem )
 			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integer, 0 );
 			break;
 
+		case JSON_INT32:
+			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integer32, 0 );
+			break;
+
 		case JSON_UINT32:
 			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integerU32, 0 );
 			break;
@@ -143,6 +147,13 @@ void _fetchFromNvs( _shadowItem_t * pItem )
 			if( ESP_OK != NVS_Get( pItem->nvsItem, pItem->jItem.jValue.integer, 0 ) )
 			{
 				NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integer, 0 );
+			}
+			break;
+
+		case JSON_INT32:
+			if( ESP_OK != NVS_Get( pItem->nvsItem, pItem->jItem.jValue.integer32, 0 ) )
+			{
+				NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integer32, 0 );
 			}
 			break;
 
@@ -410,6 +421,7 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 
 			case JSON_NUMBER:
 			case JSON_INTEGER:
+			case JSON_INT32:
 			case JSON_UINT32:
 				result = mjson_get_number( pCallbackParam->u.callback.pDocument,
 							pCallbackParam->u.callback.documentLength,
@@ -425,6 +437,10 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 					else if( pItem->jType == JSON_INTEGER )
 					{
 						*pItem->jValue.integer = ( int16_t )value;
+					}
+					else if( pItem->jType == JSON_INT32 )
+					{
+						*pItem->jValue.integer32 = ( int32_t )value;
 					}
 					else
 					{
@@ -548,6 +564,7 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 
 				case JSON_NUMBER:
 				case JSON_INTEGER:
+				case JSON_INT32:
 				case JSON_UINT32:
 					result = mjson_get_number( pCallbackParam->u.callback.pDocument,
 								pCallbackParam->u.callback.documentLength,
@@ -570,6 +587,15 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 							if( ( *pItem->jValue.integer == ( int16_t )value ) && pItem->bUpdate )
 							{
 								IotLogInfo( "Found %s = %d", matchstr, ( int16_t )value );
+								bUpdateComplete = true;
+							}
+						}
+						else if( pItem->jType == JSON_INT32 )
+						{
+							/* If values match, cancel the update flag */
+							if( ( *pItem->jValue.integer32 == ( int32_t )value ) && pItem->bUpdate )
+							{
+								IotLogInfo( "Found %s = %d", matchstr, ( int32_t )value );
 								bUpdateComplete = true;
 							}
 						}
