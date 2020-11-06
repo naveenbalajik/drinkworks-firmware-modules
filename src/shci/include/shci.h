@@ -78,7 +78,8 @@ enum ShciOpcode
 	eEventRecordWriteIndex = 								0xBB,		/**< Event: Update Event Record index (Model-A) */
 	eEventRecordData =										0xBC,		/**< Command: Send Event Record data (Model-A) */
 
-	eEspSetSerialNumber = 									0xC0		/**< Command: */
+	eEspSetSerialNumber = 									0xC0,		/**< Command: */
+	eEspSetPowerState = 									0xC1		/**< Command: */
 
 };
 typedef uint8_t _shciOpcode_t;
