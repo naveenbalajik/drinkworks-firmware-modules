@@ -78,6 +78,7 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 typedef	enum
 {
 	eOtaTaskInit,
+	eOtaTaskStart,
 	eOtaTaskRun,
 	eOtaTaskComplete,
 	eOtaTaskSuspend,
@@ -375,7 +376,7 @@ OTA_Err_t prvPAL_SetPlatformImageState_customer( uint32_t ulServerFileID, OTA_Im
 
 /* end of secondaryota_patch.txt */
 
-
+extern bool hostOta_transferActive( void );
 /**
  * @brief	OTA Update Task
  *
@@ -404,6 +405,9 @@ static void _OTAUpdateTask( void *arg )
         .xCustomJobCallback        = NULL	// otaDemoCustomJobCallback
     };
 
+	IotLogInfo( "_OTAUpdateTask" );
+	vTaskDelay( 2000 / portTICK_PERIOD_MS );
+
 	/* Continually loop until OTA process is completed */
 	for( ; ; )
 	{
@@ -414,6 +418,19 @@ static void _OTAUpdateTask( void *arg )
 		{
 
 			case eOtaTaskInit:
+				/* delay starting OTA Update task if a Host Update transfer is in process */
+				if( hostOta_transferActive() )
+				{
+					vTaskDelay( 1000 / portTICK_PERIOD_MS );
+				}
+				else
+				{
+					IotLogInfo( "ota -> Start" );
+					otaData.taskState = eOtaTaskStart;
+				}
+				break;
+
+			case eOtaTaskStart:
 				if( otaData.bConnected )
 				{
 					/* Short delay after MQTT connection is established */

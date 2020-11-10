@@ -59,6 +59,15 @@
 #define	FIXED_CONNECTION_HANDLE		(37)
 
 /**
+ * @brief	Abstract SHCI Event OpCode to easily swap between legacy BLE characteristics and direct SHCI opcodes
+ */
+#ifdef	LEGACY_BLE_INTERFACE
+#define	OTA_XMIT_OPCODE	eClientWriteCharacteristicValue
+#else
+#define	OTA_XMIT_OPCODE	eHostUpdateCommand
+#endif
+
+/**
  * @brief	Wait for MQTT retry count
  *
  * _hostOtaTask has a 10ms delay, so a value or 500 will give a maximum wait time of 5 seconds.
@@ -197,8 +206,20 @@ enum _otaStatus
 };
 typedef uint8_t	_otaStatus_t;
 
-#define	OTA_PKT_DLEN		128						// Bootloader Transfer Packet Data Length
-#define	OTA_PKT_DLEN_HALF	( OTA_PKT_DLEN / 2 )	// Bootloader Transfer Packet Data Length
+/**
+ * @brief	OTA Transfer Packet Length
+ *
+ * The MZ decryption engine operates on block that are multiples of 64 bytes in length.
+ * Legacy protocol limited transfer length to 128 bytes, due to BLE limitations.
+ * In Command structure, length is type uint8_t so limits total packet length to 255 bytes.
+ * Increasing maximum packet data length to 192 reduced the number of packets and thus
+ * speeds up transfer time.
+ */
+#define	OTA_PKT_DLEN_64		64						/**< Bootloader Transfer Packet Data Length */
+#define	OTA_PKT_DLEN_128	( OTA_PKT_DLEN_64 * 2 )	/**< Bootloader Transfer Packet Data Length */
+#define	OTA_PKT_DLEN_192	( OTA_PKT_DLEN_64 * 3 )	/**< Bootloader Transfer Packet Data Length */
+
+#define	MAX_OTA_PKT_DLEN	( OTA_PKT_DLEN_192 )	/**< Maximum data length to be used */
 
 /**
  * @brief	OTA Command packet definition for PIC32MZ transfer
@@ -220,7 +241,15 @@ typedef struct {
 	uint8_t			length;							/**< Number of bytes in transfer packet, including this byte */
 	_otaOpcode_t	command;						/**< Command OpCode */
 	uint32_t		address;						/**< Address */
-	uint8_t			buffer[ OTA_PKT_DLEN ];			/**< Data Buffer */
+	uint8_t			buffer[ OTA_PKT_DLEN_192 ];		/**< Data Buffer */
+	uint16_t		crc;							/**< 16-bit CCITT-CRC of complete packet */
+}  __attribute__ ((packed)) _otaLongData_t;			/**< Data Command */
+
+typedef struct {
+	uint8_t			length;							/**< Number of bytes in transfer packet, including this byte */
+	_otaOpcode_t	command;						/**< Command OpCode */
+	uint32_t		address;						/**< Address */
+	uint8_t			buffer[ OTA_PKT_DLEN_128 ];		/**< Data Buffer */
 	uint16_t		crc;							/**< 16-bit CCITT-CRC of complete packet */
 }  __attribute__ ((packed)) _otaData_t;				/**< Data Command */
 
@@ -228,7 +257,7 @@ typedef struct {
 	uint8_t			length;							/**< Number of bytes in transfer packet, including this byte */
 	_otaOpcode_t	command;						/**< Command OpCode */
 	uint32_t		address;						/**< Address */
-	uint8_t			buffer[ OTA_PKT_DLEN_HALF ];	/**< Data Buffer */
+	uint8_t			buffer[ OTA_PKT_DLEN_64 ];		/**< Data Buffer */
 	uint16_t		crc;							/**< 16-bit CCITT-CRC of complete packet */
 }  __attribute__ ((packed)) _otaShortData_t;		/**< Data Command */
 
@@ -257,8 +286,9 @@ typedef struct
 	{
 		_otaInit_t		Init;						/**< Init Command */
 		_otaErase_t		Erase;						/**< Erase Command */
-		_otaData_t		Data;						/**< Data Command */
-		_otaShortData_t	ShortData;					/**< Data Command, half data buffer */
+		_otaLongData_t	LongData;					/**< Data Command, 192 bytes */
+		_otaData_t		Data;						/**< Data Command, 128 bytes */
+		_otaShortData_t	ShortData;					/**< Data Command, 64 bytes */
 		_otaVerify_t	Verify;						/**< Verify Command */
 		_otaReset_t		Reset;						/**< Reset Command */
 	};
@@ -453,18 +483,19 @@ static void hostOtaNotificationUpdate( hostOta_notification_t notify, double par
 /**
  * @brief	OTA Status update handler
  *
- * This handler will be called whenever the OTA Status BLE characteristic value
- * is updated.
+ * This handler will be called whenever:
+ *	+ The OTA Status BLE characteristic value is updated [Legacy BLE Characteristic configuration]
+ *	+ The SHCI HostUpdateResponse command is received
  *
  * @param[in]	pData	Pointer to characteristic value
  * @param[in]	size	Size, in bytes, of characteristic value
  */
-static void vOtaStatusUpdate( const void *pData, const uint16_t size )
+static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 {
 	esp_err_t	err = ESP_OK;
 	int i;
 	uint16_t	crc;
-	const _otaStatusPkt_t	*pStat = pData;
+	const _otaStatusPkt_t	*pStat = ( const _otaStatusPkt_t * )pData;
 
 	// Validate the Status packet
 	for( i = 0; ( ( i < NUM_STATUS_ENTRIES ) && ( ESP_OK == err ) ); ++i )
@@ -534,6 +565,15 @@ static void vOtaStatusUpdate( const void *pData, const uint16_t size )
 	if( ( ESP_OK != err ) || ( NUM_STATUS_ENTRIES <= i ) )
 	{
 		_hostota.mzXfer_state = mzXfer_Error;
+#ifndef	LEGACY_BLE_INTERFACE
+		/* NACK the command */
+		shci_postCommandComplete( eHostUpdateResponse, eInvalidCommandParameters  );
+	}
+	else
+	{
+		/* ACK the command */
+		shci_postCommandComplete( eHostUpdateResponse, eCommandSucceeded );
+#endif
 	}
 }
 
@@ -595,7 +635,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			/* Allocate a command buffer */
 			_hostota.pCommand_mzXfer = pvPortMalloc( sizeof( _otaCommand_t ) );
 
-			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
+			_hostota.pCommand_mzXfer->opCode = OTA_XMIT_OPCODE;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
 			_hostota.pCommand_mzXfer->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
 
@@ -625,7 +665,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 		case mzXfer_Erase:
 			hostOtaNotificationUpdate( eNotifyFlashErase, 0 );
 			IotLogDebug( "mzXfer_Erase" );
-			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
+			_hostota.pCommand_mzXfer->opCode = OTA_XMIT_OPCODE;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
 			_hostota.pCommand_mzXfer->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
 
@@ -660,18 +700,31 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 		case mzXfer_Data:
 			hostOtaNotificationUpdate( eNotifyFlashProgram, _hostota.percentComplete );
 			IotLogDebug( "mzXfer_Data" );
-			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
+			_hostota.pCommand_mzXfer->opCode = OTA_XMIT_OPCODE;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
 			_hostota.pCommand_mzXfer->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
 
 			_hostota.pCommand_mzXfer->Data.command = eOTA_DATA_CMD;
 
 			/* Read a chunk of Image from Flash */
-			size = ( OTA_PKT_DLEN < remaining ) ? OTA_PKT_DLEN : remaining;
-//			printf( "read data %d bytes\n", size );
+			size = ( MAX_OTA_PKT_DLEN < remaining ) ? MAX_OTA_PKT_DLEN : remaining;
 			bootloader_flash_read( imageAddress, _hostota.pCommand_mzXfer->Data.buffer, size, true );
 
-			if( OTA_PKT_DLEN == size )				/* Full data command */
+			if( OTA_PKT_DLEN_192 == size )				/* 192 byte data command */
+			{
+				_hostota.pCommand_mzXfer->LongData.length = sizeof( _otaLongData_t );
+				_hostota.pCommand_mzXfer->LongData.address = SwapFourBytes( _hostota.targetAddress );
+				crc = crc16_ccitt_compute( ( uint8_t *) &_hostota.pCommand_mzXfer->LongData, ( sizeof( _otaLongData_t ) - 2 ) );
+				_hostota.pCommand_mzXfer->LongData.crc = SwapTwoBytes( crc );
+
+				_hostota.expectedStatus = eOTA_DATA_ACK;
+				_hostota.ackReceived = false;
+
+				/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
+				shci_PostResponse( ( uint8_t * )_hostota.pCommand_mzXfer, ( sizeof( _otaLongData_t ) + 4 ) );
+				_hostota.mzXfer_state = mzXfer_Data_Ack;
+			}
+			else if( OTA_PKT_DLEN_128 == size )			/* 128 byte Data command */
 			{
 				_hostota.pCommand_mzXfer->Data.length = sizeof( _otaData_t );
 				_hostota.pCommand_mzXfer->Data.address = SwapFourBytes( _hostota.targetAddress );
@@ -682,10 +735,10 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 				_hostota.ackReceived = false;
 
 				/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-				shci_PostResponse( ( uint8_t * )_hostota.pCommand_mzXfer, ( sizeof( _otaData_t ) + 4 ) );
+				shci_PostResponse( ( uint8_t * )&_hostota.pCommand_mzXfer, ( sizeof( _otaData_t ) + 4 ) );
 				_hostota.mzXfer_state = mzXfer_Data_Ack;
 			}
-			else if( OTA_PKT_DLEN_HALF == size )	/* Half Data command */
+			else if( OTA_PKT_DLEN_64 == size )	/* Half Data command */
 			{
 				_hostota.pCommand_mzXfer->ShortData.length = sizeof( _otaShortData_t );
 				_hostota.pCommand_mzXfer->ShortData.address = SwapFourBytes( _hostota.targetAddress );
@@ -701,7 +754,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			}
 			else
 			{
-				IotLogError( "Error: Image Size is not a multiple of %d", OTA_PKT_DLEN_HALF );
+				IotLogError( "Error: Image Size is not a multiple of %d", OTA_PKT_DLEN_64 );
 				_hostota.mzXfer_state = mzXfer_Error;
 			}
 			break;
@@ -727,7 +780,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 		case mzXfer_Verify:
 			hostOtaNotificationUpdate( eNotifyUpdateValidation, 0 );
 			IotLogDebug( "mzXfer_Verify");
-			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
+			_hostota.pCommand_mzXfer->opCode = OTA_XMIT_OPCODE;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
 			_hostota.pCommand_mzXfer->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
 
@@ -757,7 +810,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 
 		case mzXfer_Reset:
 			hostOtaNotificationUpdate( eNotifyHostReset, 0 );
-			_hostota.pCommand_mzXfer->opCode = eClientWriteCharacteristicValue;
+			_hostota.pCommand_mzXfer->opCode = OTA_XMIT_OPCODE;
 			_hostota.pCommand_mzXfer->connHandle = FIXED_CONNECTION_HANDLE;
 			_hostota.pCommand_mzXfer->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
 
@@ -855,7 +908,7 @@ static void _hostOtaTask(void *arg)
 		setImageState( eOTA_PAL_ImageState_Unknown );
 	}
 
-	vTaskDelay( 10000 / portTICK_PERIOD_MS );
+	vTaskDelay( 5000 / portTICK_PERIOD_MS );
 
 	IotLogInfo( "_hostOtaTask" );
 
@@ -873,7 +926,7 @@ static void _hostOtaTask(void *arg)
 				IotLogInfo( "host ota: current MZ version = %5.2f", _hostota.currentVersion_MZ );
 
 				/* hardwire partition for initial development */
-				_hostota.partition = esp_partition_find_first( 0x44, 0x57, "pic_fw" );
+				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_fw" );
 				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
 
 				/* Read the first 512 bytes from the Flash partition */
@@ -1090,7 +1143,13 @@ int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb )
 	_hostota.imageState = eOTA_PAL_ImageState_Unknown;
 
 	/* Register callback for OTA Status update */
+#ifdef	LEGACY_BLE_INTERFACE
+	/* Register for Update to BLE Characteristic OtaStatus */
 	bleInterface_registerUpdateCB( eOtaStatusIndex, &vOtaStatusUpdate );
+#else
+	/* Register for SHCI Host Update Response */
+	shci_RegisterCommand( eHostUpdateResponse, &vOtaStatusUpdate );
+#endif
 
 	/* Create Task on new thread */
 #ifndef	NO_HOST_OTA_TASK
@@ -1129,4 +1188,12 @@ void hostOta_setImageState( OTA_ImageState_t eState )
 {
 	IotLogInfo( "Set ImageState = %d", eState);
 	_hostota.imageState = eState;
+}
+
+/**
+ * @brief	Is Host OTA transfer Active
+ */
+bool hostOta_transferActive( void )
+{
+	return( ( _hostota.mzXfer_state == mzXfer_Idle ) ? false : true );
 }

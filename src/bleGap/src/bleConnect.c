@@ -147,7 +147,7 @@ _connectionMap_t *retrieveConnection( uint8_t handle )
  * @param[in] pData  Pointer to parameter data
  * @param[in] size	 Number of bytes in parameter data
  */
-static void vUserConfirmResponse( uint8_t *pData, uint16_t size )
+static void vUserConfirmResponse( const uint8_t *pData, const uint16_t size )
 {
 	IotLogInfo( "UserConfirmResponse, size = %d", size );
 	

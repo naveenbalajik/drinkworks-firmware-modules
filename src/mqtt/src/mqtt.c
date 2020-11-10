@@ -339,7 +339,7 @@ static void mqtt_task( void *arg )
 				else
 				{
 					/* Wait for a Wifi connection */
-					if( wifi_GetStatus() != WiFi_Status_Connected )
+					if( wifi_GetStatus() != eWiFiStatusConnected )
 					{
 						vTaskDelay( 500 / portTICK_PERIOD_MS );
 						mqttData.retryInterval = MQTT_CONN_RETRY_BASE_INTERVAL_SECONDS;

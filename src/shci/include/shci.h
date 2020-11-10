@@ -64,6 +64,9 @@ enum ShciOpcode
 	eWiFiResetProvisioning = 								0xA0,		/**< Command: */
 	eWiFiReadStatus =										0xA1,		/**< Command: */
 
+	eHostUpdateCommand =                                    0xA2,		/**< Event: Host Firmware Update */
+	eHostUpdateResponse =                                   0xA3,		/**< Command: Host Firmware Response */
+
 	eWiFiStatus = 											0xB0,		/**< Event: */
 	eNetworkInitializedEvent = 								0xB1,		/**< Event: */
 	eWifiTestParameter =									0xB2,		/**< Command: */
@@ -84,77 +87,6 @@ enum ShciOpcode
 };
 typedef uint8_t _shciOpcode_t;
 
-#ifdef	DEPRECIATED
-/**
- * @brief Enumerated SHCI Command Opcodes
- *
- * SHCI Commands are send by the Host processor and received by the ESP32.
- * SHCI Commands and SHCI Event code should not overlap
- */
-enum CommandOpcode 
-{
-	eReadLocalInformation =					0x01,
-	eReadStatus =							0x03,
-	eReadDeviceName =						0x07,
-	eWriteDeviceName =						0x08,
-	eReadAllPairedDeviceInformation =		0x0C,
-	eWriteScanResponseData =				0x12,
-	eConnectionParameterUpdateRequest =		0x19,
-	eSetAdvertisingEnable =					0x1C,
-	eSendCharacteristicValue =				0x38,
-	eUpdateCharacteristicValue =			0x39,
-	eReadLocalCharacteristicValue =			0x3A,
-	eUserConfirmResponse =					0x41,
-	
-	eWiFiResetProvisioning = 				0xA0,
-	eWiFiReadStatus =						0xA1,
-	
-	eWifiTestParameter =					0xB2,
-	eWifiTestStart,
-	eWifiTestStop,
-
-	eCaptureArm =							0xB6,
-	eCaptureRead,
-
-	eWifiConnectAP = 						0xBA,
-
-	eEspSetSerialNumber = 					0xC0
-
-};
-typedef uint8_t _CommandOpcode_t;
-
-/**
- * @brief Enumerated SHCI Event OpCodes
- *
- */
-enum EventOpcode
-{
-	NoEventOpcode,													// 0x00
-	ePasskeyEntryRequest = 0x60,									// 0x60
-	ePairingComplete,												// 0x61
-	ePasskeyConfirmRequest,											// 0x62
-	AdvertisingReport = 0x70,										// 0x70
-	eLeConnectionComplete,											// 0x71
-	eDisconnectionComplete,											// 0x72
-	ConnectionParameterUpdateNotify,								// 0x73
-	eCommandComplete = 0x80,										// 0x80
-	eStatusReport,													// 0x81
-	ConfigureModeStatus = 0x8f,										// 0x8F
-	DiscoverAllPrimaryServiceResponse,								// 0x90
-	DiscoverSpecificPrimaryServiceCharacteristicResponse,			// 0x91
-	DiscoverAllCharacteristicDescriptorResponse,					// 0x92
-//????	CharacteristicValueReceived,								// 0x93
-	eClientWriteCharacteristicValue = 0x98,							// 0x98
-	ReceivedTransparentData = 0x9a,									// 0x9A
-	// All commands below are extensions to those supported by the BM7x Module, and are targeted for the ESP32 module
-	eWiFiStatus = 0xB0,
-	eNetworkInitializedEvent = 0xB1,
-	eWifiTestStatus = 0xB5,
-	eCaptureComplete = 0xB8,
-	eDispenseComplete = 0xB9
-};
-typedef uint8_t _eventOpcode_t;
-#endif		/* DEPRECIATED */
 
 /**
  * @brief Enumerated ESP Module Error Codes, common to ESP, BLE and WIFI modules
@@ -220,7 +152,7 @@ typedef uint8_t _errorCodeType_t;
 /**
  * @brief Callback called when an SHCI command is received
  */
-typedef void (* _shciCommandCallback_t)( uint8_t *pData, uint16_t size );
+typedef void (* _shciCommandCallback_t)( const uint8_t *pData, const uint16_t size );
  
 
 /************************************************************/

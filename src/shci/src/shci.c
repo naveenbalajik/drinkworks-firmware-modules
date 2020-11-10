@@ -67,7 +67,7 @@ static _shciCommand_t IncommingCommand;
 static MessageBufferHandle_t   _shciMessageBuffer;
 static TaskHandle_t _shciTaskHandle;
 static QueueHandle_t hci_handle;
-static uint8_t TxEventBuf[180];
+static uint8_t TxEventBuf[ 256 ];
 static bool _shciUseCRC;
 static portMUX_TYPE shci_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -537,7 +537,7 @@ bool shci_PostResponse( const uint8_t *pData, size_t numBytes )
 		 *  place each call to a writing API function (such as xMessageBufferSend()) inside
 		 *  a critical section and use a send block time of 0"
 		 */
-	    portENTER_CRITICAL(&shci_spinlock);
+		portENTER_CRITICAL(&shci_spinlock);
 		n = xMessageBufferSend( _shciMessageBuffer, ( const void * ) pData, numBytes, 0 );
 	    portEXIT_CRITICAL(&shci_spinlock);
 

@@ -547,7 +547,7 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
  * @param[in]	pData	Pointer to data buffer
  * @param[in]	size	Number of parameter bytes (does not include the command OpCode)
  */
-static void vUpdateEventRecordData( uint8_t *pData, uint16_t size )
+static void vUpdateEventRecordData( const uint8_t *pData, const uint16_t size )
 {
 	_dispenseRecord_t	*pDispenseRecord;
 	char * jsonBuffer = NULL;
