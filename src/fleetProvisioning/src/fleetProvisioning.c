@@ -248,11 +248,11 @@ static char * _replaceWildcardAppend(const char * strWithWildcard, const char * 
 	// Allocate memory for the new string
 	if(additions == NULL)
 	{
-		newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement), sizeof(char));
+		newString = (char *) calloc(strlen(strWithWildcard) + strlen(replacement), sizeof(char));
 	}
 	else
 	{
-		newString = (char *) calloc(strlen(strWithWildcard) - 1 + strlen(replacement) + strlen(additions), sizeof(char));
+		newString = (char *) calloc(strlen(strWithWildcard) + strlen(replacement) + strlen(additions), sizeof(char));
 	}
 	if(newString == NULL)
 	{
