@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef _AWS_OTA_PAL_H
-#define _AWS_OTA_PAL_H
+#ifndef _HOST_OTA_PAL_H
+#define _HOST_OTA_PAL_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -85,4 +85,4 @@ int16_t prvPAL_dw_WriteBlock( OTA_FileContext_t * const C,
 }
 #endif
 
-#endif /* _AWS_OTA_PAL_H */
+#endif /* _HOST_OTA_PAL_H */

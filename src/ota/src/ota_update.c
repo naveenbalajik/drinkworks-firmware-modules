@@ -54,7 +54,7 @@
 /* FreeRTOS OTA PAL includes. */
 #include "aws_iot_ota_pal.h"
 
-#include "aws_ota_pal_dw.h"
+#include "host_ota_pal.h"
 
 #include "iot_network_manager_private.h"
 

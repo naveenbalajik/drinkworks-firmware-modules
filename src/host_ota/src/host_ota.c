@@ -39,7 +39,7 @@
 
 #include	"host_ota.h"
 #include	"shadow_updates.h"
-#include	"aws_ota_pal_dw.h"
+#include	"host_ota_pal.h"
 
 #include "aws_iot_ota_agent.h"
 

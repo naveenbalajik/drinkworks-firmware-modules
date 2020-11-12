@@ -1,7 +1,7 @@
 target_sources( ${PROJECT_NAME} PRIVATE
 	src/host_ota.c
-	src/aws_ota_pal_dw.c
-	src/aws_esp_ota_ops_dw.c
+	src/host_ota_pal.c
+	src/host_ota_ops.c
 )
 
 target_include_directories( ${PROJECT_NAME} BEFORE PRIVATE

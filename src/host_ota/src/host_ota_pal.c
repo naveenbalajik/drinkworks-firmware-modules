@@ -16,7 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.*/
 /**
- * @file aws_ota_pal_dw.c
+ * @file host_ota_pal.c
  */
 /* OTA PAL implementation for Espressif esp32_devkitc_esp_wrover_kit platform adapted for secondary processor */
 
@@ -41,12 +41,12 @@
 #include "esp_spi_flash.h"
 #include "esp_image_format.h"
 #include "esp_ota_ops.h"
-#include "aws_esp_ota_ops_dw.h"
+#include "host_ota_ops.h"
 #include "mbedtls/asn1.h"
 #include "mbedtls/bignum.h"
 #include "mbedtls/base64.h"
 
-#include "aws_ota_pal_dw.h"
+#include "host_ota_pal.h"
 
 #define kOTA_HalfSecondDelay    pdMS_TO_TICKS( 500UL )
 #define ECDSA_INTEGER_LEN       32

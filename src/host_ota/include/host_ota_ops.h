@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef _AWS_ESP_OTA_OPS_H
-#define _AWS_ESP_OTA_OPS_H
+#ifndef _HOST_OTA_OPS_H
+#define _HOST_OTA_OPS_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -96,4 +96,4 @@ esp_err_t aws_esp_dw_end(esp_ota_handle_t handle);
 }
 #endif
 
-#endif /* AWS_ESP_OTA_OPS_H */
+#endif /* _HOST_OTA_OPS_H */
