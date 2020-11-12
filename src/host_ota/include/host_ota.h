@@ -9,7 +9,8 @@
 #define	HOST_OTA_H
 
 #include	<stdint.h>
-#include "aws_iot_ota_agent.h"
+#include	"aws_iot_ota_agent.h"
+#include	"ota_update.h"
 
 /**
  * @brief Callback called for Host OTA Update Notification
@@ -25,5 +26,8 @@ OTA_PAL_ImageState_t hostOta_getImageState( void );
 void hostOta_setImageState( OTA_ImageState_t eState );
 
 bool hostOta_pendUpdate( void );
+
+const AltProcessor_Functions_t * hostOta_getFunctionTable( void );
+
 
 #endif		/*	HOST_OTA_H	*/

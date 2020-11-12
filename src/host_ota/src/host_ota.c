@@ -39,6 +39,7 @@
 
 #include	"host_ota.h"
 #include	"shadow_updates.h"
+#include	"aws_ota_pal_dw.h"
 
 #include "aws_iot_ota_agent.h"
 
@@ -407,6 +408,20 @@ typedef struct
 static host_ota_t _hostota =
 {
 		.state = eHostOtaIdle,
+};
+
+/**
+ * @brief	OTA PAL functions
+ */
+static AltProcessor_Functions_t hostOtaFunctions = {
+    .xAbort                    = prvPAL_dw_Abort,
+    .xActivateNewImage         = prvPAL_dw_ActivateNewImage,
+    .xCloseFile                = prvPAL_dw_CloseFile,
+    .xCreateFileForRx          = prvPAL_dw_CreateFileForRx,
+    .xGetImageState            = hostOta_getImageState,
+    .xResetDevice              = prvPAL_dw_ResetDevice,
+    .xSetImageState            = hostOta_setImageState,
+    .xWriteBlock               = prvPAL_dw_WriteBlock,
 };
 
 
@@ -1208,4 +1223,14 @@ void hostOta_setImageState( OTA_ImageState_t eState )
 bool hostOta_pendUpdate( void )
 {
 	return( ( _hostota.state == eHostOtaPendUpdate ) ? true : false );
+}
+
+/**
+ * @brief	Get OTA PAL Function Table
+ *
+ * @return	Pointer to function table
+ */
+const AltProcessor_Functions_t * hostOta_getFunctionTable( void )
+{
+	return &hostOtaFunctions;
 }
