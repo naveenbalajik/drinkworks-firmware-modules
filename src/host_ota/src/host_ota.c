@@ -81,6 +81,7 @@
  */
 typedef enum
 {
+	eHostOtaInit,
 	eHostOtaIdle,
 	eHostOtaParseJSON,
 	eHostOtaVerifyImage,
@@ -908,8 +909,6 @@ static void _hostOtaTask(void *arg)
 		setImageState( eOTA_PAL_ImageState_Unknown );
 	}
 
-	vTaskDelay( 5000 / portTICK_PERIOD_MS );
-
 	IotLogInfo( "_hostOtaTask" );
 
 	pBuffer = pvPortMalloc( 512 );
@@ -919,6 +918,19 @@ static void _hostOtaTask(void *arg)
 
     	switch( _hostota.state )
     	{
+    		case eHostOtaInit:
+    			/* wait for an MQTT connection before starting the host ota update */
+    			if( mqtt_IsConnected() )
+    			{
+    				IotLogInfo( "_hostOtaTask -> Idle" );
+    				_hostota.state = eHostOtaIdle;
+    			}
+    			else
+    			{
+					vTaskDelay( 1000 / portTICK_PERIOD_MS );
+    			}
+    			break;
+
 			case eHostOtaIdle:
 
 				/* Get currently running MZ firmware version */
@@ -1191,9 +1203,9 @@ void hostOta_setImageState( OTA_ImageState_t eState )
 }
 
 /**
- * @brief	Is Host OTA transfer Active
+ * @brief	Is Host OTA pending on image update
  */
-bool hostOta_transferActive( void )
+bool hostOta_pendUpdate( void )
 {
-	return( ( _hostota.mzXfer_state == mzXfer_Idle ) ? false : true );
+	return( ( _hostota.state == eHostOtaPendUpdate ) ? true : false );
 }

@@ -51,6 +51,12 @@
 /* FreeRTOS OTA agent includes. */
 #include "aws_iot_ota_agent.h"
 
+/* FreeRTOS OTA PAL includes. */
+#include "aws_iot_ota_pal.h"
+
+//#include "../../../../freertos/vendors/espressif/boards/esp32/ports/ota/aws_ota_pal_dw.h"
+#include "aws_ota_pal_dw.h"
+
 #include "iot_network_manager_private.h"
 
 /* Required for task stack and priority */
@@ -60,10 +66,13 @@
 #include "platform/iot_clock.h"
 #include "platform/iot_threads.h"
 
-/* Set up logging for this app. */
-#include "app_logging.h"
+/* Set up logging for this module */
+#include "ota_logging.h"
 
-#include "application.h"
+//#include "application.h"
+#include "mqtt.h"
+
+#include "ota_update.h"
 
 #include "host_ota.h"
 
@@ -95,12 +104,14 @@ typedef	struct
 	OTA_ConnectionContext_t		connectionCtx;
 	const char * 				pIdentifier;
 	IotSemaphore_t	*			pHostUpdateComplete;
+	hostOtaPendUpdateCallback_t	pendingHostOtaUpdate;						/**< callback function, returns true if HostOta task is pending on an image update; false indicates task is otherwise busy */
 } otaData_t;
 
 static otaData_t otaData =
 {
 	.taskState = eOtaTaskInit,
 	.pHostUpdateComplete = NULL,
+	.pendingHostOtaUpdate = NULL,
 };
 
 /**
@@ -178,8 +189,8 @@ extern int16_t prvPAL_WriteBlock( OTA_FileContext_t * const C,
 extern OTA_Err_t prvPAL_ActivateNewImage( void );
 extern OTA_Err_t prvPAL_ResetDevice( void );
 */
-extern OTA_Err_t prvPAL_SetPlatformImageState( OTA_ImageState_t eState );
-extern OTA_PAL_ImageState_t prvPAL_GetPlatformImageState( void );
+//extern OTA_Err_t prvPAL_SetPlatformImageState( OTA_ImageState_t eState );
+//extern OTA_PAL_ImageState_t prvPAL_GetPlatformImageState( void );
 // --------
 
 /**
@@ -203,10 +214,11 @@ OTA_JobParseErr_t otaDemoCustomJobCallback( const char * pcJSON, uint32_t ulMsgL
     return eOTA_JobParseErr_None;
 }
 
+#endif	/* NEEDED */
 
-OTA_Err_t prvPAL_Abort_customer( OTA_FileContext_t * const C )
+OTA_Err_t prvPAL_Abort_override( OTA_FileContext_t * const C )
 {
-    DEFINE_OTA_METHOD_NAME( "prvPAL_Abort_customer" );
+    DEFINE_OTA_METHOD_NAME( "prvPAL_Abort_override" );
 
     if ( C == NULL )
     {
@@ -222,33 +234,17 @@ OTA_Err_t prvPAL_Abort_customer( OTA_FileContext_t * const C )
     else
     {
         OTA_LOG_L1( "[%s] OTA for secondary processor\r\n", OTA_METHOD_NAME );
-        return kOTA_Err_None;
+        return prvPAL_dw_Abort( C );
     }
 }
 
 
 
-OTA_Err_t prvPAL_ActivateNewImage_customer( uint32_t ulServerFileID )
+
+
+OTA_Err_t prvPAL_CloseFile_override( OTA_FileContext_t * const C )
 {
-    DEFINE_OTA_METHOD_NAME( "prvPAL_ActivateNewImage_customer" );
-
-    if ( ulServerFileID == 0 )
-    {
-        // Update self
-        return prvPAL_ActivateNewImage();
-    }
-    else
-    {
-        OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
-        // Reset self after doing cleanup
-        return prvPAL_ActivateNewImage();
-    }
-}
-
-
-OTA_Err_t prvPAL_CloseFile_customer( OTA_FileContext_t * const C )
-{
-    DEFINE_OTA_METHOD_NAME( "prvPAL_CloseFile_customer" );
+    DEFINE_OTA_METHOD_NAME( "prvPAL_CloseFile_override" );
 
     if ( C->ulServerFileID == 0 )
     {
@@ -258,41 +254,13 @@ OTA_Err_t prvPAL_CloseFile_customer( OTA_FileContext_t * const C )
     else
     {
         OTA_LOG_L1( "[%s] Received prvPAL_CloseFile_customer inside OTA for secondary processor.\r\n", OTA_METHOD_NAME );
-        C->pucFile = (uint8_t *)0;
-        return kOTA_Err_None;
+        return prvPAL_dw_CloseFile( C );
     }
 }
 
-OTA_Err_t prvPAL_CreateFileForRx_customer( OTA_FileContext_t * const C )
+OTA_Err_t prvPAL_ResetDevice_override( uint32_t ulServerFileID )
 {
-    DEFINE_OTA_METHOD_NAME( "prvPAL_CreateFileForRx_customer" );
-
-    if ( C == NULL )
-    {
-        OTA_LOG_L1( "[%s] File context null\r\n", OTA_METHOD_NAME );
-        return kOTA_Err_RxFileCreateFailed;
-    }
-
-    if ( C->ulServerFileID == 0 )
-    {
-        // Update self
-        return prvPAL_CreateFileForRx( C );
-    }
-    else
-    {
-        OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
-
-        // Put a value in the file handle
-        C->pucFile = (uint8_t *)C;
-
-        return kOTA_Err_None;
-    }
-}
-
-
-OTA_Err_t prvPAL_ResetDevice_customer( uint32_t ulServerFileID )
-{
-    DEFINE_OTA_METHOD_NAME( "prvPAL_ResetDevice_customer" );
+    DEFINE_OTA_METHOD_NAME( "prvPAL_ResetDevice_override" );
 
     if ( ulServerFileID == 0 )
     {
@@ -302,16 +270,16 @@ OTA_Err_t prvPAL_ResetDevice_customer( uint32_t ulServerFileID )
     else
     {
         OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
-        return kOTA_Err_None;
+        return prvPAL_dw_ResetDevice();
     }
 }
 
-int16_t prvPAL_WriteBlock_customer( OTA_FileContext_t * const C,
+int16_t prvPAL_WriteBlock_override( OTA_FileContext_t * const C,
                            uint32_t iOffset,
                            uint8_t * const pacData,
                            uint32_t iBlockSize )
  {
-    DEFINE_OTA_METHOD_NAME( "prvPAL_WriteBlock_customer" );
+    DEFINE_OTA_METHOD_NAME( "prvPAL_WriteBlock_override" );
 
     if ( C == NULL )
     {
@@ -327,15 +295,93 @@ int16_t prvPAL_WriteBlock_customer( OTA_FileContext_t * const C,
     else
     {
         OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
-        return (int16_t) iBlockSize;
+        return prvPAL_dw_WriteBlock(C, iOffset, pacData, iBlockSize);
     }
 }
 
-#endif	/* NEEDED */
 
-OTA_PAL_ImageState_t prvPAL_GetPlatformImageState_customer( uint32_t ulServerFileID )
+/**
+ * @brief	Override function for prvPAL_CreateFileForRx()
+ *
+ * This override function calls the default PAL function if the ServerFileID is zero (i.e. ESP32 Updates)
+ * For other ServerFileID values a modified PAL function is called, with partition type and subtype values,
+ * to process updates for secondary processors.
+ *
+ * @param[in]	C	OTA File context pointer
+ *
+ * @return kOTA_Err_None if successful, otherwise an error code prefixed with 'kOTA_Err_'.
+ *
+ * TODO: hard wiring to partition 0x44/0x57 ("DW") violates modularity intent.
+ */
+static OTA_Err_t prvPAL_CreateFileForRx_override( OTA_FileContext_t * const C )
 {
-    DEFINE_OTA_METHOD_NAME( "prvPAL_GetPlatformImageState_customer" );
+	esp_partition_type_descriptor_t partitionDescriptor = { .type = 0x44, .subtype = 0x57 };
+
+    DEFINE_OTA_METHOD_NAME( "prvPAL_CreateFileForRx_override" );
+
+    if ( C == NULL )
+    {
+        OTA_LOG_L1( "[%s] File context null\r\n", OTA_METHOD_NAME );
+        return kOTA_Err_RxFileCreateFailed;
+    }
+
+    if ( C->ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_CreateFileForRx( C );
+    }
+    else
+    {
+        OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
+        return prvPAL_dw_CreateFileForRx( C, &partitionDescriptor );
+    }
+}
+
+/**
+ * @brief	Override function for prvPAL_ActivateNewImage()
+ *
+ * This override function calls the default PAL function if the ServerFileID is zero (i.e. ESP32 Updates)
+ * For other ServerFileID values a modified PAL function is called, with partition type and subtype values,
+ * to process updates for secondary processors.
+ *
+ * @param[in]	C	OTA File context pointer
+ *
+ * @return kOTA_Err_None if successful, otherwise an error code prefixed with 'kOTA_Err_'.
+ *
+ * TODO: hard wiring to partition 0x44/0x57 ("DW") violates modularity intent.
+ */
+OTA_Err_t prvPAL_ActivateNewImage_override( uint32_t ulServerFileID )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_ActivateNewImage_override" );
+
+    if ( ulServerFileID == 0 )
+    {
+        // Update self
+        return prvPAL_ActivateNewImage();
+    }
+    else
+    {
+        OTA_LOG_L1( "[%s] OTA for secondary processor.\r\n", OTA_METHOD_NAME );
+        // Reset self after doing cleanup
+        return prvPAL_dw_ActivateNewImage();
+    }
+}
+
+/**
+ * @brief	Override function for prvPAL_GetPlatformImageState()
+ *
+ * This override function calls the default PAL function if the ServerFileID is zero (i.e. ESP32 Updates).
+ * For other ServerFileID values hostOta_getImageState() is called, to process updates for secondary processors.
+ *
+ * @param[in]	ulServerFileID	Server File ID (0 = ESP32)
+ *
+ * @return	Enumerated platform image state
+ *
+ * TODO: hard wiring to hostOTA function violates modularity intent.
+ */
+static OTA_PAL_ImageState_t prvPAL_GetPlatformImageState_override( uint32_t ulServerFileID )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_GetPlatformImageState_override" );
 
     if ( ulServerFileID == 0 )
     {
@@ -351,9 +397,22 @@ OTA_PAL_ImageState_t prvPAL_GetPlatformImageState_customer( uint32_t ulServerFil
 }
 
 
-OTA_Err_t prvPAL_SetPlatformImageState_customer( uint32_t ulServerFileID, OTA_ImageState_t eState )
+/**
+ * @brief	Override function for prvPAL_SetPlatformImageState()
+ *
+ * This override function calls the default PAL function if the ServerFileID is zero (i.e. ESP32 Updates).
+ * For other ServerFileID values hostOta_setImageState() is called, to process updates for secondary processors.
+ *
+ * @param[in]	ulServerFileID	Server File ID (0 = ESP32)
+ * @param[in]	eState Enumerated Platform Image state
+ *
+ * @return kOTA_Err_None if successful, otherwise an error code prefixed with 'kOTA_Err_'.
+ *
+ * TODO: hard wiring to hostOTA function violates modularity intent.
+ */
+static OTA_Err_t prvPAL_SetPlatformImageState_override( uint32_t ulServerFileID, OTA_ImageState_t eState )
 {
-    DEFINE_OTA_METHOD_NAME( "prvPAL_SetPlatformImageState_customer" );
+    DEFINE_OTA_METHOD_NAME( "prvPAL_SetPlatformImageState_override" );
 
     if ( ulServerFileID == 0 )
     {
@@ -376,7 +435,6 @@ OTA_Err_t prvPAL_SetPlatformImageState_customer( uint32_t ulServerFileID, OTA_Im
 
 /* end of secondaryota_patch.txt */
 
-extern bool hostOta_transferActive( void );
 /**
  * @brief	OTA Update Task
  *
@@ -393,20 +451,19 @@ static void _OTAUpdateTask( void *arg )
 
 	/* Only need to override the default callbacks that are needed, other than xCompleteCallback */
     OTA_PAL_Callbacks_t otaCallbacks = {
-        .xAbort                    = NULL,	// prvPAL_Abort_customer,
-        .xActivateNewImage         = NULL,	// prvPAL_ActivateNewImage_customer,
-        .xCloseFile                = NULL,	// prvPAL_CloseFile_customer,
-        .xCreateFileForRx          = NULL,	// prvPAL_CreateFileForRx_customer,
-        .xGetPlatformImageState    = prvPAL_GetPlatformImageState_customer,
-        .xResetDevice              = NULL,	// prvPAL_ResetDevice_customer,
-        .xSetPlatformImageState    = prvPAL_SetPlatformImageState_customer,
-        .xWriteBlock               = NULL,	// prvPAL_WriteBlock_customer,
+        .xAbort                    = prvPAL_Abort_override,
+        .xActivateNewImage         = prvPAL_ActivateNewImage_override,
+        .xCloseFile                = prvPAL_CloseFile_override,
+        .xCreateFileForRx          = prvPAL_CreateFileForRx_override,
+        .xGetPlatformImageState    = prvPAL_GetPlatformImageState_override,
+        .xResetDevice              = prvPAL_ResetDevice_override,
+        .xSetPlatformImageState    = prvPAL_SetPlatformImageState_override,
+        .xWriteBlock               = prvPAL_WriteBlock_override,
         .xCompleteCallback         = App_OTACompleteCallback,
         .xCustomJobCallback        = NULL	// otaDemoCustomJobCallback
     };
 
 	IotLogInfo( "_OTAUpdateTask" );
-	vTaskDelay( 2000 / portTICK_PERIOD_MS );
 
 	/* Continually loop until OTA process is completed */
 	for( ; ; )
@@ -418,16 +475,18 @@ static void _OTAUpdateTask( void *arg )
 		{
 
 			case eOtaTaskInit:
-				/* delay starting OTA Update task if a Host Update transfer is in process */
-				if( hostOta_transferActive() )
+				/* If a callback function for pendingHostOtaUpdate has been registered */
+				if( NULL != otaData.pendingHostOtaUpdate )
 				{
-					vTaskDelay( 1000 / portTICK_PERIOD_MS );
+					/* Delay starting OTA Update task if Host Ota Update task is busy (e.g. transfer is in process) */
+					if( otaData.pendingHostOtaUpdate() == false )
+					{
+						vTaskDelay( 1000 / portTICK_PERIOD_MS );
+						break;
+					}
 				}
-				else
-				{
-					IotLogInfo( "ota -> Start" );
-					otaData.taskState = eOtaTaskStart;
-				}
+				IotLogInfo( "ota -> Start" );
+				otaData.taskState = eOtaTaskStart;
 				break;
 
 			case eOtaTaskStart:
@@ -649,7 +708,8 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
 int OTAUpdate_startTask( 	const char * pIdentifier,
                             void * pNetworkCredentialInfo,
                             const IotNetworkInterface_t * pNetworkInterface,
-							IotSemaphore_t *pSemaphore )
+							IotSemaphore_t *pSemaphore,
+							hostOtaPendUpdateCallback_t function )
 {
     int xRet = EXIT_SUCCESS;
 
@@ -668,6 +728,9 @@ int OTAUpdate_startTask( 	const char * pIdentifier,
 	otaData.connectionCtx.pvNetworkCredentials = pNetworkCredentialInfo;
 	otaData.pIdentifier = pIdentifier;
 
+	/* Save the callback function for pendingHostOtaUpdate */
+	otaData.pendingHostOtaUpdate = function;
+
 	/* Create Task on new thread */
     xTaskCreate( _OTAUpdateTask, "ota_update", OTA_UPDATE_STACK_SIZE, NULL, OTA_UPDATE_TASK_PRIORITY, &otaData.taskHandle );
 
@@ -682,3 +745,4 @@ int OTAUpdate_startTask( 	const char * pIdentifier,
 
     return xRet;
 }
+

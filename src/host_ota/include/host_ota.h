@@ -24,4 +24,6 @@ OTA_PAL_ImageState_t hostOta_getImageState( void );
 
 void hostOta_setImageState( OTA_ImageState_t eState );
 
+bool hostOta_pendUpdate( void );
+
 #endif		/*	HOST_OTA_H	*/
