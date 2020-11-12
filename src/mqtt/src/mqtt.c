@@ -481,7 +481,7 @@ esp_err_t	mqtt_SendMsgToTopic( const char* topic, uint32_t topicLen, const char*
 
 	if( err == ESP_OK )
 	{
-		IotLogInfo("Queued publish message to Topic %.*s", topicLen, topic);
+		IotLogDebug("Queued publish message to Topic %.*s", topicLen, topic);
 	}
 
 	return err;

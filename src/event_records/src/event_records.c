@@ -832,7 +832,7 @@ static void vEventRecordPublishComplete(void * reference, IotMqttCallbackParam_t
  *
  * @param[in]	pItem	Pointer Shadow Item that was updated
  */
-static void vEventRecordShadowUpdateComplete( _shadowItem_t *pItem )
+static void vEventRecordShadowUpdateComplete( void *pItem )
 {
 	IotLogInfo( "EventRecord: Shadow Update success" );
 	_evtrec.shadowUpdateComplete = true;
@@ -855,7 +855,6 @@ static void vEventRecordShadowUpdateComplete( _shadowItem_t *pItem )
 static void publishRecords( const char *topic )
 {
 	IotMqttCallbackInfo_t publishCallback = IOT_MQTT_CALLBACK_INFO_INITIALIZER;
-	AwsIotShadowCallbackInfo_t shadowCallback = AWS_IOT_SHADOW_DOCUMENT_INFO_INITIALIZER;
 
 	char * jsonBuffer = NULL;
 	uint16_t	nRecords;

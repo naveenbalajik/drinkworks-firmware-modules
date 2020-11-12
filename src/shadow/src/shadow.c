@@ -648,7 +648,7 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 				if( pShadowItem->handler != NULL )
 				{
 					IotLogInfo( "shadow update[%s]:handler", pItem->key );
-					pShadowItem->handler( pItem );
+					pShadowItem->handler( pShadowItem );
 				}
 			}
 		}
