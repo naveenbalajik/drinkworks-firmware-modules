@@ -413,15 +413,16 @@ static host_ota_t _hostota =
 /**
  * @brief	OTA PAL functions
  */
-static AltProcessor_Functions_t hostOtaFunctions = {
-    .xAbort                    = prvPAL_dw_Abort,
-    .xActivateNewImage         = prvPAL_dw_ActivateNewImage,
-    .xCloseFile                = prvPAL_dw_CloseFile,
-    .xCreateFileForRx          = prvPAL_dw_CreateFileForRx,
+static AltProcessor_Functions_t hostOtaFunctions =
+{
+    .xAbort                    = hostOta_Abort,
+    .xActivateNewImage         = hostOta_ActivateNewImage,
+    .xCloseFile                = hostOta_CloseFile,
+    .xCreateFileForRx          = hostOta_CreateFileForRx,
     .xGetImageState            = hostOta_getImageState,
-    .xResetDevice              = prvPAL_dw_ResetDevice,
+    .xResetDevice              = hostOta_ResetDevice,
     .xSetImageState            = hostOta_setImageState,
-    .xWriteBlock               = prvPAL_dw_WriteBlock,
+    .xWriteBlock               = hostOta_WriteBlock,
 };
 
 

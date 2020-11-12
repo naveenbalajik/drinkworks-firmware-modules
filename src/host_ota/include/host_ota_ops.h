@@ -52,7 +52,7 @@ extern "C"
  *    - ESP_ERR_INVALID_SIZE: Partition doesn't fit in configured flash size.
  *    - ESP_ERR_FLASH_OP_TIMEOUT or ESP_ERR_FLASH_OP_FAIL: Flash write failed.
  */
-esp_err_t aws_esp_dw_begin(const esp_partition_t* partition, size_t image_size, esp_ota_handle_t* out_handle);         //`INW
+esp_err_t hostOta_begin(const esp_partition_t* partition, size_t image_size, esp_ota_handle_t* out_handle);         //`INW
 
 /**
  * @brief   Write OTA update data to partition
@@ -73,7 +73,7 @@ esp_err_t aws_esp_dw_begin(const esp_partition_t* partition, size_t image_size, 
  *    - ESP_ERR_FLASH_OP_TIMEOUT or ESP_ERR_FLASH_OP_FAIL: Flash write failed.
  *    - ESP_ERR_OTA_SELECT_INFO_INVALID: OTA data partition has invalid contents
  */
-esp_err_t aws_esp_dw_write(esp_ota_handle_t handle, const void* data, uint32_t offset, size_t size);
+esp_err_t hostOta_write(esp_ota_handle_t handle, const void* data, uint32_t offset, size_t size);
 
 /**
  * @brief Finish OTA update and validate newly written app image.
@@ -89,7 +89,7 @@ esp_err_t aws_esp_dw_write(esp_ota_handle_t handle, const void* data, uint32_t o
  *    - ESP_ERR_OTA_VALIDATE_FAILED: OTA image is invalid (either not a valid app image, or - if secure boot is enabled - signature failed to verify.)
  *    - ESP_ERR_INVALID_STATE: If flash encryption is enabled, this result indicates an internal error writing the final encrypted bytes to flash.
  */
-esp_err_t aws_esp_dw_end(esp_ota_handle_t handle);
+esp_err_t hostOta_end(esp_ota_handle_t handle);
 
 
 #ifdef __cplusplus

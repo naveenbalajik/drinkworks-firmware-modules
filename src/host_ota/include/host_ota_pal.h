@@ -41,7 +41,7 @@ typedef struct
 	esp_partition_subtype_t subtype;
 } esp_partition_type_descriptor_t;
 
-OTA_Err_t prvPAL_dw_Abort( OTA_FileContext_t * const C );
+OTA_Err_t hostOta_Abort( OTA_FileContext_t * const C );
 
 /**
  * @brief	Create a new receive file for the data chunks as they come in.
@@ -69,12 +69,12 @@ OTA_Err_t prvPAL_dw_Abort( OTA_FileContext_t * const C );
  * kOTA_Err_BootInfoCreateFailed is returned if the bootloader information file creation fails.
  * kOTA_Err_RxFileCreateFailed is returned for other errors creating the file in the device's non-volatile memory.
  */
-OTA_Err_t prvPAL_dw_CreateFileForRx( OTA_FileContext_t * const C, void *pParam);
+OTA_Err_t hostOta_CreateFileForRx( OTA_FileContext_t * const C, void *pParam);
 
-OTA_Err_t prvPAL_dw_CloseFile( OTA_FileContext_t * const C );
-OTA_Err_t IRAM_ATTR prvPAL_dw_ResetDevice( void );
-OTA_Err_t prvPAL_dw_ActivateNewImage( void );
-int16_t prvPAL_dw_WriteBlock( OTA_FileContext_t * const C,
+OTA_Err_t hostOta_CloseFile( OTA_FileContext_t * const C );
+OTA_Err_t IRAM_ATTR hostOta_ResetDevice( void );
+OTA_Err_t hostOta_ActivateNewImage( void );
+int16_t hostOta_WriteBlock( OTA_FileContext_t * const C,
                            uint32_t iOffset,
                            uint8_t * const pacData,
                            uint32_t iBlockSize );

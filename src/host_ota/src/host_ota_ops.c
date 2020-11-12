@@ -60,7 +60,7 @@ const static char *TAG = "esp_ota_ops";
 /**
  * Begin an OTA transfer to a non "ota" partition
  */
-esp_err_t aws_esp_dw_begin(const esp_partition_t *partition, size_t image_size, esp_ota_handle_t *out_handle)
+esp_err_t hostOta_begin(const esp_partition_t *partition, size_t image_size, esp_ota_handle_t *out_handle)
 {
     ota_ops_entry_t *new_entry;
     esp_err_t ret = ESP_OK;
@@ -104,7 +104,7 @@ esp_err_t aws_esp_dw_begin(const esp_partition_t *partition, size_t image_size, 
     return ESP_OK;
 }
 
-esp_err_t aws_esp_dw_write(esp_ota_handle_t handle, const void *data, uint32_t offset, size_t size)
+esp_err_t hostOta_write(esp_ota_handle_t handle, const void *data, uint32_t offset, size_t size)
 {
     const uint8_t *data_bytes = (const uint8_t *)data;
     esp_err_t ret;
@@ -144,7 +144,7 @@ esp_err_t aws_esp_dw_write(esp_ota_handle_t handle, const void *data, uint32_t o
 /**
  * @brief	End OTA process for secondary Processor
  */
-esp_err_t aws_esp_dw_end(esp_ota_handle_t handle)
+esp_err_t hostOta_end(esp_ota_handle_t handle)
 {
     ota_ops_entry_t *it;
     esp_err_t ret = ESP_OK;

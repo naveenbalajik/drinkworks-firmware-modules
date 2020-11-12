@@ -91,6 +91,9 @@ static CK_RV prvGetCertificate( const char * pcLabelName,
                                 uint8_t ** ppucData,
                                 uint32_t * pulDataSize );
 
+/**
+ * @brief	Convert ASN1 signature to raw ECDSA
+ */
 static OTA_Err_t asn1_to_raw_ecdsa( uint8_t * signature,
                                     uint16_t sig_len,
                                     uint8_t * out_signature )
@@ -147,7 +150,12 @@ cleanup:
     }
 }
 
-static void _esp_ota_ctx_clear( esp_ota_context_t * ota_ctx )
+/**
+ * @brief	Clear OTA Context
+ *
+ * @param[in]	C OTA file context
+ */
+static void _clearOtaCtx( esp_ota_context_t * ota_ctx )
 {
     if( ota_ctx != NULL )
     {
@@ -155,12 +163,22 @@ static void _esp_ota_ctx_clear( esp_ota_context_t * ota_ctx )
     }
 }
 
-static bool _esp_ota_ctx_validate( OTA_FileContext_t * C )
+/**
+ * @brief	Validate OTA Context
+ *
+ * @param[in]	C OTA file context
+ */
+static bool _validateOtaCtx( OTA_FileContext_t * C )
 {
     return( C != NULL && ota_ctx.cur_ota == C && C->pucFile == ( uint8_t * ) &ota_ctx );
 }
 
-static void _esp_ota_ctx_close( OTA_FileContext_t * C )
+/**
+ * @brief	Close OTA Context
+ *
+ * @param[in]	C OTA file context
+ */
+static void _closeOtaCtx( OTA_FileContext_t * C )
 {
     if( C != NULL )
     {
@@ -171,14 +189,20 @@ static void _esp_ota_ctx_close( OTA_FileContext_t * C )
     ota_ctx.cur_ota = 0;
 }
 
-/* Abort receiving the specified OTA update by closing the file. */
-OTA_Err_t prvPAL_dw_Abort( OTA_FileContext_t * const C )
+/**
+ * @brief	Abort OTA transfer
+ *
+ * Abort receiving the specified OTA update by closing the file.
+ *
+ * @param[in]	C OTA file context
+ */
+OTA_Err_t hostOta_Abort( OTA_FileContext_t * const C )
 {
     OTA_Err_t ota_ret = kOTA_Err_FileAbort;
 
-    if( _esp_ota_ctx_validate( C ) )
+    if( _validateOtaCtx( C ) )
     {
-        _esp_ota_ctx_close( C );
+        _closeOtaCtx( C );
         ota_ret = kOTA_Err_None;
     }
     else if( C && ( C->pucFile == NULL ) )
@@ -202,7 +226,7 @@ OTA_Err_t prvPAL_dw_Abort( OTA_FileContext_t * const C )
  * @param[in]	C OTA file context
  * @param[in]	pParam		Pointer to Partition Descriptor
  */
-OTA_Err_t prvPAL_dw_CreateFileForRx( OTA_FileContext_t * const C, void *pParam)
+OTA_Err_t hostOta_CreateFileForRx( OTA_FileContext_t * const C, void *pParam)
 {
     if( ( NULL == C ) || ( NULL == C->pucFilePath ) || ( NULL == pParam ) )
     {
@@ -225,7 +249,7 @@ OTA_Err_t prvPAL_dw_CreateFileForRx( OTA_FileContext_t * const C, void *pParam)
               update_partition->subtype, update_partition->address );
 
 	esp_ota_handle_t update_handle;
-	esp_err_t err = aws_esp_dw_begin( update_partition, OTA_SIZE_UNKNOWN, &update_handle );
+	esp_err_t err = hostOta_begin( update_partition, OTA_SIZE_UNKNOWN, &update_handle );
 
 	if( err != ESP_OK )
 	{
@@ -246,6 +270,9 @@ OTA_Err_t prvPAL_dw_CreateFileForRx( OTA_FileContext_t * const C, void *pParam)
 	return kOTA_Err_None;
 }
 
+/**
+ * @brief	Get Certificate Handle
+ */
 static CK_RV prvGetCertificateHandle( CK_FUNCTION_LIST_PTR pxFunctionList,
                                       CK_SESSION_HANDLE xSession,
                                       const char * pcLabelName,
@@ -282,8 +309,12 @@ static CK_RV prvGetCertificateHandle( CK_FUNCTION_LIST_PTR pxFunctionList,
     return xResult;
 }
 
-/* Note that this function mallocs a buffer for the certificate to reside in,
- * and it is the responsibility of the caller to free the buffer. */
+/**
+ * @brief	Get Certificate
+ *
+ * Note that this function mallocs a buffer for the certificate to reside in,
+ * and it is the responsibility of the caller to free the buffer.
+ */
 static CK_RV prvGetCertificate( const char * pcLabelName,
                                 uint8_t ** ppucData,
                                 uint32_t * pulDataSize )
@@ -369,7 +400,10 @@ static CK_RV prvGetCertificate( const char * pcLabelName,
     return xResult;
 }
 
-u8 * prvPAL_dw_ReadAndAssumeCertificate( const u8 * const pucCertName,
+/**
+ * @brief	Read Code Signer Certificate
+ */
+static u8 * _ReadAndAssumeCertificate( const u8 * const pucCertName,
                                       uint32_t * const ulSignerCertSize )
 {
     uint8_t * pucCertData;
@@ -407,8 +441,15 @@ u8 * prvPAL_dw_ReadAndAssumeCertificate( const u8 * const pucCertName,
     return pucSignerCert;
 }
 
-/* Verify the signature of the specified file. */
-OTA_Err_t prvPAL_dw_CheckFileSignature( OTA_FileContext_t * const C )
+/**
+ * @brief Verify the signature of the specified file.
+ *
+ * @param[in]	C OTA file context information.
+ *
+ * @return The OTA PAL layer error code combined with the MCU specific error code. See OTA Agent
+ * error codes information in aws_iot_ota_agent.h.
+ */
+static OTA_Err_t _CheckFileSignature( OTA_FileContext_t * const C )
 {
     OTA_Err_t result;
     uint32_t ulSignerCertSize;
@@ -425,7 +466,7 @@ OTA_Err_t prvPAL_dw_CheckFileSignature( OTA_FileContext_t * const C )
         return kOTA_Err_SignatureCheckFailed;
     }
 
-    pucSignerCert = prvPAL_dw_ReadAndAssumeCertificate( ( const u8 * const ) C->pucCertFilepath, &ulSignerCertSize );
+    pucSignerCert = _ReadAndAssumeCertificate( ( const u8 * const ) C->pucCertFilepath, &ulSignerCertSize );
 
     if( pucSignerCert == NULL )
     {
@@ -468,12 +509,21 @@ end:
     return result;
 }
 
-/* Close the specified file. This shall authenticate the file if it is marked as secure. */
-OTA_Err_t prvPAL_dw_CloseFile( OTA_FileContext_t * const C )
+/**
+ * @brief	Close the specified file
+ *
+ * This shall authenticate the file if it is marked as secure.
+ *
+ * @param[in]	C OTA file context information.
+ *
+ * @return The OTA PAL layer error code combined with the MCU specific error code. See OTA Agent
+ * error codes information in aws_iot_ota_agent.h.
+ */
+OTA_Err_t hostOta_CloseFile( OTA_FileContext_t * const C )
 {
     OTA_Err_t result = kOTA_Err_None;
 
-    if( !_esp_ota_ctx_validate( C ) )
+    if( !_validateOtaCtx( C ) )
     {
         return kOTA_Err_FileClose;
     }
@@ -481,7 +531,7 @@ OTA_Err_t prvPAL_dw_CloseFile( OTA_FileContext_t * const C )
     if( C->pxSignature == NULL )
     {
         ESP_LOGE( TAG, "Image Signature not found" );
-        _esp_ota_ctx_clear( &ota_ctx );
+        _clearOtaCtx( &ota_ctx );
         result = kOTA_Err_SignatureCheckFailed;
     }
     else if( ota_ctx.data_write_len == 0 )
@@ -492,7 +542,7 @@ OTA_Err_t prvPAL_dw_CloseFile( OTA_FileContext_t * const C )
     else
     {
         /* Verify the file signature, close the file and return the signature verification result. */
-        result = prvPAL_dw_CheckFileSignature( C );
+        result = _CheckFileSignature( C );
 
         if( result != kOTA_Err_None )
         {
@@ -511,7 +561,7 @@ OTA_Err_t prvPAL_dw_CloseFile( OTA_FileContext_t * const C )
 
                 if( result == kOTA_Err_None )
                 {
-                    esp_err_t ret = aws_esp_dw_write( ota_ctx.update_handle, sec_boot_sig, ota_ctx.data_write_len, ECDSA_SIG_SIZE );
+                    esp_err_t ret = hostOta_write( ota_ctx.update_handle, sec_boot_sig, ota_ctx.data_write_len, ECDSA_SIG_SIZE );
 
                     if( ret != ESP_OK )
                     {
@@ -534,7 +584,10 @@ OTA_Err_t prvPAL_dw_CloseFile( OTA_FileContext_t * const C )
     return result;
 }
 
-OTA_Err_t IRAM_ATTR prvPAL_dw_ResetDevice( void )
+/**
+ * @brief	Reset Device
+ */
+OTA_Err_t IRAM_ATTR hostOta_ResetDevice( void )
 {
     /* Short delay for debug log output before reset. */
     vTaskDelay( kOTA_HalfSecondDelay );
@@ -544,40 +597,45 @@ OTA_Err_t IRAM_ATTR prvPAL_dw_ResetDevice( void )
 
 /**
  * @brief	Activate New Image for Secondary Processor
- *
- *	Attempt to create a new receive file for the file chunks as they come in for secondary processor.
- *	Use the supplied partition type/subtype and FilePath from the OTA Context to define the file location.
- *
  */
-OTA_Err_t prvPAL_dw_ActivateNewImage( void )
+OTA_Err_t hostOta_ActivateNewImage( void )
 {
     if( ota_ctx.cur_ota != NULL )
     {
 		/* Secondary Processor */
-		if( aws_esp_dw_end( ota_ctx.update_handle ) != ESP_OK )
+		if( hostOta_end( ota_ctx.update_handle ) != ESP_OK )
 		{
 			ESP_LOGE( TAG, "aws_esp_dw_end failed!" );
 			esp_partition_erase_range( ota_ctx.update_partition, 0, ota_ctx.update_partition->size );
 		}
-		_esp_ota_ctx_clear( &ota_ctx );
+		_clearOtaCtx( &ota_ctx );
 		return kOTA_Err_None;
     }
 
-    _esp_ota_ctx_clear( &ota_ctx );
+    _clearOtaCtx( &ota_ctx );
     prvPAL_ResetDevice();
     return kOTA_Err_None;
 }
 
 
-/* Write a block of data to the specified file. */
-int16_t prvPAL_dw_WriteBlock( OTA_FileContext_t * const C,
+/**
+ * @brief Write a block of data to the specified file.
+ *
+ * @param[in]	C OTA file context information.
+ * @param[in]	iOffset	File offset
+ * @param[in]	pacData	Pointer to data
+ * @param[in]	iBlockSize Size of data to be written
+ *
+ * @return Number of bytes written, -1 on error
+ */
+int16_t hostOta_WriteBlock( OTA_FileContext_t * const C,
                            uint32_t iOffset,
                            uint8_t * const pacData,
                            uint32_t iBlockSize )
 {
-    if( _esp_ota_ctx_validate( C ) )
+    if( _validateOtaCtx( C ) )
     {
-        esp_err_t ret = aws_esp_dw_write( ota_ctx.update_handle, pacData, iOffset, iBlockSize );
+        esp_err_t ret = hostOta_write( ota_ctx.update_handle, pacData, iOffset, iBlockSize );
 
         if( ret != ESP_OK )
         {
