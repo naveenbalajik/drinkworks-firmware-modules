@@ -40,6 +40,7 @@
 #include	"host_ota.h"
 #include	"shadow_updates.h"
 #include	"host_ota_pal.h"
+#include	"hex_format.h"
 
 #include "aws_iot_ota_agent.h"
 
@@ -519,7 +520,7 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 	{
 		if( ( pStat->Generic.status == otaStatusTable[ i ].opcode ) && ( pStat->Generic.length == otaStatusTable[ i ].length ) )
 		{
-			IotLogDebug( "Found Status Entry, length matches ");
+			IotLogDebug( "Found Status Entry, length matches" );
 			/* Calculate CRC on received packet */
 			crc = crc16_ccitt_compute( ( uint8_t * )pStat, ( pStat->Generic.length ) );
 			if( crc )
@@ -752,10 +753,10 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 				_hostota.ackReceived = false;
 
 				/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-				shci_PostResponse( ( uint8_t * )&_hostota.pCommand_mzXfer, ( sizeof( _otaData_t ) + 4 ) );
+				shci_PostResponse( ( uint8_t * )_hostota.pCommand_mzXfer, ( sizeof( _otaData_t ) + 4 ) );
 				_hostota.mzXfer_state = mzXfer_Data_Ack;
 			}
-			else if( OTA_PKT_DLEN_64 == size )	/* Half Data command */
+			else if( OTA_PKT_DLEN_64 == size )	/* 64 byte Data command */
 			{
 				_hostota.pCommand_mzXfer->ShortData.length = sizeof( _otaShortData_t );
 				_hostota.pCommand_mzXfer->ShortData.address = SwapFourBytes( _hostota.targetAddress );
@@ -766,7 +767,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 				_hostota.ackReceived = false;
 
 				/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-				shci_PostResponse( ( uint8_t * )&_hostota.pCommand_mzXfer, ( sizeof( _otaShortData_t ) + 4 ) );
+				shci_PostResponse( ( uint8_t * )_hostota.pCommand_mzXfer, ( sizeof( _otaShortData_t ) + 4 ) );
 				_hostota.mzXfer_state = mzXfer_Data_Ack;
 			}
 			else
