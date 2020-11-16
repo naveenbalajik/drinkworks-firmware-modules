@@ -117,7 +117,9 @@ static void publishParams( const char *topic, char *pJson )
 //			_evtrec.contextTime =  getTimeValue();
 //			publishCallback.pCallbackContext = &_evtrec.contextTime;
 
+#if LIBRARY_LOG_LEVEL >= IOT_LOG_DEBUG
 			printf( "publishParams: %s\n--> %s\n\n", pJson, topic );
+#endif
 			mqtt_SendMsgToTopic( topic, strlen( topic ), pJson, strlen( pJson ), NULL );
 
 //			mqtt_SendMsgToTopic( topic, strlen( topic ), pJson, strlen( pJson ), &publishCallback );
