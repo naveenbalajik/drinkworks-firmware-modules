@@ -40,7 +40,6 @@
 #include	"host_ota.h"
 #include	"shadow_updates.h"
 #include	"host_ota_pal.h"
-#include	"hex_format.h"
 
 #include "aws_iot_ota_agent.h"
 
