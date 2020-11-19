@@ -32,6 +32,9 @@
 #include	"nvs_utility.h"
 #include	"shadow.h"
 #include	"esp_partition.h"
+
+/* Platform includes. */
+#include	"platform/iot_clock.h"
 #include	"platform/iot_threads.h"
 #include	"../../../../freertos/vendors/espressif/esp-idf/components/bootloader_support/include_bootloader/bootloader_flash.h"
 #include	"../../../../freertos/libraries/3rdparty/mbedtls/include/mbedtls/sha256.h"
@@ -58,6 +61,16 @@
 #define	HOST_OTA_TASK_PRIORITY	( 4 )
 
 #define	FIXED_CONNECTION_HANDLE		(37)
+
+/**
+ * @brief	Timeout, in milliseconds, Pend for Update
+ *
+ * Upon initialization the HostOta task transitions to PendUpdate state.  This allows the OtaUpdate
+ * task to complete any update jobs (i.e. return success status to AWS).  This timeout value allows
+ * the HostOta task to check for a valid Host processor update image, without having to wait for
+ * an image to be down-loaded (i.e. if an image was previously down-loaded).
+ */
+#define	HOSTOTA_PEND_TIMEOUT_MS	( 5 * 60 * 1000 )
 
 /**
  * @brief	Abstract SHCI Event OpCode to easily swap between legacy BLE characteristics and direct SHCI opcodes
@@ -407,11 +420,15 @@ typedef struct
 
 static host_ota_t _hostota =
 {
-		.state = eHostOtaIdle,
+	.state = eHostOtaInit,													/**< Start in Init state */
 };
 
 /**
  * @brief	OTA PAL functions
+ *
+ * This table contains the abstraction layer functions specific to the HostOta module.
+ * A pointer to this table is passed to the OtaUpdate module, so it can call these
+ * functions when the Update Job ServerFileId is set for a Host Update.
  */
 static AltProcessor_Functions_t hostOtaFunctions =
 {
@@ -513,6 +530,7 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 	int i;
 	uint16_t	crc;
 	const _otaStatusPkt_t	*pStat = ( const _otaStatusPkt_t * )pData;
+	uint32_t	address;
 
 	// Validate the Status packet
 	for( i = 0; ( ( i < NUM_STATUS_ENTRIES ) && ( ESP_OK == err ) ); ++i )
@@ -539,8 +557,18 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 							/* Verify UID and use Next Write address */
 							if( pStat->Init.uid == _hostota.uid )
 							{
-								IotLogDebug( "UID matches, address = %08X", pStat->Init.nextAddr );
-								_hostota.startAddress = pStat->Init.nextAddr;
+								address = SwapFourBytes( pStat->Init.nextAddr );
+
+								/* If next address in INIT_ACK is in valid range (for image), adjust to give offset from start of image */
+								if( ( address >= _hostota.LoadAddress ) && ( address < ( _hostota.LoadAddress + _hostota.ImageSize ) ) )
+								{
+									_hostota.startAddress = address - _hostota.LoadAddress;
+								}
+								else
+								{
+									_hostota.startAddress = 0;
+								}
+								IotLogDebug( "OTA_INIT_ACK: UID matches, address = %08X, startAddress = %08X", address, _hostota.startAddress );
 							}
 							else
 							{
@@ -628,12 +656,32 @@ static void printsha256( const char *tag, sha256_t *sha)
 /**
  * @brief	PIC32MZ Image Transfer
  *
+ *	Transfer the PIC32MZ Image from the Flash Partition (to which it was down-loadwed) to
+ *	the PIC32MZ processor.  The protocol is the same as used over Bluetooth, however different
+ *	SHCI op-codes are used so that Bluetooth activity will not interfere with this transfer.
+ *
+ *	A finite state machine performs the transfer with the following basic states:
+ *	+ Init  - Initializes the communication link
+ *	+ Erase - Erases the target flash bank on the PIC32MZ
+ *	+ Data  - Transfers the encrypted image, block-by-block
+ *	+ Verify - Verifies the transfered (and decrypted) image using an SHA256 Hash
+ *	+ Reset  - Resets the PIC32MZ processor so it can run the new image
+ *
+ *	Maximum bytes transfered per block is 192.  The host encryption engine requires blocks to
+ *	be multiples of 64 bytes.  The transfer protocol has a maximum total command length of 256 bytes.
+ *	192 is thus the maximum multiple of 64 that give a total command length less than 256.  The
+ *	Bluetooth protocol limited transfers to 128 bytes.  The increased data length reduced the
+ *	transfer time by approximately 25% (~120s -> 90s).
+ *
+ * @param[in]	bStart	Flag to initialize the state machine
+ *
+ * @return	enumerated state machine state
  */
 static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 {
-	static size_t	imageAddress;
-	static size_t	remaining;
-	static size_t	size;
+	static size_t	imageAddress;		/**< Current offset, from start of Flash Partition, used to read image block */
+	static size_t	remaining;			/**< Number of bytes remaining to be transfered */
+	static size_t	size;				/**< Size, in bytes, of the current transfer block */
 	uint16_t		crc;
 
 	/* If start flag is true, set state to Init */
@@ -658,7 +706,8 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 
 			_hostota.pCommand_mzXfer->Init.command = eOTA_INIT_CMD;
 			_hostota.pCommand_mzXfer->Init.length = sizeof( _otaInit_t );
-			_hostota.pCommand_mzXfer->Init.uid = 0x1234;		/* FIXME */
+			/* create a pseudo random 16-bit UID */
+			_hostota.pCommand_mzXfer->Init.uid = ( uint16_t ) ( IotClock_GetTimeMs() % 0x10000 );
 			crc = crc16_ccitt_compute( ( uint8_t *) &_hostota.pCommand_mzXfer->Init, ( sizeof( _otaInit_t ) - 2 ) );
 			_hostota.pCommand_mzXfer->Init.crc = SwapTwoBytes( crc );
 
@@ -703,8 +752,8 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 		case mzXfer_Erase_Ack:				/* Wait for Erase ACK */
 			if( _hostota.ackReceived )
 			{
-				/* Prepare for initial flash read */
-				imageAddress = _hostota.partition->address + _hostota.PaddingBoundary + _hostota.startAddress;
+				/* Prepare for initial flash read, startAddress is from InitAck packet */
+				imageAddress = _hostota.PaddingBoundary + _hostota.startAddress;
 				_hostota.targetAddress = _hostota.LoadAddress + _hostota.startAddress;
 				remaining = _hostota.ImageSize - _hostota.startAddress;
 				_hostota.percentComplete = 0;
@@ -723,9 +772,9 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 
 			_hostota.pCommand_mzXfer->Data.command = eOTA_DATA_CMD;
 
-			/* Read a chunk of Image from Flash */
+			/* Read a chunk of Image from Flash - use esp_partition_read() reads flash correctly whether partition is encrypted or not */
 			size = ( MAX_OTA_PKT_DLEN < remaining ) ? MAX_OTA_PKT_DLEN : remaining;
-			bootloader_flash_read( imageAddress, _hostota.pCommand_mzXfer->Data.buffer, size, true );
+			esp_partition_read( _hostota.partition, imageAddress, _hostota.pCommand_mzXfer->Data.buffer, size );
 
 			if( OTA_PKT_DLEN_192 == size )				/* 192 byte data command */
 			{
@@ -938,8 +987,8 @@ static void _hostOtaTask(void *arg)
     			/* wait for an MQTT connection before starting the host ota update */
     			if( mqtt_IsConnected() )
     			{
-    				IotLogInfo( "_hostOtaTask -> Idle" );
-    				_hostota.state = eHostOtaIdle;
+    				IotLogInfo( "_hostOtaTask -> PendUpdate" );
+    				_hostota.state = eHostOtaPendUpdate;
     			}
     			else
     			{
@@ -957,13 +1006,19 @@ static void _hostOtaTask(void *arg)
 				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_fw" );
 				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
 
-				/* Read the first 512 bytes from the Flash partition */
-				bootloader_flash_read(_hostota.partition->address, pBuffer, 512, true );
+				/*
+				 *	Read the first 512 bytes from the Flash partition
+				 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
+				 */
+				esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
 
+				IotLogInfo( "_hostOtaTask -> ParseJSON" );
 				_hostota.state = eHostOtaParseJSON;
 				break;
 
 			case eHostOtaParseJSON:
+
+				/* Parse the JSON Header, extracting parameters */
 				json = (char *) pBuffer;
 				json_length = strlen( json );
 
@@ -1020,29 +1075,38 @@ static void _hostOtaTask(void *arg)
 				{
 					printsha256( "Encrypted", &_hostota.sha256Encrypted );
 
+    				IotLogInfo( "_hostOtaTask -> VerifyImage" );
 					_hostota.state = eHostOtaVerifyImage;
 				}
 				else
 				{
 					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
+    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
 					_hostota.state = eHostOtaWaitMQTT;				/* If error encountered parsing JSON, pend on an update from AWS */
 				}
 				break;
 
 			case eHostOtaVerifyImage:
+
+				/* Verify the received image using the hash for the encrypted image, from the header */
 				mbedtls_sha256_init( &ctx );
 				mbedtls_sha256_starts( &ctx, 0 );						/* SHA-256, not 224 */
 
-				address = _hostota.partition->address + _hostota.PaddingBoundary;
+				address = _hostota.PaddingBoundary;
 
+				/*
+				 *	Read image, block-by-block, calculating SHA256 Hash on the fly
+				 *	Use esp_partition_read() - reads flash correctly whether partition is encrypted or not
+				 */
 				for( remaining = _hostota.ImageSize; remaining ; ( remaining -= size ), ( address += size ) )
 				{
 					/* read a block of image */
 					size = ( 512 < remaining ) ? 512 : remaining;
-					bootloader_flash_read( address, pBuffer, size, true );
+					esp_partition_read( _hostota.partition, address, pBuffer, size );
 					/* add to hash */
 					mbedtls_sha256_update( &ctx, pBuffer, size );
 				}
+
 				/* get result */
 				mbedtls_sha256_finish( &ctx, ( uint8_t * ) &hash );
 
@@ -1051,12 +1115,14 @@ static void _hostOtaTask(void *arg)
 				if( 0 == memcmp( &_hostota.sha256Encrypted, &hash, 32 ) )
 				{
 					IotLogInfo( "Image SHA256 Hash matches metadata SHA256Encrypted" );
+    				IotLogInfo( "_hostOtaTask -> VersionCheck" );
 					_hostota.state = eHostOtaVersionCheck;
 				}
 				else
 				{
 					IotLogError( "Image SHA256 Hash does not match metadata SHA256Encrypted" );
 					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
+    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
 					_hostota.state = eHostOtaWaitMQTT;					/* If Image not Valid, pend on an update from AWS */
 				}
 				break;
@@ -1070,6 +1136,7 @@ static void _hostOtaTask(void *arg)
 				else if( _hostota.Version_MZ > _hostota.currentVersion_MZ )
 				{
 					IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_MZ, _hostota.Version_MZ);
+    				IotLogInfo( "_hostOtaTask -> Transfer" );
 					_hostota.state = eHostOtaTransfer;
 					_hostota.bStartTransfer = true;
 				}
@@ -1077,6 +1144,7 @@ static void _hostOtaTask(void *arg)
 				{
 					IotLogInfo( "Current Version: %5.2f, Downloaded Version: %5.2f", _hostota.currentVersion_MZ, _hostota.Version_MZ);
 					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
+    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
 					_hostota.state = eHostOtaWaitMQTT;				/* If downloaded Image version is not greater than current version, pend on an update from AWS */
 				}
 				break;
@@ -1085,6 +1153,7 @@ static void _hostOtaTask(void *arg)
 				/* If MQTT connection is active, or retry count expires */
 				if( (mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
 				{
+    				IotLogInfo( "_hostOtaTask -> PendUpdate" );
 					_hostota.state = eHostOtaPendUpdate;				/* Pend on an update from AWS */
 				}
 				break;
@@ -1113,14 +1182,20 @@ static void _hostOtaTask(void *arg)
 				/* Pend on an update from AWS */
 				hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
 				IotLogInfo( "Host OTA Update: pend on image download" );
-				IotSemaphore_Wait( &_hostota.iotUpdateSemaphore );
+
+				/* wait for an update from AWS, if wait times out, check if a valid image is already present */
+				if( IotSemaphore_TimedWait( &_hostota.iotUpdateSemaphore, HOSTOTA_PEND_TIMEOUT_MS ) == false )
+				{
+					IotLogInfo( "Host OTA Update: time-out expired" );
+				}
+				IotLogInfo( "_hostOtaTask -> Idle" );
 				_hostota.state = eHostOtaIdle;							/* back to image verification */
 				break;
 
 			case eHostOtaTransfer:
 				if( mzXfer_Idle == PIC32MZ_ImageTransfer( _hostota.bStartTransfer ) )
 				{
-					IotLogInfo( "-> eHostOtaActivate" );
+    				IotLogInfo( "_hostOtaTask ->Activate" );
 					_hostota.state = eHostOtaActivate;
 				}
 				_hostota.bStartTransfer = false;
@@ -1129,6 +1204,7 @@ static void _hostOtaTask(void *arg)
 			case eHostOtaActivate:
 				_hostota.imageState = eOTA_PAL_ImageState_PendingCommit;
 				NVS_Set( NVS_HOSTOTA_STATE, &_hostota.imageState, NULL );
+				IotLogInfo( "_hostOtaTask -> WaitReset" );
 				_hostota.state = eHostOtaWaitReset;
 				break;
 

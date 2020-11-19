@@ -58,6 +58,15 @@
 #endif
 #endif // !CONFIG_SPIRAM_SUPPORT
 
+/**
+ * @brief	Block size used when reading the image from SPI Flash.
+ *
+ * If the image is saved in a non-encrypted partition, and encryption has been enabled on the system, the flash must
+ * be accessed using esp_partion_read(), rather than using the MMU to map the SPI Flash to system address space and
+ * utilize the cache (this would enable the hardware decryption engine and prevent reading the stored data).
+ */
+#define	FLASH_READ_BLOCK_SIZE	1024
+
 /*
  * Includes 4 bytes of version field, followed by 64 bytes of signature
  * (Rest 12 bytes for padding to make it 16 byte aligned for flash encryption)
@@ -444,6 +453,9 @@ static u8 * _ReadAndAssumeCertificate( const u8 * const pucCertName,
 /**
  * @brief Verify the signature of the specified file.
  *
+ *	The signature is the SHA256 hash of the image that has been cryptographically signed using
+ *	the CodeSigning certificate.
+ *
  * @param[in]	C OTA file context information.
  *
  * @return The OTA PAL layer error code combined with the MCU specific error code. See OTA Agent
@@ -455,8 +467,11 @@ static OTA_Err_t _CheckFileSignature( OTA_FileContext_t * const C )
     uint32_t ulSignerCertSize;
     void * pvSigVerifyContext;
     u8 * pucSignerCert = 0;
-    static spi_flash_mmap_memory_t ota_data_map;
-    const void * buf = NULL;
+    void * buf = NULL;
+    size_t size;
+    size_t src_offset;
+    size_t remaining;
+
 
     /* Verify an ECDSA-SHA256 signature. */
     if( CRYPTO_SignatureVerificationStart( &pvSigVerifyContext, cryptoASYMMETRIC_ALGORITHM_ECDSA,
@@ -474,19 +489,32 @@ static OTA_Err_t _CheckFileSignature( OTA_FileContext_t * const C )
         return kOTA_Err_BadSignerCert;
     }
 
-    esp_err_t ret = esp_partition_mmap( ota_ctx.update_partition, 0, ota_ctx.data_write_len,
-                                        SPI_FLASH_MMAP_DATA, &buf, &ota_data_map );
+    /* allocate a buffer */
+	buf = pvPortMalloc( FLASH_READ_BLOCK_SIZE );
 
-    if( ret != ESP_OK )
-    {
-        ESP_LOGE( TAG, "partition mmap failed %d", ret );
-        result = kOTA_Err_SignatureCheckFailed;
-        goto end;
-    }
+	if( NULL != buf )
+	{
+		/* Read the image, block-by-block.  Can not use the MMU and Cache to map the SPI Flash into address space: encryption may be enabled */
+		src_offset = 0;
+		for( remaining = ota_ctx.data_write_len; remaining ; ( remaining -= size ), ( src_offset += size ) )
+		{
+			/* read a block of image */
+			size = ( FLASH_READ_BLOCK_SIZE < remaining ) ? FLASH_READ_BLOCK_SIZE : remaining;
+			printf("  Reading %d bytes at offset %08X\n", size, src_offset );
+			esp_partition_read( ota_ctx.update_partition, src_offset, buf, size );
+			/* add to hash */
+		    CRYPTO_SignatureVerificationUpdate( pvSigVerifyContext, buf, size );
+		}
+		vPortFree( buf );
+	}
+	else
+	{
+		ESP_LOGE( TAG, "allocating read buffer failed" );
+		result = kOTA_Err_SignatureCheckFailed;
+		goto end;
+	}
 
-    CRYPTO_SignatureVerificationUpdate( pvSigVerifyContext, buf, ota_ctx.data_write_len );
-    spi_flash_munmap( ota_data_map );
-
+	/* Finalize the hash calculation and then verify signature using Code Signer certificate */
     if( CRYPTO_SignatureVerificationFinal( pvSigVerifyContext, ( char * ) pucSignerCert, ulSignerCertSize,
                                            C->pxSignature->ucData, C->pxSignature->usSize ) == pdFALSE )
     {
