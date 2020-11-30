@@ -12,7 +12,7 @@ This script creates an OTA job from an unsigned firmware file. The following com
 For items 2-4 above, a json file is used as an input parameter the the command. The json files are saved in the current directory for future reference.
 
 ### Usage
-```sh
+```
 usage: mz_job.py [-h] [--fileID FILEID] [--fileName FILENAME] [--signerRoleArn SIGNERROLEARN] [--streamJobRoleArn STREAMJOBROLEARN] jobName thingGroupTarget mzProgramS3Filepath
 
 positional arguments:
