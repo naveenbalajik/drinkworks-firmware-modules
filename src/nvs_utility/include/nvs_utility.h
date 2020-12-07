@@ -9,7 +9,10 @@
 #define NVSUTILITY_H
 
 #include "nvs.h"
+#include "nvsItems.h"				/* Project NVS Item definitions */
 
+
+#ifdef	DEPRECIATED
 typedef enum
 {
 	NVS_PART_NVS,
@@ -19,6 +22,7 @@ typedef enum
 	NVS_PART_EDATA,
 	NVS_PART_END			/**< End of List */
 } NVS_Partitions_t;
+#endif
 
 typedef struct
 {
@@ -36,7 +40,18 @@ typedef struct
 	const char* 		nvsKey;
 } NVS_Entry_Details_t;
 
+/**
+ * @brief	NVS Item Abstraction struct
+ */
+typedef	struct
+{
+	NVS_Partition_Details_t *	partitions;
+	size_t						numPartitions;
+	NVS_Entry_Details_t * 		items;
+	size_t						numItems;
+} nvsItem_pal_t;
 
+#ifdef	DEPRECIATED
 typedef enum
 {
 	NVS_CLAIM_CERT = 0,
@@ -58,8 +73,13 @@ typedef enum
 	NVS_PRODUCTION
 //	NVS_FIFO_TEST						/**< For test purposes only */
 } NVS_Items_t;
+#endif
 
-int32_t NVS_Initialize( void );
+
+const nvsItem_pal_t * nvsItem_getPAL( void );
+
+
+int32_t NVS_Initialize( const nvsItem_pal_t * pal );
 
 int32_t NVS_Get_Size_Of(NVS_Items_t nvsItem, uint32_t* size);
 

@@ -21,13 +21,12 @@
 /* Debug Logging */
 #include "nvs_logging.h"
 
-#define NUM_NVS_ITEMS  			(sizeof(NVS_Items)/sizeof(NVS_Items[0]))
-
 /**
  * @brief ESP32 Partition where NVS Keys are stored
  */
 #define nvsKeys_PARTITION  "nvs_keys"
 
+#ifdef	DEPRECIATED
 /**
  * @brief List all NVS Partitions with labels and encrypted flags
  */
@@ -93,6 +92,8 @@ static const NVS_Entry_Details_t NVS_Items[] =
 	/* Following entry is only needed if running the EventFifo Unit Test */
 	//	[ NVS_FIFO_TEST ]          = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "Fifotest" },			/**< For test purposes only */
 };
+#define NUM_NVS_ITEMS  			(sizeof(NVS_Items)/sizeof(NVS_Items[0]))
+#endif
 
 #ifdef CONFIG_NVS_ENCRYPTION
 	/**
@@ -100,6 +101,11 @@ static const NVS_Entry_Details_t NVS_Items[] =
 	 */
 	static nvs_sec_cfg_t NVS_Keys;
 #endif
+
+/**
+ * @brief	NVS Item Abstraction Layer
+ */
+static const	 nvsItem_pal_t * _pal;
 
 /**
  * @brief Initialize NVS Partition using entry from Partition Table
@@ -157,14 +163,14 @@ static int32_t _getTablePointerFromNVSItem( NVS_Items_t nvsItem, const NVS_Entry
 {
 	esp_err_t err = ESP_OK;
 
-	if( nvsItem >= NUM_NVS_ITEMS )
+	if( nvsItem >= _pal->numItems )
 	{
 		err = ESP_FAIL;
 		IotLogError( "ERROR: NVS Item not in master NVS table" );
 	}
 	else
 	{
-		*pItem = &NVS_Items[ nvsItem ];
+		*pItem = &_pal->items[ nvsItem ];
 	}
 
 	return err;
@@ -190,12 +196,12 @@ static int32_t _getNVSnamespaceHandle( const NVS_Entry_Details_t *pItem, int32_t
 	const int part_idx = pItem->partition;
 
 	/* Check that partition is valid */
-	if( part_idx >= NVS_PART_END )
+	if( part_idx >= _pal->numPartitions )
 	{
 		IotLogError( "ERROR invalid Partition: %d", part_idx );
 		return ESP_FAIL;
 	}
-	pPartition = &NVS_Partitions[ part_idx ];
+	pPartition = &_pal->partitions[ part_idx ];
 
 //	IotLogInfo( "%s: part_idx = %d, label = %s", __func__, part_idx, pPartition->label );
 	/* Initialize (un-inited) partition, use Security Configuration if partition is encrypted */
@@ -223,6 +229,12 @@ static int32_t _getNVSnamespaceHandle( const NVS_Entry_Details_t *pItem, int32_t
 	return err;
 }
 
+/* ************************************************************************* */
+/* ************************************************************************* */
+/* **********        I N T E R F A C E   F U N C T I O N S        ********** */
+/* ************************************************************************* */
+/* ************************************************************************* */
+
 /**
  * @brief	Initialize the NVS module
  *
@@ -236,9 +248,24 @@ static int32_t _getNVSnamespaceHandle( const NVS_Entry_Details_t *pItem, int32_t
  * 	- Error code from esp_partition_writ/erase APIs
  * 	- Error code from the underlying flash storage driver
  */
-int32_t NVS_Initialize( void )
+int32_t NVS_Initialize( const nvsItem_pal_t * pal  )
 {
 	esp_err_t err = ESP_OK;
+
+	/* Save abstraction layer pointer */
+	_pal = pal;
+
+	if( NULL == _pal )
+	{
+		IotLogError( "NVS Item Abstraction Layer is NULL!" );
+		err = ESP_FAIL;
+	}
+
+	if( err == ESP_OK )
+	{
+		IotLogInfo( "NVS Partition count =%d", _pal->numPartitions );
+		IotLogInfo( "NVS Item count =%d", _pal->numItems );
+	}
 
 #ifdef CONFIG_NVS_ENCRYPTION
 	const esp_partition_t * key_part =  esp_partition_find_first( ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS_KEYS, nvsKeys_PARTITION);
@@ -281,30 +308,31 @@ int32_t NVS_Initialize( void )
 #endif
 
 		/* Initialize each NVS partition */
-		for( int i = 0; ( i < NVS_PART_END ) && ( err == ESP_OK ); ++i )
+		for( int i = 0; ( i < _pal->numPartitions ) && ( err == ESP_OK ); ++i )
 		{
 		    /* Initialize NVS */
-			err = _init_partition( &NVS_Partitions[ i ] );
+			err = _init_partition( &_pal->partitions[ i ] );
 
 			IotLogInfo( "Free heap = %d", esp_get_free_heap_size() );
 
 			/* If init fails, try erasing and reinitializing */
 		    if( ( err == ESP_ERR_NVS_NO_FREE_PAGES ) || ( err == ESP_ERR_NVS_NEW_VERSION_FOUND ) )
 		    {
-		    	IotLogInfo(" Erase NVS Partition: %s",  NVS_Partitions[ i ].label );
-		        err = nvs_flash_erase_partition(  NVS_Partitions[ i ].label );
+		    	IotLogInfo(" Erase NVS Partition: %s",  _pal->partitions[ i ].label );
+		        err = nvs_flash_erase_partition(  _pal->partitions[ i ].label );
 
-		        if(err ==  ESP_OK){
-		        	NVS_Partitions[ i ].initialized = false;
+		        if( err ==  ESP_OK )
+		        {
+		        	_pal->partitions[ i ].initialized = false;
 		        }
 
-				err = _init_partition( &NVS_Partitions[ i ] );
+				err = _init_partition( &_pal->partitions[ i ] );
 		    }
 
 		    if( err == ESP_OK )
 		    {
-		    	NVS_Partitions[ i ].initialized = true;
-		    	IotLogInfo("Initialized NVS Partition: %s", NVS_Partitions[ i ].label );
+		    	_pal->partitions[ i ].initialized = true;
+		    	IotLogInfo("Initialized NVS Partition: %s", _pal->partitions[ i ].label );
 		    	IotLogInfo( "Free heap = %d", esp_get_free_heap_size() );
 		    }
 		}
