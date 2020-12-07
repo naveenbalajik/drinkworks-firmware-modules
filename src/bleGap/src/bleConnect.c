@@ -28,16 +28,6 @@ typedef struct
 static BLEPassKeyConfirm_t xPassKeyConfirm;
 
 
-/**
- * @brief	Connection Mapping, store limited number of connection ID and Remote BT Addresses
- */
-typedef struct
-{
-	uint16_t	connectionID;							/**< 16-bit connection ID, assigned by Network Manager */
-	uint8_t		btAddress[6];							/**< Remote Bluetooth address */
-	bool		inUse;									/**< true if entry is in use, false is available for storing values */
-} _connectionMap_t;
-
 #define	MAX_CONNECTION_NUMBER 	5
 #define	CONNECTION_MAP_OFFSET	0x30					/**< Offset to convert table index into handle value, eliminates zero as a handle value */
 static _connectionMap_t connectionMap[ MAX_CONNECTION_NUMBER ];
