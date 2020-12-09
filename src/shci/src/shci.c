@@ -480,7 +480,7 @@ void shci_deinit( void)
  * @param[in] command  	SHCI command
  * @param[in] handler	Callback function
  */
-void shci_RegisterCommand( uint8_t command, _shciCommandCallback_t handler )
+void shci_RegisterCommand( const uint8_t command, const _shciCommandCallback_t handler )
 {
 	shciCommandTable[ command ] = handler;
 }
@@ -492,7 +492,7 @@ void shci_RegisterCommand( uint8_t command, _shciCommandCallback_t handler )
  *
  * @param[in] command  	SHCI command
  */
-void shci_UnregisterCommand( uint8_t command )
+void shci_UnregisterCommand( const uint8_t command )
 {
 	shciCommandTable[ command ] = NULL;
 }

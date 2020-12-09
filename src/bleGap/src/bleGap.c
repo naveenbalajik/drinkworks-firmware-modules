@@ -126,7 +126,7 @@ void IotBle_SetCustomAdvCb( IotBleAdvertisementParams_t * pAdvParams, IotBleAdve
  * @param[in]	pSerialNumber	Pointer to serial number array, 12-byte length, unterminated
  * @param[in]	size			Number of bytes in serial number array
  */
-void bleGap_setSerialNumberAndDeviceName( uint8_t *pSerialNumber, uint16_t size )
+void bleGap_setSerialNumberAndDeviceName( const uint8_t *pSerialNumber, const uint16_t size )
 {
 	_storeSerialNumber( ( char * )pSerialNumber, size );							// store Serial Number in NV storage
 

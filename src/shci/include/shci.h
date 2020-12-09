@@ -82,7 +82,11 @@ enum ShciOpcode
 	eEventRecordData =										0xBC,		/**< Command: Send Event Record data (Model-A) */
 
 	eEspSetSerialNumber = 									0xC0,		/**< Command: */
-	eEspSetPowerState = 									0xC1		/**< Command: */
+	eEspSetPowerState = 									0xC1,		/**< Command: */
+	eEspSetHostFirmwareID =									0xC2,		/**< Command: */
+	eEspSetHostFirmwareVersion =							0xC3,		/**< Command: */
+	eEEBlockSave =											0xC4,		/**< Command: */
+	eEEBlockRestore =										0xC5		/**< Command: */
 
 };
 typedef uint8_t _shciOpcode_t;
@@ -195,7 +199,7 @@ void shci_deinit( void);
  * @param[in] command  	SHCI command
  * @param[in] handler	Callback function
  */
-void shci_RegisterCommand( uint8_t command, _shciCommandCallback_t handler );
+void shci_RegisterCommand( const uint8_t command, const _shciCommandCallback_t handler );
 
 /**
  * @brief	Unregister an SHCI command
@@ -204,7 +208,7 @@ void shci_RegisterCommand( uint8_t command, _shciCommandCallback_t handler );
  *
  * @param[in] command  	SHCI command
  */
-void shci_UnregisterCommand( uint8_t command );
+void shci_UnregisterCommand( const uint8_t command );
 
 /**
  * @brief Post a Command Complete Event message to the Message Buffer

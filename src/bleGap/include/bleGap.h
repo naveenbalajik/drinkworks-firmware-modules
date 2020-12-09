@@ -26,7 +26,7 @@ typedef enum {
 esp_status_t get_ble_status(void);
 
 void DwBleGap_setDeviceName( void );
-void bleGap_setSerialNumberAndDeviceName( uint8_t *pSerialNumber, uint16_t size );
+void bleGap_setSerialNumberAndDeviceName( const uint8_t *pSerialNumber, const uint16_t size );
 void bleGap_fetchSerialNumber( char *pSerialNumber, size_t *length );
 //typedef struct ble_gap_conn_desc ble_gap_conn_desc_t;
 

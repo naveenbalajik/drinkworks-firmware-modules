@@ -513,7 +513,7 @@ int32_t NVS_pGet( const NVS_Entry_Details_t *pItem, void* pOutput, void* pSize )
 
 	if( err != ESP_OK )
 	{
-		IotLogError( "ERROR getting NVS Item: type= %d, err = %d", pItem->type, err );
+		IotLogError( "ERROR getting NVS Item: namespace = %s, key = %s, type= %d, err = %d", pItem->namespace, pItem->nvsKey, pItem->type, err );
 	}
 
 	nvs_close( handle);
@@ -558,7 +558,7 @@ int32_t NVS_Get( NVS_Items_t nvsItem, void* pOutput, void* pSize )
  *
  * @return 	ESP_OK if successful, -1 if failed
  */
-int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, void* pInput, void* pSize )
+int32_t NVS_pSet( const NVS_Entry_Details_t * pItem, const void * pInput, void * pSize )
 {
 	esp_err_t err;
 	nvs_handle handle;
