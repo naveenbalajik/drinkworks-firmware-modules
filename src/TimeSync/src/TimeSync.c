@@ -43,14 +43,14 @@ typedef	struct
 	TaskHandle_t	taskHandle;												/**< handle for TimeSync Task */
 	bool			ntp_sync;
 	time_t			last_sync;
-	rtc_pal_t * 	pal;
+	rtc_hal_t * 	hal;
 } _time_sync_t;
 
 static _time_sync_t	time_sync =
 {
 	.ntp_sync = false,
 	.last_sync = 0L,
-	.pal = NULL,
+	.hal = NULL,
 };
 
 #ifdef	HOST_RTC
@@ -278,11 +278,11 @@ static void _TimeSyncTask( void *arg )
 			err = gettimeofday( &tv, NULL);
 			if( 0 == err )
 			{
-				if( NULL != time_sync.pal )
+				if( NULL != time_sync.hal )
 				{
-					if( NULL != time_sync.pal->getTime )
+					if( NULL != time_sync.hal->getTime )
 					{
-						host_time = time_sync.pal->getTime();
+						host_time = time_sync.hal->getTime();
 						if( -1 == host_time )
 						{
 							IotLogError( "Error converting host time" );
@@ -307,9 +307,9 @@ static void _TimeSyncTask( void *arg )
 								IotLogInfo( "Updating RTC" );
 
 								/* If PAL setTime function is valid, use to update the RTC */
-								if( NULL != time_sync.pal->setTime )
+								if( NULL != time_sync.hal->setTime )
 								{
-									time_sync.pal->setTime( ( time_t )tv.tv_sec );
+									time_sync.hal->setTime( ( time_t )tv.tv_sec );
 								}
 							}
 						}
@@ -374,24 +374,24 @@ int getUTC( char * buf, size_t size)
 /**
  * @brief	Initialize Time Synchronization
  *
- * @param[in]	pRtcPAL	Pointer to RTC Abstraction Layer functions
+ * @param[in]	pRtcHAL	Pointer to RTC Abstraction Layer functions
  */
-void TimeSync_init( const rtc_pal_t * pRtcPAL )
+void TimeSync_init( const rtc_hal_t * pRtcHAL )
 {
 	sntp_setoperatingmode(SNTP_OPMODE_POLL);
 	sntp_setservername(0, "pool.ntp.org");
 	sntp_init();
 	sntp_set_time_sync_notification_cb( &sntp_sync_time_cb);
 
-	/* Save point to RTC Abstraction */
-	time_sync.pal = pRtcPAL;
+	/* Save pointer to RTC Abstraction */
+	time_sync.hal = pRtcHAL;
 
 	/* Initialize RTC PAL, if function is present */
-	if( NULL != time_sync.pal )
+	if( NULL != time_sync.hal )
 	{
-		if( NULL != time_sync.pal->init )
+		if( NULL != time_sync.hal->init )
 		{
-			time_sync.pal->init();
+			time_sync.hal->init();
 		}
 	}
 	/* Register callback for Current Time update */
