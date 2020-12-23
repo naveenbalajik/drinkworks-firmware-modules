@@ -67,6 +67,8 @@ enum ShciOpcode
 	eHostUpdateCommand =                                    0xA2,		/**< Event: Host Firmware Update */
 	eHostUpdateResponse =                                   0xA3,		/**< Command: Host Firmware Response */
 
+	eBleBondWindow =										0xA4,		/**< Command: Enable/Disable BLE Bonding Window */
+
 	eWiFiStatus = 											0xB0,		/**< Event: */
 	eNetworkInitializedEvent = 								0xB1,		/**< Event: */
 	eWifiTestParameter =									0xB2,		/**< Command: */
@@ -80,6 +82,7 @@ enum ShciOpcode
 	eWifiConnectAP = 										0xBA,		/**< Command: */
 	eEventRecordWriteIndex = 								0xBB,		/**< Event: Update Event Record index (Model-A) */
 	eEventRecordData =										0xBC,		/**< Command: Send Event Record data (Model-A) */
+	eRecipeRead =											0xBD,		/**< Command: */
 
 	eEspSetSerialNumber = 									0xC0,		/**< Command: */
 	eEspSetPowerState = 									0xC1,		/**< Command: */

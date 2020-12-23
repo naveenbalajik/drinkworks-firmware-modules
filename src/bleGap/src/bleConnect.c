@@ -40,7 +40,7 @@ static uint8_t disconnectCompleteEvent[] = { eDisconnectionComplete, 0x00, 0x00 
 
 static _bleStatus_t  _bleStatus = eUnknownStatus;
 
-
+static blePairingCallback_t _pairingCallback = NULL;
 
 /**
  * @brief	Store Connection information in map table
@@ -254,7 +254,7 @@ void bleConnect_PairingStateChangedCb( BTStatus_t xStatus,
                                   BTSecurityLevel_t xSecurityLevel,
                                   BTAuthFailureReason_t xReason )
 {
-	switch (bondState)
+	switch( bondState )
 	{
 		case eBTbondStateNone:
 			pairCompleteEvent[ 1 ] = 0x80;			// FIXME hardwired connection handle
@@ -274,6 +274,12 @@ void bleConnect_PairingStateChangedCb( BTStatus_t xStatus,
 			IotLogInfo( "Pairing State -> Bonded" );
 			break;
 	}
+
+	/* If a callback function has been registered, call it */
+	if( NULL != _pairingCallback )
+	{
+		_pairingCallback( bondState );
+	}
 }
 
 /**
@@ -288,7 +294,7 @@ void bleConnect_PairingStateChangedCb( BTStatus_t xStatus,
 void bleConnect_NumericComparisonCb( BTBdaddr_t * pxRemoteBdAddr,
                              uint32_t ulPassKey )
 {
-
+#ifdef MODEL_A
     if( ( pxRemoteBdAddr != NULL ) && ( ulPassKey <= 999999 ) )
     {
         memcpy( &xPassKeyConfirm.xAddress, pxRemoteBdAddr, sizeof( BTBdaddr_t ) );
@@ -305,15 +311,25 @@ void bleConnect_NumericComparisonCb( BTBdaddr_t * pxRemoteBdAddr,
 		
 		shci_PostResponse( passKeyConfirmRequest, sizeof( passKeyConfirmRequest ) );
     }
+#else
+    /* Model-B Reject any comparison */
+	IotBle_ConfirmNumericComparisonKeys( pxRemoteBdAddr, false );
+#endif
 }
 
 /**
  * @brief Initialize BLE - register BLE commands
  */
-void bleConnect_init( void )
+void bleConnect_init( blePairingCallback_t handler )
 {
 	/* Register BLE commands */
 	shci_RegisterCommand( eUserConfirmResponse, &vUserConfirmResponse );
+
+	/* Save Pairing State change handler */
+	if( NULL != handler )
+	{
+		_pairingCallback = handler;
+	}
 
 }
 

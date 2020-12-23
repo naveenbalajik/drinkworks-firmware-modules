@@ -138,6 +138,23 @@ void bleGap_setSerialNumberAndDeviceName( const uint8_t *pSerialNumber, const ui
 }
 
 /**
+ * @brief	Restore Serial Number and Device Name using saved NVS value
+ */
+void bleGap_restoreSerialNumberAndDeviceName( void )
+{
+    size_t size = sizeof( _serialNumber );
+
+    /* Retrieve serial number from NVS */
+	if( ESP_OK == NVS_Get( NVS_SERIAL_NUM, _serialNumber, &size ) )
+	{
+		completeDeviceName[10] = ' ';
+		memcpy( &completeDeviceName[11], _serialNumber, sizeof( _serialNumber ) );
+		completeDeviceName[23] = '\0';
+		IotLogInfo( "bleGap_restoreSerialNumberAndDeviceName: %s", completeDeviceName );
+	}
+}
+
+/**
  * @brief Store Serial Number in NV Storage
  *
  * Serial Number is stored using enumerated NV_Items_t <i>NVS_SERIAL_NUM</i>.

@@ -556,6 +556,8 @@ static void _fleetProvSubscriptionCallback(void* param1, IotMqttCallbackParam_t*
 	}
 	else
 	{
+//		Verbose messaging to help diagnose why a proviosning request is rejected
+//		printf( "Rejection message: %.*s\n", pPublish->u.message.info.payloadLength, ( char * )pPublish->u.message.info.pPayload );
 		IotLogError( "Failed. Message Received from Fleet Provisioning Rejected Topic" );
 	}
 
