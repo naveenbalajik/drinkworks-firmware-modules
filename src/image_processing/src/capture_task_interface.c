@@ -173,9 +173,14 @@ static void _captureTask( void * arg)
 					break;
 
 				case eCaptureImage:
+					// Turn ON LEDs and MCLK for capture
 					_setLEDLevel(eCAM_LED_ON);
+					_xclk_timer_conf(cam_setup->camConfig->ledc_timer, cam_setup->runtimeSpeed);
+					// Capture image
 					imageProces_CaptureAndDecodeImg(currentCmd.callback);
+					// Turn OFF LEDs and MCLK after capture is complete
 					_setLEDLevel(eCAM_LED_OFF);
+					_xclk_timer_conf(cam_setup->camConfig->ledc_timer, 0);
 					break;
 
 				case eCamLED_ON:
@@ -246,8 +251,10 @@ int32_t imgCapture_init(const camera_setup_t * camSetup)
 {
 	int err = IMG_PROCES_OK;
 
-	// camera init
+	// Initialize camera in esp camera component.
 	err = esp_camera_init(camSetup->camConfig);
+	// Stop the MCLK after initialize
+	_xclk_timer_conf(camSetup->camConfig->ledc_timer, 0);
 
 	if (err != ESP_OK) {
 		IotLogError("Camera init failed with error 0x%x", err);
