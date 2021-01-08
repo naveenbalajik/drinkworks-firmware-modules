@@ -104,11 +104,35 @@ typedef struct {
 
 typedef void (* imgCaptureCommandCallback_t)(Image_Proces_Frame_t* img);
 
+typedef enum{
+	eCAM_LED_OFF = 0,
+	eCAM_LED_ON
+}eCamLED_ONOFF_t;
+
+typedef struct{
+	int32_t	pin;
+	bool		onLogicLevel;
+}LED_setup_t;
+
+typedef struct{
+	uint8_t reg_addr;
+	uint8_t reg_val;
+}addr_val_list;
+
+typedef struct{
+	const camera_config_t* 	camConfig;
+	const addr_val_list * 	addrVals;
+	const LED_setup_t *		LED;
+	const uint8_t			i2cAddr;
+	const uint32_t			i2cSpeed;
+	const uint32_t			runtimeSpeed;
+}camera_setup_t;
+
 img_proces_err_t 	imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img);
 void 				imageProces_CleanupFrame(Image_Proces_Frame_t* img);
-void 				capture_deinit(void);
-int32_t 			imgCapture_init(void);
+int32_t 			imgCapture_init(const camera_setup_t * camSetup);
 int32_t 			imgCapture_CaptureAndDecode(imgCaptureCommandCallback_t cb);
 int32_t 			imgCapture_ResetSensor(void);
+int32_t 			imgCapture_setCamLEDs(eCamLED_ONOFF_t	level);
 
 #endif /* IMAGE_PROCESSING_H_ */

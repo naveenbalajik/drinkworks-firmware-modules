@@ -1439,10 +1439,14 @@ void imageProces_CleanupFrame(Image_Proces_Frame_t* img){
 #define IMG_CAPTURE_STACK_SIZE		4096
 #define IMG_CAPTURE_PRIORITY		12
 
+static LED_setup_t	_camLED = {-1, 0};
+
 typedef enum
 {
 	eResetSensor,
-	eCaptureImage
+	eCaptureImage,
+	eCamLED_ON,
+	eCamLED_OFF
 }imgCapture_Command_t;
 
 
@@ -1458,13 +1462,30 @@ static TaskHandle_t _captureTaskHandle;
 
 QueueHandle_t	imgProces_Queue = NULL;
 
+void _setLEDLevel(eCamLED_ONOFF_t	level)
+{
+	// Ensure that the camera LED has been initialized
+	if(_camLED.pin >= 0){
+		// Set the LED level based on the LED settings
+		if(level == eCAM_LED_OFF){
+			gpio_set_level(_camLED.pin, !(_camLED.onLogicLevel));
+		}
+		else{
+			gpio_set_level(_camLED.pin, _camLED.onLogicLevel);
+		}
+	}
+	else{
+		IotLogError("Error setting camera LEDs. LED pin not initialized. Initialize with imgCapture_init" );
+	}
+}
+
+
 static void _capture_and_decode_img(imgCaptureCommandCallback_t	callback)
 {
 	esp_err_t	err = ESP_OK;
 
 	/* Turn on camera LEDs for capture */
-	//cam_set_LEDs(1);
-	gpio_set_level(15,1);
+	_setLEDLevel(eCAM_LED_ON);
 
 	// Capture image
 	camera_fb_t *fb = NULL;
@@ -1476,13 +1497,13 @@ static void _capture_and_decode_img(imgCaptureCommandCallback_t	callback)
 	}
 
 	/* Turn off camera LEDs after capture */
-	//cam_set_LEDs(0);
-	gpio_set_level(15,0);
-
+	_setLEDLevel(eCAM_LED_OFF);
 
     Image_Proces_Frame_t img = {0};
     // Set the frame buffer to be analyzed
-    img.fb = *fb;
+    if(err == ESP_OK){
+    	img.fb = *fb;
+    }
 
     if(err == ESP_OK){
     	err = imageProces_DecodeDWBarcode(&img);
@@ -1502,145 +1523,8 @@ static void _capture_and_decode_img(imgCaptureCommandCallback_t	callback)
 #include "driver/ledc.h"
 #include "driver/i2c.h"
 
-#define I2C_CAM_SPEED		8000000
-#define GC0309_RUN_SPEED	2400000
-
-typedef struct{
-	uint8_t reg_addr;
-	uint8_t reg_val;
-}addr_val_list;
-
-static const addr_val_list GC0309_default[] =
-{
-	    {0xfe,0x80},
-	    {0xfe,0x00},
-	    {0x1a,0x26},
-
-	    {0x22,0x55},
-	    {0x5a,0x57},
-	    {0x5b,0x40},
-	    {0x5c,0x45},
-	    {0x01,0x6a},
-	    {0x02,0x70},
-
-	    {0xe3,0x96},
-	    {0xe4,0x02},
-	    {0xe5,0x58},
-	    {0xe6,0x03},
-	    {0xe7,0x84},
-	    {0xe8,0x07},
-	    {0xe9,0x08},
-	    {0xea,0x0d},
-	    {0xeb,0x7a},
-
-	    {0x05,0x00},
-	    {0x06,0x00},
-	    {0x07,0x00},
-	    {0x08,0x00},
-	    {0x09,0x01},
-	    {0x0a,0xe8},
-	    {0x0b,0x02},
-	    {0x0c,0x88},
-	    {0x0d,0x02},
-	    {0x0e,0x02},
-	    {0x0f,0x00},
-	    {0x10,0x26},
-	    {0x11,0x0d},
-	    {0x12,0x2a},
-	    {0x13,0x00},
-	    {0x14,0x00},
-	    {0x15,0x0a},
-	    {0x16,0x05},
-	    {0x17,0x01},
-	    {0x18,0x44},
-	    {0x19,0x44},
-	    {0x1b,0x03},
-	    {0x1c,0x49},
-	    {0x1d,0x98},
-	    {0x1e,0x20},
-	    {0x1f,0x16},
-	    {0x20,0xff},
-	    {0x21,0xf8},
-	    {0x22,0x57},
-	    {0x24,0xb9},
-	    {0x25,0x0f},
-	    {0x26,0x02},
-	    {0x2f,0x01},
-
-	    {0x30,0xf7},
-	    {0x31,0x40},
-	    {0x32,0x00},
-	    {0x39,0x04},
-	    {0x3a,0x20},
-	    {0x3b,0x20},
-	    {0x3c,0x02},
-	    {0x3d,0x02},
-	    {0x3e,0x02},
-	    {0x3f,0x02},
-
-	    {0x50,0x24},
-	    {0x53,0x80},
-	    {0x54,0x80},
-	    {0x55,0x80},
-	    {0x56,0x80},
-
-	    {0xd0,0xc9},
-	    {0xd1,0x10},
-	    {0xd2,0x90},
-	    {0xd3,0x80},
-	    {0xd5,0xf2},
-	    {0xd6,0x16},
-	    {0xdb,0x92},
-	    {0xdc,0xa5},
-	    {0xdf,0x23},
-
-	    {0xd9,0x00},
-	    {0xda,0x00},
-	    {0xe0,0x09},
-
-	    {0xec,0x20},
-	    {0xed,0x04},
-	    {0xee,0xa0},
-	    {0xef,0x40},
-
-	    {0xfe,0x00},
-	    {0xd2,0x90},  // Open AEC at last.
 
 
-	    // THESE ARE MODIFICATIONS TO THE CAMERA REGISTERS
-	    {0x14,0x00},    // direction
-	    {0x24,0xd1},    // only y
-	    {0x26,0x0B},    // Gate PCLK
-	    {0x06,0x00},    // Row Start
-	    {0x08,0x00},    // Col Start
-	    {0x09,0x01},    // Window Height High (488)
-	    {0x0a,0xe8},    // Window Height Low
-	    {0x0b,0x02},    // Window Width High (648)
-	    {0x0c,0x88},    // Window Width Low
-	    {0xd2,0x00},    //Exposure control
-	    {0x04,0x15},    //Exposure control low bit								// 0x09 for exposure based upon GEN1 PM testing
-	    {0x03,0x00},     //Exposure control high bit
-	    {0x0f,0x01},    // horizontal blanking time
-	    // Luma Contrast Increase for better black/white contrast
-	    {0xb3,0xf0},
-
-	    {0x01,0x00},    //HSYNC down time
-	    {0x02,0x10},    //VSYNC down time
-
-	     /*
-	    {0xfe,0x01},    // set page one
-	    {0x53,0x82},
-	//    {0x54,0x44},
-	    {0x54,0x22},
-	    {0x56,0x00},
-	    {0x57,0x00},
-	    {0x58,0x00},
-	    {0x59,0x00},
-	    {0x55,0x01},
-	//    */
-
-	    {0xff,0xff}   // End Marker
-};
 
 esp_err_t _xclk_timer_conf(int ledc_timer, int xclk_freq_hz)
 {
@@ -1659,39 +1543,34 @@ esp_err_t _xclk_timer_conf(int ledc_timer, int xclk_freq_hz)
     return err;
 }
 
-#ifdef MODEL_B_V1
-#define 	CAM_PIN_RESET 33                  /*!< GPIO pin for camera reset line */
-#else
-#define 	CAM_PIN_RESET 12                  /*!< GPIO pin for camera reset line */
-#endif
 
-static void _reset_sensor(void)
+static void _reset_sensor(camera_setup_t * cam_setup)
 {
 	esp_err_t err = ESP_OK;
 
 	// Pull reset pin
     gpio_config_t conf = { 0 };
-    conf.pin_bit_mask = 1LL << CAM_PIN_RESET;
+    conf.pin_bit_mask = 1LL << cam_setup->camConfig->pin_reset;
     conf.mode = GPIO_MODE_OUTPUT;
     gpio_config(&conf);
-    gpio_matrix_out(CAM_PIN_RESET, SIG_GPIO_OUT_IDX, true, false);             /* Invert signal */
+    gpio_matrix_out(cam_setup->camConfig->pin_reset, SIG_GPIO_OUT_IDX, true, false);             /* Invert signal */
 
-    gpio_set_level(CAM_PIN_RESET, 0);
+    gpio_set_level(cam_setup->camConfig->pin_reset, 0);
     vTaskDelay(30 / portTICK_PERIOD_MS);
-    gpio_set_level(CAM_PIN_RESET, 1);
+    gpio_set_level(cam_setup->camConfig->pin_reset, 1);
     vTaskDelay(10 / portTICK_PERIOD_MS);
 
 
 	// Set camera freq to I2C speed
-	_xclk_timer_conf(LEDC_TIMER_0, I2C_CAM_SPEED);
+	_xclk_timer_conf(cam_setup->camConfig->ledc_timer, cam_setup->i2cSpeed);
 
 	// Set registers over I2C
-	addr_val_list* currentRegVal = (addr_val_list*) GC0309_default;
+	const addr_val_list* currentRegVal = cam_setup->addrVals;
 	i2c_cmd_handle_t cmd;
 	while(!(currentRegVal->reg_addr == 0xff && currentRegVal->reg_val == 0xff)){
 		cmd = i2c_cmd_link_create();
 		i2c_master_start(cmd);
-		i2c_master_write_byte(cmd, 0x42, 1);
+		i2c_master_write_byte(cmd, cam_setup->i2cAddr, 1);
 		i2c_master_write_byte(cmd, currentRegVal->reg_addr, 1);
 		i2c_master_write_byte(cmd, currentRegVal->reg_val, 1);
 		i2c_master_stop(cmd);
@@ -1706,16 +1585,19 @@ static void _reset_sensor(void)
 	vTaskDelay(100 / portTICK_PERIOD_MS);
 
 	// Set the camera freq back to the initial value
-	_xclk_timer_conf(LEDC_TIMER_0, GC0309_RUN_SPEED);
+	_xclk_timer_conf(cam_setup->camConfig->ledc_timer, cam_setup->runtimeSpeed);
 
 }
 
 
 static void _captureTask( void * arg)
 {
-	// Receive queue capable of handling 4 messages
-	imgProces_Queue = xQueueCreate(6, sizeof(imgProces_QueueItem_t));
+	// Receive queue capable of handling 9 messages
+	imgProces_Queue = xQueueCreate(9, sizeof(imgProces_QueueItem_t));
 	imgProces_QueueItem_t	currentCmd;
+
+	// Parse input commands
+	camera_setup_t * cam_setup = (camera_setup_t *) arg;
 
 	for( ;; )
 	{
@@ -1724,11 +1606,19 @@ static void _captureTask( void * arg)
 			switch(currentCmd.command)
 			{
 				case eResetSensor:
-					_reset_sensor();
+					_reset_sensor(cam_setup);
 					break;
 
 				case eCaptureImage:
 					_capture_and_decode_img(currentCmd.callback);
+					break;
+
+				case eCamLED_ON:
+					_setLEDLevel(eCAM_LED_ON);
+					break;
+
+				case eCamLED_OFF:
+					_setLEDLevel(eCAM_LED_OFF);
 					break;
 			}
 		}
@@ -1765,27 +1655,73 @@ int32_t imgCapture_CaptureAndDecode(imgCaptureCommandCallback_t cb){
 	return _sendToQueue(eCaptureImage, cb);
 }
 
-int32_t imgCapture_init(void)
+
+int32_t imgCapture_setCamLEDs(eCamLED_ONOFF_t	level)
 {
-	int err = IMG_PROCES_OK;
+	int32_t err = IMG_PROCES_OK;
 
-	xTaskCreate(_captureTask, "capture_task", IMG_CAPTURE_STACK_SIZE, NULL, IMG_CAPTURE_PRIORITY, &_captureTaskHandle );
+	switch(level){
 
-	if(_captureTaskHandle == NULL)
-	{
-		err = IMG_PROCES_FAIL;
+		case eCAM_LED_OFF:
+			err = _sendToQueue(eCamLED_OFF, NULL);
+			break;
+
+		case eCAM_LED_ON:
+			err = _sendToQueue(eCamLED_ON, NULL);
+			break;
 	}
 
 	return err;
 }
 
 
-void capture_deinit(void)
+
+static void _initCamLEDs(const LED_setup_t *	LED){
+	// Store the LED pin
+	memcpy(&_camLED, LED, sizeof(LED_setup_t));
+
+	// Configure the LED pin as input/output
+	gpio_config_t conf = { 0 };
+	conf.intr_type = GPIO_INTR_DISABLE;
+	conf.pin_bit_mask = 1<<LED->pin;
+	conf.mode = GPIO_MODE_OUTPUT;
+	conf.pull_down_en = 0;
+	conf.pull_up_en = 0;
+	gpio_config(&conf);
+
+	// Turn off the LED
+	imgCapture_setCamLEDs(eCAM_LED_OFF);
+}
+
+
+
+int32_t imgCapture_init(const camera_setup_t * camSetup)
 {
-	if(_captureTaskHandle != NULL)
-	{
-		IotLogInfo( "Deleting img_cap Task" );
-		vTaskDelete( _captureTaskHandle );
+	int err = IMG_PROCES_OK;
+
+	// Camera LED init
+	_initCamLEDs(camSetup->LED);
+
+	// camera init
+	err = esp_camera_init(camSetup->camConfig);
+
+	if (err != ESP_OK) {
+		IotLogError("Camera init failed with error 0x%x", err);
+		return err;
 	}
+
+	if(err == ESP_OK)
+	{
+		// Create the image capture task
+		xTaskCreate(_captureTask, "capture_task", IMG_CAPTURE_STACK_SIZE, (void*) camSetup, IMG_CAPTURE_PRIORITY, &_captureTaskHandle );
+	}
+
+	if(_captureTaskHandle == NULL)
+	{
+		err = IMG_PROCES_FAIL;
+		IotLogError("Error: Capture task could not be created");
+	}
+
+	return err;
 }
 
