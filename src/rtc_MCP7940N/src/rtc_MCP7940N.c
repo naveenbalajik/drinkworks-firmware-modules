@@ -720,6 +720,7 @@ _rtcStatus_t rtc_IsConfigured(void)
 	_rtcStatus_t status;
 	struct tm gm;																					// Time struct, if we need to set the date/time
 	time_t	rtcTime = -1;
+	char utc[ 28 ] = { 0 };
 
 	if( rtc_read( RTC_I2C_ADDR, RTC_REG_BLOCK, ( uint8_t * )&rtc_tkregs, RTC_TIMEKEEP_SIZE ) )
 	{
@@ -731,8 +732,10 @@ _rtcStatus_t rtc_IsConfigured(void)
 		{
 			/* convert register values into standard POSIX tm struct */
 			convert_tk2tm( &rtc_tkregs, &gm );
-			IotLogInfo( "rtc is configured: %4u-%02u-%02uT%02u:%02u:%02uZ",
-					( 1900 + gm.tm_year ), gm.tm_mon, gm.tm_mday, gm.tm_hour, gm.tm_min, gm.tm_sec );
+
+			strftime( utc, sizeof( utc ), "%Y-%m-%dT%H:%M:%SZ", &gm );
+			IotLogInfo( "rtc is configured: %s", utc );
+
 			status = eRtcStatus_Configured;									// RTC is configured
 		}
 		else
