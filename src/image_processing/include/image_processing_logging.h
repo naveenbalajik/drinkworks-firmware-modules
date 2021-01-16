@@ -24,8 +24,8 @@
  */
 
 /**
- * @file fleetProvisioning_logging.h
- * @brief Sets the log level for Fleet Provisioning module.
+ * @file image_processing_logging.h
+ * @brief Sets the log level for Image Processing module.
  */
 
 #ifndef IMAGE_PROCESSING_LOGGING_H_
