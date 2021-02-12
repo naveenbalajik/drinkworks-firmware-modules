@@ -103,7 +103,7 @@ static void _shciSendResponse( _shciResponse_t * pResponse );
 /**
  * @brief	Initialize selected GPIO pins as outputs, for debug and timing analysis
  *
- * This function is only implemented is DEBUG_USING_GPIO is defined
+ * This function is only implemented if DEBUG_USING_GPIO is defined
  */
 #ifdef	DEBUG_USING_GPIO
 void debug_gpio_init( void )
@@ -160,7 +160,6 @@ static bool _shciDispatchCommand( uint8_t opCode, uint8_t *pdata, uint16_t nByte
 static _shciRxStateType_t _shciProcessInput( _shciCommand_t *ic )
 {
 	int len;
-
 	_shciRxStateType_t nextState = _rxState;	// default to maintaining current state
 	do
 	{

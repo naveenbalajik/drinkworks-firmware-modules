@@ -302,6 +302,7 @@ static bool	rtc_StopClock(void)
 				return true;
 			}
 //			IotLogInfo( "  read: %02X", datum );
+			vTaskDelay( 10 / portTICK_PERIOD_MS );												// yield to lower priority tasks
 		}
 	}
 	return false;																				// Error writing to RTC, or time-out
