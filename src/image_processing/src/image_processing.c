@@ -65,10 +65,11 @@
 #define TEN_BAR_THRES				0.875
 #define ELEVEN_BAR_THRES			0.958
 
-typedef enum{
+typedef enum
+{
 	RISING_TRANSITION = 0,
 	FALLING_TRANSITION
-}Img_Transition_Type;
+} Img_Transition_Type;
 
 #define WHITESPACE_THRES			150
 #define	REQUIRED_TRANSITION_DIFF	10
@@ -141,7 +142,8 @@ static const bool						masterDrinkworksTrademark[DRINKWORKS_TEMPLATE_TMARK_HEIGH
 
 Image_Proces_Frame_t img = VGA_IMG_DEFAULT_INITIALIZATION;
 
-static img_proces_err_t _calcImgRegionAvg(Image_Region_Avg_t* imgRegionAvg, camera_fb_t* fb){
+static img_proces_err_t _calcImgRegionAvg( Image_Region_Avg_t* imgRegionAvg, camera_fb_t* fb )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 
 	// Allocate memory for the buffer if it has not yet been allocated
@@ -196,7 +198,8 @@ static img_proces_err_t _calcImgRegionAvg(Image_Region_Avg_t* imgRegionAvg, came
 //* Returns:
 //*		Middle position of the sorted array
 //*********************************************************************************************************************
-static uint32_t _medianFindUINT32(uint32_t *unsortedArr, uint32_t size){
+static uint32_t _medianFindUINT32( uint32_t *unsortedArr, uint32_t size )
+{
 	// First perform selection sort in order to sort array
 	int32_t i = 0;
 	int32_t j = 0;
@@ -219,7 +222,8 @@ static uint32_t _medianFindUINT32(uint32_t *unsortedArr, uint32_t size){
 
 
 // Performs median filter on input array. Will replace input filter
-static img_proces_err_t _medianFilterUINT32(uint32_t* buf, uint32_t bufSize, uint32_t medianSize){
+static img_proces_err_t _medianFilterUINT32( uint32_t* buf, uint32_t bufSize, uint32_t medianSize )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 	int32_t i;
 
@@ -255,7 +259,8 @@ static img_proces_err_t _medianFilterUINT32(uint32_t* buf, uint32_t bufSize, uin
 }
 
 
-static int8_t	_checkForRowAvgTransition(Image_Region_Avg_t* rowAvg, uint32_t testRow, Img_Transition_Type transitionType){
+static int8_t	_checkForRowAvgTransition( Image_Region_Avg_t* rowAvg, uint32_t testRow, Img_Transition_Type transitionType )
+{
 	if(transitionType == RISING_TRANSITION){
 		if(rowAvg->avgBuf[testRow + (rowAvg->len)/48] > WHITESPACE_THRES && rowAvg->avgBuf[testRow + (rowAvg->len)/48 + 1] > WHITESPACE_THRES && rowAvg->avgBuf[testRow + (rowAvg->len)/48 + 2] > WHITESPACE_THRES && \
 				(int32_t)rowAvg->avgBuf[testRow + (rowAvg->len)/48] - (int32_t)rowAvg->avgBuf[testRow] > REQUIRED_TRANSITION_DIFF && (int32_t)rowAvg->avgBuf[testRow + (rowAvg->len)/48 + 1] - (int32_t)rowAvg->avgBuf[testRow + 1] > REQUIRED_TRANSITION_DIFF && (int32_t)rowAvg->avgBuf[testRow + (rowAvg->len)/48 + 2] - (int32_t)rowAvg->avgBuf[testRow + 2]  > REQUIRED_TRANSITION_DIFF){
@@ -291,7 +296,8 @@ static int8_t	_checkForRowAvgTransition(Image_Region_Avg_t* rowAvg, uint32_t tes
 //* Remarks:
 //*		This function will catch instances when the beginning of the white space window is considered the start of the barcode
 //*******************************************************************************************************************
-uint8_t _consistencyCheck(uint32_t* buf, int32_t startLoc, int32_t endLoc) {
+uint8_t _consistencyCheck( uint32_t* buf, int32_t startLoc, int32_t endLoc )
+{
 	uint32_t largestSquaredDiff = 0;
 	int32_t i, squaredDiff;
 	// Loop through the array
@@ -313,7 +319,8 @@ uint8_t _consistencyCheck(uint32_t* buf, int32_t startLoc, int32_t endLoc) {
 	}
 }
 
-static img_proces_err_t _determineStartStopRow(Image_Proces_Frame_t* img, uint32_t* currentScanRow){
+static img_proces_err_t _determineStartStopRow( Image_Proces_Frame_t* img, uint32_t* currentScanRow )
+{
 
 	Image_Region_t tempBarcode1Region = {0};
 	Image_Region_t tempBarcode2Region = {0};
@@ -401,7 +408,8 @@ static img_proces_err_t _determineStartStopRow(Image_Proces_Frame_t* img, uint32
 	return IMG_PROCES_FAIL;
 }
 
-void _scaleBufferUINT32(uint32_t* buf, uint32_t len, uint32_t maxVal){
+void _scaleBufferUINT32( uint32_t* buf, uint32_t len, uint32_t maxVal )
+{
 	uint32_t i, maxFound = 1;
 	for(i=0; i<len; i++){
 		if(buf[i] > maxFound){
@@ -416,7 +424,8 @@ void _scaleBufferUINT32(uint32_t* buf, uint32_t len, uint32_t maxVal){
 }
 
 
-static int8_t _checkForColAvgTransition(Image_Proces_Frame_t* img, uint32_t testCol){
+static int8_t _checkForColAvgTransition( Image_Proces_Frame_t* img, uint32_t testCol )
+{
 	uint32_t	x, i, endScanCol;
 	int32_t* colAvgBuf = (int32_t*)img->colAvg.avgBuf;
 
@@ -455,7 +464,8 @@ static int8_t _checkForColAvgTransition(Image_Proces_Frame_t* img, uint32_t test
 }
 
 
-static img_proces_err_t _determineStartStopCol(Image_Proces_Frame_t* img){
+static img_proces_err_t _determineStartStopCol( Image_Proces_Frame_t* img )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 
 	img->colAvg.imgRegion.startPoint.x = 0;
@@ -491,7 +501,8 @@ static img_proces_err_t _determineStartStopCol(Image_Proces_Frame_t* img){
 	return IMG_PROCES_FAIL;
 }
 
-static void	_gaussianAverage(Trustmark_t* trustmark) {
+static void	_gaussianAverage( Trustmark_t* trustmark )
+{
 	uint32_t	x,y;
 
 	// Box filter on each pixel (3x3 box)
@@ -520,7 +531,8 @@ static void	_gaussianAverage(Trustmark_t* trustmark) {
 }
 
 
-static void _defineBWThreshold(Image_Proces_Frame_t* img){
+static void _defineBWThreshold( Image_Proces_Frame_t* img )
+{
 	uint32_t leftThreshold = 0;
 	uint32_t rightThreshold = 0;
 	uint32_t finalThreshold = 0;
@@ -557,7 +569,8 @@ static void _defineBWThreshold(Image_Proces_Frame_t* img){
 	img->trustmark.bwThres = finalThreshold;
 }
 
-static void _bwThreshold(Trustmark_t* trustmark){
+static void _bwThreshold( Trustmark_t* trustmark )
+{
 	uint32_t i;
 
 	for(i=0; i<trustmark->fb.len; i++){
@@ -570,7 +583,8 @@ static void _bwThreshold(Trustmark_t* trustmark){
 	}
 }
 
-static img_proces_err_t _findTrustmark(Image_Proces_Frame_t* img){
+static img_proces_err_t _findTrustmark( Image_Proces_Frame_t* img )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 	Image_Region_Avg_t tmarkRegionAvg;
 	memset(&tmarkRegionAvg, 0, sizeof(Image_Region_Avg_t));
@@ -654,7 +668,8 @@ static img_proces_err_t _findTrustmark(Image_Proces_Frame_t* img){
 }
 
 
-static void _differenceCalc(Image_Proces_Frame_t* img){
+static void _differenceCalc( Image_Proces_Frame_t* img )
+{
 	uint8_t* resizedTrademark = NULL;
 	// Create a new array for the resized trustmark
 	resizedTrademark = (uint8_t*)malloc(DRINKWORKS_TEMPLATE_TMARK_HEIGHT * DRINKWORKS_TEMPLATE_TMARK_WIDTH * sizeof(uint8_t));
@@ -702,7 +717,8 @@ static void _differenceCalc(Image_Proces_Frame_t* img){
 }
 
 
-static img_proces_err_t _authenticateTrustmark(Image_Proces_Frame_t* img){
+static img_proces_err_t _authenticateTrustmark( Image_Proces_Frame_t* img )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 
 	img->trustmark.fb.width = TMARK_AREA_WIDTH;
@@ -760,7 +776,8 @@ static img_proces_err_t _authenticateTrustmark(Image_Proces_Frame_t* img){
 	return err;
 }
 
-static img_proces_err_t _fillBarcodeAvgRegions(Image_Proces_Frame_t* img){
+static img_proces_err_t _fillBarcodeAvgRegions( Image_Proces_Frame_t* img )
+{
 
 	img_proces_err_t err = IMG_PROCES_OK;
 
@@ -818,7 +835,8 @@ static img_proces_err_t _fillBarcodeAvgRegions(Image_Proces_Frame_t* img){
 }
 
 
-static img_proces_err_t _thresholdCalc(BarcodeRegion_t* bcode, Image_Proces_Frame_t* img){
+static img_proces_err_t _thresholdCalc( BarcodeRegion_t* bcode, Image_Proces_Frame_t* img )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 
 	// Allocate memory for top and bottom threshold
@@ -893,7 +911,8 @@ static img_proces_err_t _thresholdCalc(BarcodeRegion_t* bcode, Image_Proces_Fram
 	return err;
 }
 
-static img_proces_err_t _defineBcodeThresholds(Image_Proces_Frame_t* img){
+static img_proces_err_t _defineBcodeThresholds( Image_Proces_Frame_t* img )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 
 	// Allocate memory for the buffers if they have not yet been allocated
@@ -927,7 +946,8 @@ static img_proces_err_t _defineBcodeThresholds(Image_Proces_Frame_t* img){
 }
 
 
-static img_proces_err_t _eleventhBitCalculation(Image_Proces_Frame_t* img, BarcodeRegion_t* bcode){
+static img_proces_err_t _eleventhBitCalculation( Image_Proces_Frame_t* img, BarcodeRegion_t* bcode )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 	uint32_t y, x, startYScan, scanWidth, thresStartCol, thresEndCol;
 
@@ -999,7 +1019,8 @@ static img_proces_err_t _eleventhBitCalculation(Image_Proces_Frame_t* img, Barco
 	return err;
 }
 
-static img_proces_err_t _eleventhBitDeterminations(Image_Proces_Frame_t* img){
+static img_proces_err_t _eleventhBitDeterminations( Image_Proces_Frame_t* img )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 
 	img->barcode1.singleBit.startCol = img->barcode1.regionAvg.imgRegion.startPoint.x + SINGLE_BIT_OFFSET_1;
@@ -1035,7 +1056,8 @@ static img_proces_err_t _eleventhBitDeterminations(Image_Proces_Frame_t* img){
 //* Outputs: None, but closest difference and difference location is set by pointers if necessary
 //*
 //*******************************************************************************************************************
-void setClosestDistance(double ratio, double thres1, double thres2, double *closestDiff, unsigned char *diffLoc, unsigned char currLoc) {
+void setClosestDistance( double ratio, double thres1, double thres2, double *closestDiff, unsigned char *diffLoc, unsigned char currLoc )
+{
 	double thresDiff = fabs(ratio - thres1);													// determine the current difference between the ratio and the lower threshold
 	if (fabs(ratio - thres2) < thresDiff) {													// If the current ratio is closer to threshold 2 then threshold 1
 		thresDiff = fabs(ratio - thres2);														// Overwrite the current difference with the difference between the current ratio and the upper threshold
@@ -1063,7 +1085,7 @@ void setClosestDistance(double ratio, double thres1, double thres2, double *clos
 //*		Interleaved 2 of 5 barcode uses 36 individual segments for 1000 possible IDs.
 //*********************************************************************************************************************
 
-uint32_t CalcID(int32_t* distances)
+uint32_t CalcID( int32_t* distances )
 {
 	double totalDistance = 0;
 	uint32_t finalDistancesArray[BARCODE_BITS] = { 0 };
@@ -1175,7 +1197,8 @@ uint32_t CalcID(int32_t* distances)
 }
 
 
-static img_proces_err_t _decodeBarcode(BarcodeRegion_t* bcode){
+static img_proces_err_t _decodeBarcode( BarcodeRegion_t* bcode )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 
 	int32_t integerID = 0;																				// Returned ID of barcode
@@ -1277,43 +1300,51 @@ static img_proces_err_t _decodeBarcode(BarcodeRegion_t* bcode){
 
 	integerID = CalcID(gapDistance);															// Decode barcode based upon gap distances
 
-	if(bcode->singleBit.bitResult == 1){
+	if( bcode->singleBit.bitResult == 1 )
+	{
 		bcode->barcodeResult = integerID + 1024;
 	}
-	else{
+	else
+	{
 		bcode->barcodeResult = integerID;
 	}
 
-	IotLogInfo("Barcode: %d", bcode->barcodeResult);
+	IotLogInfo( "Barcode: %d", bcode->barcodeResult );
 
-	free(barcodeGradient);
+	free( barcodeGradient );
 
 	return err;
 }
 
-static void _checkForPod(Image_Proces_Frame_t* img){
+static void _checkForPod( Image_Proces_Frame_t* img )
+{
 	uint32_t i;
 	uint32_t pixelSum = 0;
 	// Take the sum of every 4 pixels in the image
-	for(i=0; i<img->fb.len; i+=4){
-		pixelSum+= img->fb.buf[i];
+	for( i = 0; i < img->fb.len; i += 4 )
+	{
+		pixelSum+= img->fb.buf[ i ];
 	}
 
 	// Take average of pixel sum
-	if(img->fb.len/4){
-		pixelSum/=(img->fb.len/4);
+	if( img->fb.len / 4 )
+	{
+		pixelSum /= ( img->fb.len / 4 );
 	}
 
 	// Compare to no pod threshold to determine if pod is in PM or not
-	if(pixelSum <= NO_POD_PIXEL_AVG_THRES){
+	if( pixelSum <= NO_POD_PIXEL_AVG_THRES )
+	{
 		img->result.podDetected = 0;
 	}
-	else{
+	else
+	{
 		img->result.podDetected = 1;
 	}
 }
 
-void _resetBarcodeResults(Image_Proces_Frame_t* img){
+void _resetBarcodeResults( Image_Proces_Frame_t* img )
+{
 	imageProces_CleanupFrame(img);
 
 	img->rowAvg = (Image_Region_Avg_t){{{ROW_AVG_START_COL, 0}, {ROW_AVG_END_COL, VGA_HEIGHT}}, ROW_SCAN, NULL, VGA_HEIGHT};
@@ -1324,7 +1355,8 @@ void _resetBarcodeResults(Image_Proces_Frame_t* img){
 	img->result = (Image_Decode_Result_t){NOT_INITIALIZED, IMG_PROCES_FAIL_NOT_INITIALIZED};
 }
 
-img_proces_err_t imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img){
+img_proces_err_t imageProces_DecodeDWBarcode( Image_Proces_Frame_t* img )
+{
 	img_proces_err_t err = IMG_PROCES_OK;
 	uint32_t currentScanRow = 0;
 	_resetBarcodeResults(img);
@@ -1333,60 +1365,74 @@ img_proces_err_t imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img){
 	_checkForPod(img);
 
 	// Calculate the row average from the frame buffer
-	err = _calcImgRegionAvg(&(img->rowAvg), &(img->fb));
+	err = _calcImgRegionAvg( &(img->rowAvg), &(img->fb) );
 
-	if(err == IMG_PROCES_OK){
-		err = _medianFilterUINT32(img->rowAvg.avgBuf, img->rowAvg.len, MEDIAN_FILTER_SIZE);
+	if( err == IMG_PROCES_OK )
+	{
+		err = _medianFilterUINT32( img->rowAvg.avgBuf, img->rowAvg.len, MEDIAN_FILTER_SIZE );
 	}
 
-	if(err == IMG_PROCES_OK){
-		_scaleBufferUINT32(img->rowAvg.avgBuf, img->rowAvg.len, 255);
+	if( err == IMG_PROCES_OK )
+	{
+		_scaleBufferUINT32( img->rowAvg.avgBuf, img->rowAvg.len, 255 );
 	}
 
-	while(img->result.fail != IMG_PROCES_FAIL_NO_FAILURE && currentScanRow < img->fb.height){
-		if(err == IMG_PROCES_OK){
-			err = _determineStartStopRow(img, &currentScanRow);
-			if(err){
+	while( img->result.fail != IMG_PROCES_FAIL_NO_FAILURE && currentScanRow < img->fb.height )
+	{
+		if( err == IMG_PROCES_OK )
+		{
+			err = _determineStartStopRow( img, &currentScanRow );
+			if( err )
+			{
 				img->result.fail |= IMG_PROCES_FAIL_RECOGNITION;
 				break;
 			}
 		}
 
-		if(err == IMG_PROCES_OK){
-			err = _determineStartStopCol(img);
-			if (err) {
+		if( err == IMG_PROCES_OK )
+		{
+			err = _determineStartStopCol( img );
+			if( err )
+			{
 				img->result.fail |= IMG_PROCES_FAIL_RECOGNITION;
 				break;
 			}
 		}
 
-		if(err == IMG_PROCES_OK){
-			err = _authenticateTrustmark(img);
-			if(err){
+		if( err == IMG_PROCES_OK )
+		{
+			err = _authenticateTrustmark( img );
+			if( err )
+			{
 				err = IMG_PROCES_OK;
 				currentScanRow += 10;
 			}
 		}
 	}
 
-	if(err == IMG_PROCES_OK){
-		err = _fillBarcodeAvgRegions(img);
+	if( err == IMG_PROCES_OK )
+	{
+		err = _fillBarcodeAvgRegions( img );
 	}
 
-	if(err == IMG_PROCES_OK){
-		err = _defineBcodeThresholds(img);
+	if( err == IMG_PROCES_OK )
+	{
+		err = _defineBcodeThresholds( img );
 	}
 
-	if(err == IMG_PROCES_OK){
-		err = _eleventhBitDeterminations(img);
+	if( err == IMG_PROCES_OK )
+	{
+		err = _eleventhBitDeterminations( img );
 	}
 
-	if(err == IMG_PROCES_OK){
-		err = _decodeBarcode(&(img->barcode1));
+	if( err == IMG_PROCES_OK )
+	{
+		err = _decodeBarcode( &(img->barcode1) );
 	}
 
-	if(err == IMG_PROCES_OK){
-		err = _decodeBarcode(&(img->barcode2));
+	if( err == IMG_PROCES_OK )
+	{
+		err = _decodeBarcode( &(img->barcode2) );
 	}
 
 	return err;
@@ -1397,40 +1443,48 @@ img_proces_err_t imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img){
  * @brief Cleanup malloc'd memory
  *
  */
-void imageProces_CleanupFrame(Image_Proces_Frame_t* img){
+void imageProces_CleanupFrame( Image_Proces_Frame_t* img )
+{
 
-	if(NULL != img->rowAvg.avgBuf){
-		free(img->rowAvg.avgBuf);
+	if( NULL != img->rowAvg.avgBuf )
+	{
+		free( img->rowAvg.avgBuf );
 		img->rowAvg.avgBuf = NULL;
 	}
 
-	if(NULL != img->colAvg.avgBuf){
-		free(img->colAvg.avgBuf);
+	if( NULL != img->colAvg.avgBuf )
+	{
+		free( img->colAvg.avgBuf );
 		img->colAvg.avgBuf = NULL;
 	}
 
-	if(NULL != img->barcode1.thresholdAvg){
-		free(img->barcode1.thresholdAvg);
+	if( NULL != img->barcode1.thresholdAvg )
+	{
+		free( img->barcode1.thresholdAvg );
 		img->barcode1.thresholdAvg = NULL;
 	}
 
-	if(NULL != img->barcode1.regionAvg.avgBuf){
-		free(img->barcode1.regionAvg.avgBuf);
+	if( NULL != img->barcode1.regionAvg.avgBuf )
+	{
+		free( img->barcode1.regionAvg.avgBuf );
 		img->barcode1.regionAvg.avgBuf = NULL;
 	}
 
-	if(NULL != img->barcode2.thresholdAvg){
-		free(img->barcode2.thresholdAvg);
+	if( NULL != img->barcode2.thresholdAvg )
+	{
+		free( img->barcode2.thresholdAvg );
 		img->barcode2.thresholdAvg = NULL;
 	}
 
-	if(NULL != img->barcode2.regionAvg.avgBuf){
-		free(img->barcode2.regionAvg.avgBuf);
+	if( NULL != img->barcode2.regionAvg.avgBuf )
+	{
+		free( img->barcode2.regionAvg.avgBuf );
 		img->barcode2.regionAvg.avgBuf = NULL;
 	}
 
-	if(img->trustmark.fb.buf != NULL){
-		free(img->trustmark.fb.buf);
+	if( NULL != img->trustmark.fb.buf)
+	{
+		free( img->trustmark.fb.buf );
 	}
 }
 
@@ -1469,34 +1523,35 @@ static void _capture_and_decode_img(imgCaptureCommandCallback_t	callback)
 	// Capture image
 	camera_fb_t *fb = NULL;
 	fb = esp_camera_fb_get();
-	if(!fb)
+	if( fb == NULL )
 	{
 		IotLogError("Camera capture failed to get fb");
 		err = ESP_FAIL;
 	}
+	else
+	{
+		/* Turn off camera LEDs after capture */
+		//cam_set_LEDs(0);
+		gpio_set_level(15,0);
 
-	/* Turn off camera LEDs after capture */
-	//cam_set_LEDs(0);
-	gpio_set_level(15,0);
 
+		Image_Proces_Frame_t img = {0};
+		// Set the frame buffer to be analyzed
+		img.fb = *fb;
 
-    Image_Proces_Frame_t img = {0};
-    // Set the frame buffer to be analyzed
-    img.fb = *fb;
-
-    if(err == ESP_OK){
-    	err = imageProces_DecodeDWBarcode(&img);
-		if(err != ESP_OK){
-			IotLogError("Failed to Decode Barcode and Trademark. Err = %d", err);
+		if(err == ESP_OK){
+			err = imageProces_DecodeDWBarcode(&img);
+			if(err != ESP_OK){
+				IotLogError("Failed to Decode Barcode and Trademark. Err = %d", err);
+			}
 		}
-    }
 
-	IotLogInfo("Barcode1:%d\t Barcode2:%d\t TrademarkDiff:%d", img.barcode1.barcodeResult, img.barcode2.barcodeResult, img.trustmark.trustmarkDiff);
+		IotLogInfo("Barcode1:%d\t Barcode2:%d\t TrademarkDiff:%d", img.barcode1.barcodeResult, img.barcode2.barcodeResult, img.trustmark.trustmarkDiff);
 
-	imageProces_CleanupFrame(&img);
+		imageProces_CleanupFrame(&img);
 
-	callback(&img);
-
+		callback(&img);
+	}
 }
 
 #include "driver/ledc.h"
@@ -1668,7 +1723,6 @@ esp_err_t _xclk_timer_conf(int ledc_timer, int xclk_freq_hz)
 static void _reset_sensor(void)
 {
 	esp_err_t err = ESP_OK;
-
 	// Pull reset pin
     gpio_config_t conf = { 0 };
     conf.pin_bit_mask = 1LL << CAM_PIN_RESET;
@@ -1707,7 +1761,6 @@ static void _reset_sensor(void)
 
 	// Set the camera freq back to the initial value
 	_xclk_timer_conf(LEDC_TIMER_0, GC0309_RUN_SPEED);
-
 }
 
 
@@ -1757,12 +1810,14 @@ int32_t _sendToQueue(imgCapture_Command_t	command, imgCaptureCommandCallback_t	c
 	return err;
 }
 
-int32_t imgCapture_ResetSensor(void){
-	return _sendToQueue(eResetSensor, NULL);
+int32_t imgCapture_ResetSensor(void)
+{
+	return _sendToQueue( eResetSensor, NULL );
 }
 
-int32_t imgCapture_CaptureAndDecode(imgCaptureCommandCallback_t cb){
-	return _sendToQueue(eCaptureImage, cb);
+int32_t imgCapture_CaptureAndDecode(imgCaptureCommandCallback_t cb)
+{
+	return _sendToQueue( eCaptureImage, cb );
 }
 
 int32_t imgCapture_init(void)
