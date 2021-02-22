@@ -347,6 +347,8 @@ static OTA_PAL_ImageState_t prvPAL_GetPlatformImageState_override( uint32_t ulSe
 {
     DEFINE_OTA_METHOD_NAME( "prvPAL_GetPlatformImageState_override" );
 
+    printf( "[%s] fileID = %d\n", OTA_METHOD_NAME, ulServerFileID );
+
     if ( ulServerFileID == 0 )
     {
         // Update self
@@ -359,6 +361,7 @@ static OTA_PAL_ImageState_t prvPAL_GetPlatformImageState_override( uint32_t ulSe
     }
     else
     {
+    	printf(" hostPal->xGetImageState\n" );
     	CurrentImageState = otaData.hostPal->xGetImageState();
         OTA_LOG_L1( "[%s](%d) OTA for alternate processor: %d.\r\n", OTA_METHOD_NAME, ulServerFileID, CurrentImageState );
         return CurrentImageState;
