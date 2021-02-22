@@ -33,7 +33,7 @@ typedef struct
 
 typedef struct
 {
-	int					itemIndex;
+//	int					itemIndex;
 	nvs_type_t			type;
 	NVS_Partitions_t	partition;
 	const char* 		namespace;
@@ -47,8 +47,8 @@ typedef	struct
 {
 	NVS_Partition_Details_t *	partitions;
 	size_t						numPartitions;
-	NVS_Entry_Details_t * 		items;
-	size_t						numItems;
+	const NVS_Entry_Details_t * 		items;
+	const size_t						numItems;
 } nvsItem_pal_t;
 
 #ifdef	DEPRECIATED
