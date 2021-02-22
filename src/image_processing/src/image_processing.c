@@ -1495,6 +1495,7 @@ void imageProces_CleanupFrame( Image_Proces_Frame_t* img )
 
 typedef enum
 {
+	eCaptureNoAction,
 	eResetSensor,
 	eCaptureImage
 }imgCapture_Command_t;
@@ -1772,19 +1773,32 @@ static void _captureTask( void * arg)
 
 	for( ;; )
 	{
+		currentCmd.command = eCaptureNoAction;							// Default to no action
+
 		// Poll the queue for receive messages
-		if(xQueueReceive(imgProces_Queue, &currentCmd, 5000/portTICK_PERIOD_MS) == pdPASS){
+		printf( "_captureTask *********************************\n" );
+//		if( xQueueReceive(imgProces_Queue, &currentCmd, 500/portTICK_PERIOD_MS) == pdPASS )
+		{
 			switch(currentCmd.command)
 			{
 				case eResetSensor:
+					//IotLogInfo( "Reset Sensor" );
+					printf( "Reset Sensor\n" );
 					_reset_sensor();
 					break;
 
 				case eCaptureImage:
-					_capture_and_decode_img(currentCmd.callback);
+					//IotLogInfo( "Capture and Decode Image" );
+					printf( "Capture and Decode Image\n" );
+					_capture_and_decode_img( currentCmd.callback );
+					break;
+
+				case eCaptureNoAction:
+				default:
 					break;
 			}
 		}
+		vTaskDelay( 1000/portTICK_PERIOD_MS );
 	}
 }
 
