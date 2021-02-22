@@ -1776,20 +1776,17 @@ static void _captureTask( void * arg)
 		currentCmd.command = eCaptureNoAction;							// Default to no action
 
 		// Poll the queue for receive messages
-		printf( "_captureTask *********************************\n" );
-//		if( xQueueReceive(imgProces_Queue, &currentCmd, 500/portTICK_PERIOD_MS) == pdPASS )
+		if( xQueueReceive(imgProces_Queue, &currentCmd, 500/portTICK_PERIOD_MS) == pdPASS )
 		{
 			switch(currentCmd.command)
 			{
 				case eResetSensor:
-					//IotLogInfo( "Reset Sensor" );
-					printf( "Reset Sensor\n" );
+					IotLogInfo( "Reset Sensor" );
 					_reset_sensor();
 					break;
 
 				case eCaptureImage:
-					//IotLogInfo( "Capture and Decode Image" );
-					printf( "Capture and Decode Image\n" );
+					IotLogInfo( "Capture and Decode Image" );
 					_capture_and_decode_img( currentCmd.callback );
 					break;
 
