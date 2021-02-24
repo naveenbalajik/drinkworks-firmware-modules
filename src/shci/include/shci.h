@@ -89,8 +89,10 @@ enum ShciOpcode
 	eEspSetHostFirmwareID =									0xC2,		/**< Command: */
 	eEspSetHostFirmwareVersion =							0xC3,		/**< Command: */
 	eEEBlockSave =											0xC4,		/**< Command: */
-	eEEBlockRestore =										0xC5		/**< Command: */
-
+	eEEBlockRestore =										0xC5,		/**< Command: */
+	eTimeGet =												0xC6,		/**< Command: Get Time/Date */
+	eTimeSet =												0xC7,		/**< Command: Set Time/Date */
+	eStatsGet =												0xC8		/**< Command: Get Statistics */
 };
 typedef uint8_t _shciOpcode_t;
 
@@ -149,6 +151,7 @@ enum
 	eInsufficientEncryption,										// 0x8F
 	eUnsupportedGroupType,											// 0x90
 	eInsufficientResources,											// 0x91
+	eRtcNotSupported = 0xA0,										// 0xA0
 	eApplicationDefinedError = 0xf0,								// 0xF0
 	eUARTCheckSumError = 0xff										// 0xFF
 };
