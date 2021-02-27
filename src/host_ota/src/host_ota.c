@@ -1153,7 +1153,6 @@ static void appendCRC( uint8_t *pData, size_t size )
  */
 static size_t packInitCmnd( _otaCommand_t *pCommand, uint16_t uid )
 {
-//	uint16_t		crc;
 
 	pCommand->opCode = OTA_XMIT_OPCODE;
 	pCommand->connHandle = FIXED_CONNECTION_HANDLE;
@@ -1164,8 +1163,6 @@ static size_t packInitCmnd( _otaCommand_t *pCommand, uint16_t uid )
 	pCommand->Init.uid = uid;
 
 	appendCRC( ( uint8_t *) &pCommand->Init, ( sizeof( _otaInit_t ) - 2 ) );
-//	crc = crc16_ccitt_compute( ( uint8_t *) &pCommand->Init, ( sizeof( _otaInit_t ) - 2 ) );
-//	pCommand->Init.crc = SwapTwoBytes( crc );
 
 	return( sizeof( _otaInit_t ) + 4 );
 
@@ -1180,8 +1177,6 @@ static size_t packInitCmnd( _otaCommand_t *pCommand, uint16_t uid )
  */
 static size_t packEraseCmnd( _otaCommand_t *pCommand )
 {
-//	uint16_t		crc;
-
 	pCommand->opCode = OTA_XMIT_OPCODE;
 	pCommand->connHandle = FIXED_CONNECTION_HANDLE;
 	pCommand->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
@@ -1190,8 +1185,6 @@ static size_t packEraseCmnd( _otaCommand_t *pCommand )
 	pCommand->Erase.length = sizeof( _otaErase_t );
 
 	appendCRC( ( uint8_t *) &pCommand->Erase, ( sizeof( _otaErase_t ) - 2 ) );
-//	crc = crc16_ccitt_compute( ( uint8_t *) &pCommand->Erase, ( sizeof( _otaErase_t ) - 2 ) );
-//	pCommand->Erase.crc = SwapTwoBytes( crc );
 
 	return( sizeof( _otaErase_t ) + 4 );
 }
@@ -1211,8 +1204,6 @@ static size_t packEraseCmnd( _otaCommand_t *pCommand )
  */
 static size_t packDataCmnd( _otaCommand_t * pCommand, esp_partition_t *partition, size_t imageAddress, size_t size, uint32_t targetAddress )
 {
-//	uint16_t		crc;
-
 	pCommand->opCode = OTA_XMIT_OPCODE;
 	pCommand->connHandle = FIXED_CONNECTION_HANDLE;
 	pCommand->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
@@ -1227,8 +1218,6 @@ static size_t packDataCmnd( _otaCommand_t * pCommand, esp_partition_t *partition
 		pCommand->LongData.address = SwapFourBytes( targetAddress );
 
 		appendCRC( ( uint8_t *) &pCommand->LongData, ( sizeof( _otaLongData_t ) - 2 ) );
-//		crc = crc16_ccitt_compute( ( uint8_t *) &pCommand->LongData, ( sizeof( _otaLongData_t ) - 2 ) );
-//		pCommand->LongData.crc = SwapTwoBytes( crc );
 
 		return( sizeof( _otaLongData_t ) + 4 );
 	}
@@ -1238,8 +1227,6 @@ static size_t packDataCmnd( _otaCommand_t * pCommand, esp_partition_t *partition
 		pCommand->Data.address = SwapFourBytes( targetAddress );
 
 		appendCRC( ( uint8_t *) &pCommand->Data, ( sizeof( _otaData_t ) - 2 ) );
-//		crc = crc16_ccitt_compute( ( uint8_t *) &pCommand->Data, ( sizeof( _otaData_t ) - 2 ) );
-//		pCommand->Data.crc = SwapTwoBytes( crc );
 
 		return( sizeof( _otaData_t ) + 4 );
 	}
@@ -1249,8 +1236,6 @@ static size_t packDataCmnd( _otaCommand_t * pCommand, esp_partition_t *partition
 		pCommand->ShortData.address = SwapFourBytes( targetAddress );
 
 		appendCRC( ( uint8_t *) &pCommand->ShortData, ( sizeof( _otaShortData_t ) - 2 ) );
-//		crc = crc16_ccitt_compute( ( uint8_t *) &pCommand->ShortData, ( sizeof( _otaShortData_t ) - 2 ) );
-//		pCommand->ShortData.crc = SwapTwoBytes( crc );
 
 		return( sizeof( _otaShortData_t ) + 4 );
 	}
@@ -1328,23 +1313,15 @@ static size_t packOpcodeOnlyCmnd( _blCommand_t * pCommand, _otaOpcode_t opCode )
 	return( sizeof( _blOpcode_t ) + 1 );
 }
 
-#ifdef	DEPRICATED
-static size_t packVersionCmnd( _blCommand_t * pCommand )
-{
-//	uint16_t		crc;
-	pCommand->opCode = eHostUpdateCommand;
 
-	pCommand->Version.command = eBL_VERSION_CMD;
-	pCommand->Version.length = sizeof( _blVersion_t );
-
-	appendCRC( ( uint8_t *) &pCommand->Version, ( sizeof( _blVersion_t ) - 2 ) );
-//	crc = crc16_ccitt_compute( ( uint8_t *) &pCommand->Version, ( sizeof( _blVersion_t ) - 2 ) );
-//	pCommand->Version.crc = SwapTwoBytes( crc );
-
-	return( sizeof( _blVersion_t ) + 1 );
-}
-#endif
-
+/**
+ * @brief	Pack Flash Erase Command
+ *
+ * @param[out]	pCommand	Pointer to command buffer
+ * @param[in]	targetAddress	Address of first page to be erased
+ * @param[in]	page_count		Number of pages to be erased
+ * @return  SHCI command payload length (command size + 1, for the SHCI header)
+ */
 static size_t packFlashEraseCmnd( _blCommand_t * pCommand, uint32_t targetAddress, size_t page_count )
 {
 	pCommand->opCode = eHostUpdateCommand;
@@ -1387,16 +1364,14 @@ static bool isEmpty( uint8_t *pbuf, size_t size )
 /**
  * @brief	Pack Flash Write Command
  *
- *	Read data from NVS partition and format as a Flash Write command
+ *	Data from NVS partition has already been read into blCommand structure.
+ *	Complete packet format for Flash Write command
  *
  * @param[out]	pCommand	Pointer to command buffer
- * @param[in]	partition		Pointer to partition information structure
- * @param[in]	imageAddress	Offset within partition
  * @param[in]	targetAddress	Host memory address, where data is to be programmed
  * @param[in]	size			Number of data bytes to be read and packed
  * @return  SHCI command payload length (command size + 1, for the SHCI header)
  */
-//static size_t packFlashWriteCmnd( _blCommand_t * pCommand, esp_partition_t *partition, size_t imageAddress, size_t size, uint32_t targetAddress )
 static size_t packFlashWriteCmnd( _blCommand_t * pCommand, uint32_t targetAddress, size_t size )
 {
 	pCommand->opCode = eHostUpdateCommand;
@@ -1409,20 +1384,22 @@ static size_t packFlashWriteCmnd( _blCommand_t * pCommand, uint32_t targetAddres
 	pCommand->FlashWrite.EE_key_2 = 0xAA;
 	pCommand->FlashWrite.addr.address32 = targetAddress;			// little endian
 
-	/* Read a chunk of Image from Flash - use esp_partition_read() reads flash correctly whether partition is encrypted or not */
-//	esp_partition_read( partition, imageAddress, pCommand->FlashWrite.buffer, size );
-
-//	if( isEmpty( pCommand->FlashWrite.buffer, size) )
-//	{
-//		IotLogInfo( "Image page @ %08X is blank - skip writing", imageAddress );
-//	}
-
 	appendCRC( ( uint8_t *) &pCommand->FlashWrite, ( sizeof( _blFlashWrite_t ) - 2 ) );
 
 	return( sizeof( _blFlashWrite_t ) + 1 );
 }
 
 
+/**
+ * @brief	Bootloader Init function
+ *
+ * For use in step-wise, table-driven, image transfer
+ * Use in first table step to allocate transfer buffer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @param[in]	opcode	OTA command opcode (unused)
+ * @return		0 - no command to send
+ */
 static size_t init( host_ota_t *pHost, _otaOpcode_t opcode )
 {
 	IotLogDebug( "Initialize" );
@@ -1433,6 +1410,16 @@ static size_t init( host_ota_t *pHost, _otaOpcode_t opcode )
 	return( 0 );
 }
 
+
+/**
+ * @brief	Bootloader Version function
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @param[in]	opcode	OTA command opcode
+ * @return		number of bytes in transfer buffer to be sent
+ */
 static size_t version( host_ota_t *pHost, _otaOpcode_t opcode )
 {
 	IotLogDebug( "Send Version" );
@@ -1442,6 +1429,14 @@ static size_t version( host_ota_t *pHost, _otaOpcode_t opcode )
 
 }
 
+/**
+ * @brief	Bootloader Version Acknowledge function
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @return		true if step is complete, false if more processing to be performed in step
+ */
 static bool onVersionAck( host_ota_t *pHost )
 {
 	pHost->targetAddress = pHost->LoadAddress + pHost->startAddress;
@@ -1449,6 +1444,16 @@ static bool onVersionAck( host_ota_t *pHost )
 	return true;		// this step is complete
 }
 
+
+/**
+ * @brief	Bootloader Flash Erase function
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @param[in]	opcode	OTA command opcode
+ * @return		number of bytes in transfer buffer to be sent
+ */
 static size_t flashErase( host_ota_t *pHost, _otaOpcode_t opcode )
 {
 	size_t			pageCount;
@@ -1460,6 +1465,14 @@ static size_t flashErase( host_ota_t *pHost, _otaOpcode_t opcode )
 	return( packFlashEraseCmnd( pHost->pXferBuf, pHost->targetAddress, pageCount ) );
 }
 
+/**
+ * @brief	Bootloader Flash Erase Acknowledge function
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @return		true if step is complete, false if more processing to be performed in step
+ */
 static bool OnFlashEraseAck( host_ota_t *pHost )
 {
 	/* Prepare for initial flash read, startAddress is from InitAck packet */
@@ -1473,12 +1486,11 @@ static bool OnFlashEraseAck( host_ota_t *pHost )
 }
 
 
-static size_t nextTransferSize( host_ota_t *pHost )
-{
-	return( ( OTA_PKT_DLEN_256 < pHost->bytesRemaining ) ? OTA_PKT_DLEN_256 : pHost->bytesRemaining );
-}
-
-
+/**
+ * @brief	Increment transfer addresses and decrement bytes remaining
+ *
+ * @param[in]	pHost	Pointer to host OTA structure
+ */
 static void nextBlock( host_ota_t *pHost )
 {
 	/* Set variables for next flash read */
@@ -1488,6 +1500,19 @@ static void nextBlock( host_ota_t *pHost )
 }
 
 
+/**
+ * @brief	Bootloader Flash Write function
+ *
+ * Read a page of transfer image, if not blank back into command.
+ * If page is blank, bypass and increment to next page.
+ * If last page is blank, return 0 indicating complete image has been written.
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @param[in]	opcode	OTA command opcode
+ * @return		number of bytes in transfer buffer to be sent
+ */
 static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 {
 	_blCommand_t * pCommand = pHost->pXferBuf;
@@ -1497,14 +1522,10 @@ static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 	/* FIXME notifications bypassed for debug */
 //	hostOtaNotificationUpdate( eNotifyFlashProgram, pHost->percentComplete );
 
-	/* Calculate size of data to send */
-//	_hostota.transferSize = ( OTA_PKT_DLEN_256 < pHost->bytesRemaining ) ? OTA_PKT_DLEN_256 : pHost->bytesRemaining;
-
 	/* loop if page is empty. unless at end of image */
 	while(1 )
 	{
 		/* End of image? Then we're done */
-//		if( !_hostota.transferSize )
 		if( !pHost->bytesRemaining )
 		{
 			pHost->transferSize = 0;
@@ -1534,19 +1555,23 @@ static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 	}
 
 	/* Pack data into command */
-//	return( packFlashWriteCmnd( pHost->pXferBuf, pHost->partition, pHost->imageAddress, pHost->transferSize, pHost->targetAddress ) );
 	return( packFlashWriteCmnd( pCommand, pHost->targetAddress, pHost->transferSize ) );
 
 }
 
 
+/**
+ * @brief	Bootloader Flash Write Acknowledge function
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @return		true if step is complete, false if more processing to be performed in step
+ */
 static bool OnFlashWriteAck( host_ota_t *pHost )
 {
+	/* Increment addresses, decrement bytes remaining */
 	nextBlock( pHost );
-	/* Set variables for next flash read */
-//	pHost->targetAddress += pHost->transferSize;
-//	pHost->imageAddress += pHost->transferSize;
-//	pHost->bytesRemaining -= pHost->transferSize;
 
 	/* compute percent complete */
 	pHost->percentComplete = ( ( double )( 100 * ( pHost->ImageSize - pHost->bytesRemaining ) ) ) / pHost->ImageSize;
@@ -1557,6 +1582,16 @@ static bool OnFlashWriteAck( host_ota_t *pHost )
 	return( ( 0 == pHost->bytesRemaining) ? true : false);
 }
 
+
+/**
+ * @brief	Bootloader Calculate CRC function
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @param[in]	opcode	OTA command opcode
+ * @return		number of bytes in transfer buffer to be sent
+ */
 static size_t calculateCRC( host_ota_t *pHost, _otaOpcode_t opcode )
 {
 	IotLogDebug( "Send Calculate CRC" );
@@ -1565,6 +1600,15 @@ static size_t calculateCRC( host_ota_t *pHost, _otaOpcode_t opcode )
 	return( packOpcodeOnlyCmnd( pHost->pXferBuf, opcode) );
 }
 
+
+/**
+ * @brief	Bootloader Calculate CRC Acknowledge function
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @return		true if step is complete, false if more processing to be performed in step
+ */
 static bool OncalculateCRCAck( host_ota_t *pHost )
 {
 	/* Compare calculated CRC with metadata value */
@@ -1572,6 +1616,17 @@ static bool OncalculateCRCAck( host_ota_t *pHost )
 	return true;		// this step is complete
 }
 
+
+/**
+ * @brief	Bootloader complete function
+ *
+ * For use in step-wise, table-driven, image transfer
+ * Use in last table step to free transfer buffer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @param[in]	opcode	OTA command opcode (unused)
+ * @return		0 - no command to send
+ */
 static size_t complete( host_ota_t *pHost, _otaOpcode_t opcode )
 {
 	IotLogDebug( "Transfer complete" );
