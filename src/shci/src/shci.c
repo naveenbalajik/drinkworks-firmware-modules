@@ -393,8 +393,7 @@ static void _shciTask(void *arg)
 			{
 				
 //			    DEBUG_GPIO_PIN_CLR( TEST_POINT_2 );
-//	            IotLogDebug( "Read %d bytes from Message Buffer",  _txPacket.numBytes );
-	            printf( "Read %d bytes from Message Buffer\n",  _txPacket.numBytes );
+	            IotLogDebug( "Read %d bytes from Message Buffer",  _txPacket.numBytes );
 			
 				_shciSendResponse( & _txPacket );
 			}
@@ -543,14 +542,6 @@ bool shci_PostResponse( const uint8_t *pData, size_t numBytes )
 		 *  a critical section and use a send block time of 0"
 		 */
 		portENTER_CRITICAL(&shci_spinlock);
-
-		n = xMessageBufferSpacesAvailable( _shciMessageBuffer );
-		printf( "shci_postResponse: request %d, available %d\n", numBytes, n );
-		if( numBytes > ( n - 4 ) )
-		{
-			printf( "shci_postResponse: No space for %d bytes\n", numBytes );
-		}
-
 		n = xMessageBufferSend( _shciMessageBuffer, ( const void * ) pData, numBytes, 0 );
 	    portEXIT_CRITICAL(&shci_spinlock);
 
