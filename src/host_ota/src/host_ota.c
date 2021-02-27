@@ -1347,7 +1347,6 @@ static size_t packVersionCmnd( _blCommand_t * pCommand )
 
 static size_t packFlashEraseCmnd( _blCommand_t * pCommand, uint32_t targetAddress, size_t page_count )
 {
-//	uint16_t		crc;
 	pCommand->opCode = eHostUpdateCommand;
 
 	pCommand->FlashErase.command = eBL_FLASH_ERASE_CMD;
@@ -1358,10 +1357,30 @@ static size_t packFlashEraseCmnd( _blCommand_t * pCommand, uint32_t targetAddres
 	pCommand->FlashErase.page_count = page_count;
 
 	appendCRC( ( uint8_t *) &pCommand->FlashErase, ( sizeof( _blFlashErase_t ) - 2 ) );
-//	crc = crc16_ccitt_compute( ( uint8_t *) &pCommand->FlashErase, ( sizeof( _blFlashErase_t ) - 2 ) );
-//	pCommand->FlashErase.crc = SwapTwoBytes( crc );
 
 	return( sizeof( _blFlashErase_t ) + 1 );
+}
+
+
+/**
+ * @brief	Check if a buffer contains only FFs
+ *
+ * @param[in] pbuf	pointer to buffer
+ * @param[in] size 	size of buffer to check
+ * @return	true if buffer only contains FFs, false if the buffer has any non FF byte
+ */
+static bool isEmpty( uint8_t *pbuf, size_t size )
+{
+	size_t i;
+
+	for( i = 0; i < size; ++i )
+	{
+		if( *pbuf++ != 0xff )					// any byte that is not FF means that the buffer is used
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 
@@ -1373,28 +1392,32 @@ static size_t packFlashEraseCmnd( _blCommand_t * pCommand, uint32_t targetAddres
  * @param[out]	pCommand	Pointer to command buffer
  * @param[in]	partition		Pointer to partition information structure
  * @param[in]	imageAddress	Offset within partition
- * @param[in]	size			Number of data bytes to be read and packed
  * @param[in]	targetAddress	Host memory address, where data is to be programmed
+ * @param[in]	size			Number of data bytes to be read and packed
  * @return  SHCI command payload length (command size + 1, for the SHCI header)
  */
-static size_t packFlashWriteCmnd( _blCommand_t * pCommand, esp_partition_t *partition, size_t imageAddress, size_t size, uint32_t targetAddress )
+//static size_t packFlashWriteCmnd( _blCommand_t * pCommand, esp_partition_t *partition, size_t imageAddress, size_t size, uint32_t targetAddress )
+static size_t packFlashWriteCmnd( _blCommand_t * pCommand, uint32_t targetAddress, size_t size )
 {
-//	uint16_t		crc;
 	pCommand->opCode = eHostUpdateCommand;
 
 	pCommand->FlashWrite.command = eBL_FLASH_WRITE_CMD;
-	/* following length assignment assumes that size is 256 and sizeof (_blFlashWrite_t )  is thus > 255 */
+	/* FIXME following length assignment assumes that size is 256 and sizeof (_blFlashWrite_t )  is thus > 255 */
+	/* TODO Generalize to handle any size, with limit checking */
 	pCommand->FlashWrite.length = SwapTwoBytes( ( uint16_t )sizeof( _blFlashWrite_t ) );
 	pCommand->FlashWrite.EE_key_1 = 0x55;
 	pCommand->FlashWrite.EE_key_2 = 0xAA;
 	pCommand->FlashWrite.addr.address32 = targetAddress;			// little endian
 
 	/* Read a chunk of Image from Flash - use esp_partition_read() reads flash correctly whether partition is encrypted or not */
-	esp_partition_read( partition, imageAddress, pCommand->FlashWrite.buffer, size );
+//	esp_partition_read( partition, imageAddress, pCommand->FlashWrite.buffer, size );
+
+//	if( isEmpty( pCommand->FlashWrite.buffer, size) )
+//	{
+//		IotLogInfo( "Image page @ %08X is blank - skip writing", imageAddress );
+//	}
 
 	appendCRC( ( uint8_t *) &pCommand->FlashWrite, ( sizeof( _blFlashWrite_t ) - 2 ) );
-//	crc = crc16_ccitt_compute( ( uint8_t *) &pCommand->FlashWrite, ( sizeof( _blFlashWrite_t ) - 2 ) );
-//	pCommand->FlashWrite.crc = SwapTwoBytes( crc );
 
 	return( sizeof( _blFlashWrite_t ) + 1 );
 }
@@ -1449,28 +1472,81 @@ static bool OnFlashEraseAck( host_ota_t *pHost )
 	return true;		// this step is complete
 }
 
+
+static size_t nextTransferSize( host_ota_t *pHost )
+{
+	return( ( OTA_PKT_DLEN_256 < pHost->bytesRemaining ) ? OTA_PKT_DLEN_256 : pHost->bytesRemaining );
+}
+
+
+static void nextBlock( host_ota_t *pHost )
+{
+	/* Set variables for next flash read */
+	pHost->targetAddress += pHost->transferSize;
+	pHost->imageAddress += pHost->transferSize;
+	pHost->bytesRemaining -= pHost->transferSize;
+}
+
+
 static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 {
+	_blCommand_t * pCommand = pHost->pXferBuf;
+
 	IotLogDebug( "Send Flash Write" );
 
 	/* FIXME notifications bypassed for debug */
 //	hostOtaNotificationUpdate( eNotifyFlashProgram, pHost->percentComplete );
 
 	/* Calculate size of data to send */
-	_hostota.transferSize = ( OTA_PKT_DLEN_256 < pHost->bytesRemaining ) ? OTA_PKT_DLEN_256 : pHost->bytesRemaining;
+//	_hostota.transferSize = ( OTA_PKT_DLEN_256 < pHost->bytesRemaining ) ? OTA_PKT_DLEN_256 : pHost->bytesRemaining;
+
+	/* loop if page is empty. unless at end of image */
+	while(1 )
+	{
+		/* End of image? Then we're done */
+//		if( !_hostota.transferSize )
+		if( !pHost->bytesRemaining )
+		{
+			pHost->transferSize = 0;
+			pHost->ackReceived = true;
+			/* Return zero, this will bypass sending of command */
+			return( 0 );
+		}
+
+		/* Calculate size of data to send */
+		pHost->transferSize = ( OTA_PKT_DLEN_256 < pHost->bytesRemaining ) ? OTA_PKT_DLEN_256 : pHost->bytesRemaining;
+
+		/* Read a chunk of Image from Flash - use esp_partition_read() reads flash correctly whether partition is encrypted or not */
+		esp_partition_read( pHost->partition, pHost->imageAddress, pCommand->FlashWrite.buffer, pHost->transferSize );
+
+		printf("checking image page @ %08X\n", pHost->imageAddress );
+		/* If page is empty, skip to next page */
+		if( !isEmpty( pCommand->FlashWrite.buffer, pHost->transferSize) )
+		{
+			break;
+		}
+		IotLogInfo( "Image page @ %08X is blank - skip writing", pHost->imageAddress );
+
+		/* increment addresses, decrement counters */
+		nextBlock( pHost );
+
+    	vTaskDelay( 10 / portTICK_PERIOD_MS );
+	}
 
 	/* Pack data into command */
-	return( packFlashWriteCmnd( pHost->pXferBuf, pHost->partition, pHost->imageAddress, pHost->transferSize, pHost->targetAddress ) );
+//	return( packFlashWriteCmnd( pHost->pXferBuf, pHost->partition, pHost->imageAddress, pHost->transferSize, pHost->targetAddress ) );
+	return( packFlashWriteCmnd( pCommand, pHost->targetAddress, pHost->transferSize ) );
 
 }
 
 
 static bool OnFlashWriteAck( host_ota_t *pHost )
 {
+	nextBlock( pHost );
 	/* Set variables for next flash read */
-	pHost->targetAddress += pHost->transferSize;
-	pHost->imageAddress += pHost->transferSize;
-	pHost->bytesRemaining -= pHost->transferSize;
+//	pHost->targetAddress += pHost->transferSize;
+//	pHost->imageAddress += pHost->transferSize;
+//	pHost->bytesRemaining -= pHost->transferSize;
 
 	/* compute percent complete */
 	pHost->percentComplete = ( ( double )( 100 * ( pHost->ImageSize - pHost->bytesRemaining ) ) ) / pHost->ImageSize;
