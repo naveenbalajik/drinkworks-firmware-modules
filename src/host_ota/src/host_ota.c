@@ -1540,7 +1540,6 @@ static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 		/* Read a chunk of Image from Flash - use esp_partition_read() reads flash correctly whether partition is encrypted or not */
 		esp_partition_read( pHost->partition, pHost->imageAddress, pCommand->FlashWrite.buffer, pHost->transferSize );
 
-		printf("checking image page @ %08X\n", pHost->imageAddress );
 		/* If page is empty, skip to next page */
 		if( !isEmpty( pCommand->FlashWrite.buffer, pHost->transferSize) )
 		{
@@ -1609,10 +1608,42 @@ static size_t calculateCRC( host_ota_t *pHost, _otaOpcode_t opcode )
  * @param[in]	pHost	Pointer to Host OTA structure
  * @return		true if step is complete, false if more processing to be performed in step
  */
-static bool OncalculateCRCAck( host_ota_t *pHost )
+static bool OnCalculateCRCAck( host_ota_t *pHost )
 {
 	/* Compare calculated CRC with metadata value */
 
+	return true;		// this step is complete
+}
+
+
+/**
+ * @brief	Bootloader Host Reset function
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @param[in]	opcode	OTA command opcode
+ * @return		number of bytes in transfer buffer to be sent
+ */
+static size_t hostReset( host_ota_t *pHost, _otaOpcode_t opcode )
+{
+	IotLogDebug( "Send Host Reset" );
+
+	/* pack command */
+	return( packOpcodeOnlyCmnd( pHost->pXferBuf, opcode) );
+}
+
+
+/**
+ * @brief	Bootloader Host Reset Acknowledge function
+ *
+ * For use in step-wise, table-driven, image transfer
+ *
+ * @param[in]	pHost	Pointer to Host OTA structure
+ * @return		true if step is complete, false if more processing to be performed in step
+ */
+static bool OnHostResetAck( host_ota_t *pHost )
+{
 	return true;		// this step is complete
 }
 
@@ -1686,21 +1717,20 @@ static const _blStep_t	blSteps[] =
 			.command = &calculateCRC,
 			.opCode = eBL_CALC_CRC_CMD,
 			.expectedStatus = eBL_CALC_CRC_ACK,
-			.onAcknowledge = &OncalculateCRCAck,
+			.onAcknowledge = &OnCalculateCRCAck,
 			.stateAfterCommand = eXfer_response,
-			.nextStep = eStep_Complete		/* eStep_Reset */
+			.nextStep = eStep_Reset
 	},
-	/* Bypass Reset for the moment - needs a separate command vs. MZ
+	/* Bypass Reset for the moment - needs a separate command vs. MZ - try reusing same opcode */
 	[ eStep_Reset ] =
 	{
-			.command = &reset,
-			.opCode = eBL_RESET_CMD,
+			.command = &hostReset,
+			.opCode = eOTA_RESET_CMD,
 			.expectedStatus = eBL_RESET_ACK,
-			.onAcknowledge = &OnResetAck,
+			.onAcknowledge = &OnHostResetAck,
 			.stateAfterCommand = eXfer_response,
 			.nextStep = eStep_Complete
 	},
-	*/
 	[ eStep_Complete ] =
 	{
 			.command = &complete,
