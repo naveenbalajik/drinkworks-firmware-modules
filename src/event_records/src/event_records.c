@@ -876,12 +876,11 @@ static void _eventRecordsTask(void *arg)
  */
 static uint32_t	_getNextIndex( void )
 {
-
 	/* Increment the last recorded Event Record Index */
 	_evtrec.lastRecordedIndex++;
 
 	/* Save in NVS */
-	NVS_Set( NVS_LAST_EVT_RECORD, &_evtrec.lastRecordedIndex, 0 );
+	NVS_Set( NVS_LAST_EVT_RECORD, &_evtrec.lastRecordedIndex, NULL );
 
 	return( _evtrec.lastRecordedIndex );
 }

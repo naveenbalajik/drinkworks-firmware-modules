@@ -558,7 +558,7 @@ int32_t NVS_Get( NVS_Items_t nvsItem, void* pOutput, void* pSize )
  *
  * @return 	ESP_OK if successful, -1 if failed
  */
-int32_t NVS_pSet( const NVS_Entry_Details_t * pItem, const void * pInput, void * pSize )
+int32_t NVS_pSet( const NVS_Entry_Details_t * pItem, const void * pInput, size_t * pSize )
 {
 	esp_err_t err;
 	nvs_handle handle;
@@ -742,7 +742,7 @@ int32_t NVS_pSet( const NVS_Entry_Details_t * pItem, const void * pInput, void *
 					err = ESP_FAIL;
 					break;
 				}
-				IotLogDebug( "NVS_Set, Blob, pSize = %d", *(size_t *)pSize);
+				IotLogDebug( "NVS_Set, Blob, pSize = %d", *pSize);
 
 				err = NVS_pGet_Size_Of( pItem, &currentSize );
 
@@ -756,9 +756,9 @@ int32_t NVS_pSet( const NVS_Entry_Details_t * pItem, const void * pInput, void *
 					err = NVS_pGet( pItem, currentVal, &currentSize );
 				}
 
-				if( err != ESP_OK || memcmp( pInput, currentVal, *(size_t*)pSize ) != 0 )
+				if( err != ESP_OK || memcmp( pInput, currentVal, *pSize ) != 0 )
 				{
-					err = nvs_set_blob( handle, pItem->nvsKey, pInput, *(size_t*)pSize );
+					err = nvs_set_blob( handle, pItem->nvsKey, pInput, *pSize );
 				}
 				else
 				{
@@ -808,7 +808,7 @@ int32_t NVS_pSet( const NVS_Entry_Details_t * pItem, const void * pInput, void *
  *
  * @return 	ESP_OK if successful, -1 if failed
  */
-int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
+int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, size_t * pSize )
 {
 	esp_err_t err;
 	const NVS_Entry_Details_t *pItem;

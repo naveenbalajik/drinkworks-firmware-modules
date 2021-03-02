@@ -90,7 +90,28 @@ static IotBleAdvertisementParams_t _dwAdvParams =
     .pUUID2            = NULL
 };
 
-static void _storeSerialNumber( const char *pSerialNumber, uint16_t size );
+/**
+ * @brief Store Serial Number in NV Storage
+ *
+ * Serial Number is stored using enumerated NV_Items_t <i>NVS_SERIAL_NUM</i>.
+ * Value is only stored if not already present in NV memory
+ * Input serial number is an un-terminated 12 byte array.  The value saved as a Blob.
+ *
+ * @param[in] pSerialNumber pointer to serial number array.
+ * @param[in] size			size of serial number
+ */
+static void _storeSerialNumber( const char *pSerialNumber, uint16_t size )
+{
+    esp_err_t xRet;
+    size_t	sSize = ( size_t )size;
+
+	xRet = NVS_Set( NVS_SERIAL_NUM, (void *)pSerialNumber, &sSize );
+
+	if( xRet == ESP_OK )
+	{
+		IotLogInfo("storedSerialNumber(%.*s) - set OK", size, pSerialNumber );
+	}
+}
 
 /**
  * @brief Set Custom Advertising Data callback
@@ -140,7 +161,7 @@ void bleGap_setSerialNumberAndDeviceName( const uint8_t *pSerialNumber, const ui
 /**
  * @brief	Restore Serial Number and Device Name using saved NVS value
  */
-void bleGap_restoreSerialNumberAndDeviceName( void )
+uint8_t * bleGap_restoreSerialNumberAndDeviceName( void )
 {
     size_t size = sizeof( _serialNumber );
 
@@ -152,28 +173,7 @@ void bleGap_restoreSerialNumberAndDeviceName( void )
 		completeDeviceName[23] = '\0';
 		IotLogInfo( "bleGap_restoreSerialNumberAndDeviceName: %s", completeDeviceName );
 	}
-}
-
-/**
- * @brief Store Serial Number in NV Storage
- *
- * Serial Number is stored using enumerated NV_Items_t <i>NVS_SERIAL_NUM</i>.
- * Value is only stored if not already present in NV memory
- * Input serial number is an un-terminated 12 byte array.  The value saved as a Blob.
- *
- * @param[in] pSerialNumber pointer to serial number array.
- * @param[in] size			size of serial number
- */
-static void _storeSerialNumber( const char *pSerialNumber, uint16_t size )
-{
-    esp_err_t xRet;
-
-	xRet = NVS_Set( NVS_SERIAL_NUM, (void *)pSerialNumber, &size );
-
-	if( xRet == ESP_OK )
-	{
-		IotLogInfo("storedSerialNumber(%.*s) - set OK", size, pSerialNumber );
-	}
+	return( &_serialNumber );
 }
 
 /**

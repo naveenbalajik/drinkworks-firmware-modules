@@ -87,9 +87,9 @@ int32_t NVS_pGet( const NVS_Entry_Details_t *pItem, void* pOutput, void* pSize )
 
 int32_t NVS_Get(NVS_Items_t nvsItem, void* pOutput, void* pSize);
 
-int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, const void * pInput, void * pSize );
+int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, const void * pInput, size_t * pSize );
 
-int32_t NVS_Set(NVS_Items_t nvsItem, void* pInput, void* pSize);
+int32_t NVS_Set(NVS_Items_t nvsItem, void* pInput, size_t * pSize);
 
 int32_t NVS_EraseKey(NVS_Items_t nvsItem);
 
