@@ -68,6 +68,7 @@ enum ShciOpcode
 	eHostUpdateResponse =                                   0xA3,		/**< Command: Host Firmware Response */
 
 	eBleBondWindow =										0xA4,		/**< Command: Enable/Disable BLE Bonding Window */
+	eHostUpdateAvailable =									0xA5,		/**< Event: Host Firmware Update Available */
 
 	eWiFiStatus = 											0xB0,		/**< Event: */
 	eNetworkInitializedEvent = 								0xB1,		/**< Event: */

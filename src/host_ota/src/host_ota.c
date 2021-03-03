@@ -104,6 +104,8 @@ typedef enum
 	eHostOtaVersionCheck,
 	eHostOtaWaitMQTT,
 	eHostOtaPendUpdate,
+	eHostOtaUpdateAvailable,
+	eHostOtaWaitBootme,
 	eHostOtaTransfer,
 	eHostOtaActivate,
 	eHostOtaWaitReset,
@@ -114,6 +116,11 @@ typedef enum
  * @brief	Update Notification Event Name
  */
 static const char hostOta_notificationEventName[] = "MZ_Update";
+
+/**
+ * @brief	Update Available SHCI Event packet
+ */
+static const uint8_t updateAvailableEvent[] = { eHostUpdateAvailable };
 
 /**
  * @brief	Update Notification Event statuses
@@ -591,8 +598,19 @@ typedef enum
 	eXfer_command,
 	eXfer_response,
 	eXfer_continue,
-	eXfer_complete
+	eXfer_complete,
+	eXfer_error
 } _xferState_t;
+
+/**
+ * @brief Step-wise Image Transfer status
+ */
+typedef enum
+{
+	eXferStat_NoError,
+	eXferStat_CrcError,
+	eferStat_Timeout
+} _xferStatus_t;
 
 /**
  * @brief	Opaque Image Transfer Step structure
@@ -637,6 +655,8 @@ typedef struct
 	size_t				transferSize;				/**< Size, in bytes, of the current transfer block */
 	_blStep_t			*pStep;						/**< Pointer to current ImageTransfer step */
 	bool				bBootme;					/**< true if BootMe message received */
+	uint16_t			calc_crc;					/**< CRC value calculated by host */
+	_xferStatus_t		xferStatus;
 } host_ota_t;
 
 typedef size_t ( * _function_t )( host_ota_t *pHost, _otaOpcode_t opcode );
@@ -869,6 +889,9 @@ static esp_err_t onStatus_CalcCrcAck( const void * pData )
 	const _blCalcCrcStatus_t *pCrc = pData;
 
 	IotLogInfo( "CalcCRC Ack: %04X vs. %04X", pCrc->value, _hostota.crc16_ccitt );
+
+	/* Save calculated CRC */
+	_hostota.calc_crc = pCrc->value;
 
 	return( err );
 }
@@ -1459,7 +1482,7 @@ static size_t flashErase( host_ota_t *pHost, _otaOpcode_t opcode )
 	size_t			pageCount;
 	IotLogDebug( "Send Flash Erase" );
 
-	pageCount = ( pHost->ImageSize - pHost->startAddress) / 1024;
+	pageCount = ( pHost->ImageSize - pHost->startAddress) / 256;			// erase page is 128 words, 256 bytes
 
 	/* pack command */
 	return( packFlashEraseCmnd( pHost->pXferBuf, pHost->targetAddress, pageCount ) );
@@ -1611,7 +1634,11 @@ static size_t calculateCRC( host_ota_t *pHost, _otaOpcode_t opcode )
 static bool OnCalculateCRCAck( host_ota_t *pHost )
 {
 	/* Compare calculated CRC with metadata value */
-
+	if( _hostota.calc_crc != _hostota.crc16_ccitt )
+	{
+		/* Set xferStatus on mis-compare */
+		_hostota.xferStatus = eXferStat_CrcError;
+	}
 	return true;		// this step is complete
 }
 
@@ -1721,7 +1748,6 @@ static const _blStep_t	blSteps[] =
 			.stateAfterCommand = eXfer_response,
 			.nextStep = eStep_Reset
 	},
-	/* Bypass Reset for the moment - needs a separate command vs. MZ - try reusing same opcode */
 	[ eStep_Reset ] =
 	{
 			.command = &hostReset,
@@ -1737,8 +1763,8 @@ static const _blStep_t	blSteps[] =
 			.opCode = 0,
 			.expectedStatus = 0,
 			.onAcknowledge = NULL,
-			.stateAfterCommand = eXfer_response,
-			.nextStep = eStep_Reset
+			.stateAfterCommand = eXfer_complete,
+			.nextStep = eStep_Complete
 	}
 };
 
@@ -1789,6 +1815,9 @@ static void ImageTransfer( const _blStep_t *pStep )
 			/* If Acknowledgement received */
 			if( _hostota.ackReceived )
 			{
+				/* default to no error */
+				_hostota.xferStatus = eXferStat_NoError;
+
 				/* process action */
 				if( NULL != pStep->onAcknowledge )
 				{
@@ -1804,8 +1833,16 @@ static void ImageTransfer( const _blStep_t *pStep )
 					_hostota.pStep = &blSteps[ pStep->nextStep ];
 				}
 
-				/* return to command state */
-				_hostota.mzXfer_state = eXfer_command;
+				/* onAcknowledge function can set xferStatus on error condition */
+				if( eXferStat_NoError == _hostota.xferStatus)
+				{
+					/* No Error - return to command state */
+					_hostota.mzXfer_state = eXfer_command;
+				}
+				else
+				{
+					_hostota.mzXfer_state = eXfer_error;
+				}
 			}
 			/* TODO!! Handle timeouts and other errors */
 			break;
@@ -1823,6 +1860,11 @@ static void ImageTransfer( const _blStep_t *pStep )
 			_hostota.pStep = NULL;
 			break;
 
+		case eXfer_error:
+			IotLogError( "Transfer Error: %d", _hostota.xferStatus );
+			/* terminate transfer */
+			_hostota.pStep = NULL;
+			break;
 		default:
 			break;
 	}
@@ -2430,15 +2472,7 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			case eHostOtaVersionCheck:
-				if( _hostota.bBootme )
-				{
-					IotLogInfo(" Bootloader is active" );
-    				IotLogInfo( "_hostOtaTask -> Transfer" );
-    				_hostota.pStep = &blSteps[ 0 ];						/* start image transfer with first step */
-					_hostota.state = eHostOtaTransfer;
-					_hostota.bStartTransfer = true;
-				}
-				else if( 0 > _hostota.currentVersion_PIC )
+				if( 0 > _hostota.currentVersion_PIC )
 				{
 					vTaskDelay( 1000 / portTICK_PERIOD_MS );
 					_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
@@ -2446,10 +2480,8 @@ static void _hostOtaTask(void *arg)
 				else if( _hostota.Version_PIC > _hostota.currentVersion_PIC )
 				{
 					IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
-    				IotLogInfo( "_hostOtaTask -> Transfer" );
-    				_hostota.pStep = &blSteps[ 0 ];						/* start image transfer with first step */
-					_hostota.state = eHostOtaTransfer;
-					_hostota.bStartTransfer = true;
+    				IotLogInfo( "_hostOtaTask -> UpdateAvailable" );
+ 					_hostota.state = eHostOtaUpdateAvailable;
 				}
 				else
 				{
@@ -2523,6 +2555,27 @@ static void _hostOtaTask(void *arg)
 				}
 				IotLogInfo( "_hostOtaTask -> Idle" );
 				_hostota.state = eHostOtaIdle;							/* back to image verification */
+				break;
+
+			case eHostOtaUpdateAvailable:												/* Update image is available */
+				/* Inform host - post Update Available SHCI Event */
+				shci_PostResponse( &updateAvailableEvent, sizeof( updateAvailableEvent ) );
+
+				IotLogInfo( "_hostOtaTask -> WaitBootme" );
+				_hostota.state = eHostOtaWaitBootme;
+				break;
+
+			case eHostOtaWaitBootme:
+				/* Wait for host to reset and start sending BootMe messages */
+				if( _hostota.bBootme )
+				{
+					IotLogInfo(" Bootloader is active" );
+    				IotLogInfo( "_hostOtaTask -> Transfer" );
+
+    				_hostota.pStep = &blSteps[ 0 ];											/* start image transfer with first step */
+					_hostota.state = eHostOtaTransfer;
+					_hostota.bStartTransfer = true;
+				}
 				break;
 
 			case eHostOtaTransfer:
