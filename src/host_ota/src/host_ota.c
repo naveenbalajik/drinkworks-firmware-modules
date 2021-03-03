@@ -2472,7 +2472,14 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			case eHostOtaVersionCheck:
-				if( 0 > _hostota.currentVersion_PIC )
+
+				/* If Bootload is already active, it will be sending BootMe messages */
+				if( _hostota.bBootme )
+				{
+					IotLogInfo( "_hostOtaTask -> WaitBootme" );
+					_hostota.state = eHostOtaWaitBootme;
+				}
+				else if( 0 > _hostota.currentVersion_PIC )
 				{
 					vTaskDelay( 1000 / portTICK_PERIOD_MS );
 					_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
