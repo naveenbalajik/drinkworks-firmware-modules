@@ -310,6 +310,7 @@ static void _shciSendResponse( _shciResponse_t * pResponse )
 		TxEventBuf[ i++ ] = ( uint8_t )( 0 - chksum );									/* Add checksum */
 	}
 
+	IotLogInfo( "_shciSendResponse: %d bytes", i );
 	uart_write_bytes( _shciUartNum, (const char *) TxEventBuf, i );						/* transmit Response packet */
 }
 

@@ -500,7 +500,6 @@ static OTA_Err_t _CheckFileSignature( OTA_FileContext_t * const C )
 		{
 			/* read a block of image */
 			size = ( FLASH_READ_BLOCK_SIZE < remaining ) ? FLASH_READ_BLOCK_SIZE : remaining;
-			printf("  Reading %d bytes at offset %08X\n", size, src_offset );
 			esp_partition_read( ota_ctx.update_partition, src_offset, buf, size );
 			/* add to hash */
 		    CRYPTO_SignatureVerificationUpdate( pvSigVerifyContext, buf, size );
