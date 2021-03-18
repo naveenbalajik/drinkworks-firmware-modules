@@ -57,19 +57,6 @@ typedef	struct
 
 
 /**
- * @brief	Bitwise enumerated RTC Status
- */
-typedef enum
-{
-	eRtc_Unknown =		0x00,			/**< Status unknown */
-	eRtc_HalPresent =	0x01,			/**< RTC HAL is present */
-	eRtc_Detected =		0x02,			/**< RTC has been detected */
-	eRtc_Syncd =		0x04,			/**< System Time is synchronized to SNTP server */
-	eRtc_SysTime = 		0x08			/**< System Time, not RTC, returned */
-} rtcStatus_t;
-
-
-/**
  * @brief	Get Time command response packet
  */
 typedef struct
@@ -133,22 +120,29 @@ static void vGetTime( const uint8_t *pData, const uint16_t size )
 {
 	_timeResponse_t	response;
 	struct timeval tv;
-	rtcStatus_t status = eRtc_Unknown;
+	_rtcStatus_t status = eRtc_Unknown;
 
 	IotLogInfo( "vGetTime" );
+
+	/* If HAL getStatus function is valid, use to determine RTC status */
+	if( NULL != time_sync.hal->getStatus )
+	{
+		status = time_sync.hal->getStatus();
+	}
 
 	/* If HAL getTime function is valid, use to read the RTC */
 	if( NULL != time_sync.hal->getTime )
 	{
-		status |= eRtc_HalPresent;
+		status |= eRtc_HalPresent;				/* this bit may already be set by getStatus() */
 		tv.tv_sec = time_sync.hal->getTime();
 		if( -1 == tv.tv_sec )
 		{
 			IotLogError( "Error getting RTC time" );
+			status &= ~( eRtc_Detected | eRtc_BatEnable );		/* Clear Present and Battery Enable bits */
 		}
 		else
 		{
-			status |= eRtc_Detected;
+			status |= eRtc_Detected;			/* this bit may already be set by getStatus() */
 		}
 
 	}

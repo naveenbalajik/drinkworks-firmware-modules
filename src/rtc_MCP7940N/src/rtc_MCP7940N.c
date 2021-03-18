@@ -34,6 +34,8 @@ const int RTC_I2C_PORT         = 0;
 #define NACK_VAL                0x1              /*!< I2C nack value */
 
 static bool	bRtcPresent;						/**< True if RTC has been successfully detected and initialized */
+static bool	bRtcBatEnable;						/**< True if BATEN bit was set when rtc_IsConfigured() was called */
+static _rtcStatus_t _rtcStatus;					/**< Bit-mapped RTC Status */
 
 
 
@@ -434,17 +436,17 @@ static void MCP7940N_time_set( time_t time )
  *			eRtcStatus_Initialized: OSCRUN and/or VBATEN were not set, default values loaded
  *			eRtcStatus_ComError:	Error accessing RTC
  */
-static _rtcStatus_t rtc_IsConfigured(void)
+static _MCP7940NStatus_t rtc_IsConfigured(void)
 {
 	_RTC_TIMEKEEP_t	rtc_tkregs;
-	_rtcStatus_t status;
+	_MCP7940NStatus_t status;
 	struct tm gm;																					// Time struct, if we need to set the date/time
 	time_t	rtcTime = -1;
 	char utc[ 28 ] = { 0 };
 
 	if( rtc_read( RTC_I2C_ADDR, RTC_REG_BLOCK, ( uint8_t * )&rtc_tkregs, RTC_TIMEKEEP_SIZE ) )
 	{
-		status = eRtcStatus_ComError;											// Communication Error
+		status = eMCP7940NStatus_ComError;											// Communication Error
 	}
 	else
 	{
@@ -456,7 +458,7 @@ static _rtcStatus_t rtc_IsConfigured(void)
 			strftime( utc, sizeof( utc ), "%Y-%m-%dT%H:%M:%SZ", &gm );
 			IotLogInfo( "rtc is configured: %s", utc );
 
-			status = eRtcStatus_Configured;									// RTC is configured
+			status = eMCP7940NStatus_Configured;									// RTC is configured
 		}
 		else
 		{
@@ -478,12 +480,11 @@ static _rtcStatus_t rtc_IsConfigured(void)
 			rtcTime = mktime( ( struct tm * )&gm_default );
 
 			MCP7940N_time_set( rtcTime );											// Set RTC
-			status = eRtcStatus_Initialized;										//RTC successfully initialized
+			status = eMCP7940NStatus_Initialized;										//RTC successfully initialized
 		}
 	}
 	return status;
 }
-
 
 /**
  * @brief	Initialize MCP7940N Real Time Clock
@@ -497,35 +498,73 @@ static _rtcStatus_t rtc_IsConfigured(void)
  *
  *	Function rtc_IsConfigured() first calls i2c_master_cmd_begin(), so is used to achieve
  *	the required probing.
+ *
+ *	@return	Bit-mapped RTC Status
  */
 static void	MCP7940N_init(void)
 {
+	_rtcStatus = eRtc_HalPresent;
 	bRtcPresent = false;																	// default to not present
+	bRtcBatEnable = false;																	// Default to battery not enabled
 
-	if( eRtcStatus_ComError == rtc_IsConfigured() )											// determine if RTC is configured
+	switch( rtc_IsConfigured() )															// determine if RTC is configured
 	{
-		IotLogInfo( "RTC is not configured - I2C driver may not be installed" );
+		case eMCP7940NStatus_ComError:
+			IotLogInfo( "RTC is not configured - I2C driver may not be installed" );
 
-		/* Try initializing I2C port */
-		int pin_sscb_sda = 26;               /*!< GPIO pin for camera SDA line */
-		int pin_sscb_scl = 33;               /*!< GPIO pin for camera SCL line */
-		SCCB_Init( pin_sscb_sda, pin_sscb_scl);
+			/* Try initializing I2C port */
+			int pin_sscb_sda = 26;               /*!< GPIO pin for camera SDA line */
+			int pin_sscb_scl = 33;               /*!< GPIO pin for camera SCL line */
+			SCCB_Init( pin_sscb_sda, pin_sscb_scl);
 
-		if( eRtcStatus_ComError == rtc_IsConfigured() )										// determine if RTC is configured
-		{
-			IotLogInfo( "RTC not detected" );
-		}
-		else
-		{
+			/* Check the configuration status again */
+			switch( rtc_IsConfigured() )													// determine if RTC is configured
+			{
+				case eMCP7940NStatus_ComError:
+					IotLogInfo( "RTC not detected" );
+					break;
+
+				case eMCP7940NStatus_Initialized:
+					IotLogInfo( "RTC present, battery may not be present" );
+					bRtcPresent = true;
+					_rtcStatus |= eRtc_Detected;
+					break;
+
+				case eMCP7940NStatus_Configured:
+					IotLogInfo( "RTC present, battery present" );
+					bRtcPresent = true;
+					bRtcBatEnable = true;
+					_rtcStatus |= ( eRtc_Detected | eRtc_BatEnable );
+					break;
+
+				default:
+					break;
+			}
+			break;
+
+		case eMCP7940NStatus_Initialized:
+			IotLogInfo( "RTC present, battery may not be present" );
 			bRtcPresent = true;
-		}
-	}
-	else
-	{
-		bRtcPresent = true;
+			_rtcStatus |= eRtc_Detected;
+			break;
+
+		case eMCP7940NStatus_Configured:
+			IotLogInfo( "RTC present, battery present" );
+			bRtcPresent = true;
+			bRtcBatEnable = true;
+			_rtcStatus |= ( eRtc_Detected | eRtc_BatEnable );
+			break;
+
+		default:
+			break;
+
 	}
 }
 
+static _rtcStatus_t MCP7940N_getStatus( void )
+{
+	return _rtcStatus;
+}
 /* ************************************************************************* */
 /* ************************************************************************* */
 /* **********        I N T E R F A C E   F U N C T I O N S        ********** */
@@ -540,6 +579,7 @@ static void	MCP7940N_init(void)
 const rtc_hal_t MCP7940N_HAL =
 {
 	.init		= MCP7940N_init,
+	.getStatus	= MCP7940N_getStatus,
 	.getTime	= MCP7940N_time_get,
 	.setTime	= MCP7940N_time_set
 };
