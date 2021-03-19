@@ -13,24 +13,6 @@
 #define IMG_PROCES_OK		0
 #define IMG_PROCES_FAIL		-1
 
-#define NOT_INITIALIZED						-1
-#define VGA_WIDTH 							640
-#define	VGA_HEIGHT							480
-#define	ROW_AVG_START_COL					200
-#define	ROW_AVG_END_COL						440
-
-
-// NOTE: Set a default macro for img initialization. Img region average buffers set to NULL
-#define VGA_IMG_DEFAULT_INITIALIZATION  {	\
-										.fb = {NULL, VGA_WIDTH*VGA_HEIGHT, VGA_WIDTH, VGA_HEIGHT, PIXFORMAT_GRAYSCALE, {0,0}}, \
-										.rowAvg = {{{ROW_AVG_START_COL, 0}, {ROW_AVG_END_COL, VGA_HEIGHT}}, ROW_SCAN, NULL, VGA_HEIGHT}, \
-										.colAvg = {{{0, 0}, {0, 0}}, COL_SCAN, NULL, 0}, \
-										.barcode1 = {{{{0, 0}, {0, 0}}, COL_SCAN, NULL, 0}, NULL, {0, 0, 0, 0, 0}, NOT_INITIALIZED}, \
-										.barcode2 = {{{{0, 0}, {0, 0}}, COL_SCAN, NULL, 0}, NULL, {0, 0, 0, 0, 0}, NOT_INITIALIZED}, \
-										.trustmark = {{NULL, 0, 0, 0, PIXFORMAT_GRAYSCALE, {0,0}}, 0, 0, 0, {{0,0},{0,0}}, 0}, \
-										.result = {NOT_INITIALIZED, IMG_PROCES_FAIL_NOT_INITIALIZED}, \
-										}
-
 typedef int32_t		img_proces_err_t;
 
 typedef enum {
@@ -104,11 +86,8 @@ typedef struct {
 
 typedef void (* imgCaptureCommandCallback_t)(Image_Proces_Frame_t* img);
 
+img_proces_err_t	imageProces_CaptureAndDecodeImg(imgCaptureCommandCallback_t	callback);
 img_proces_err_t 	imageProces_DecodeDWBarcode(Image_Proces_Frame_t* img);
 void 				imageProces_CleanupFrame(Image_Proces_Frame_t* img);
-void 				capture_deinit(void);
-int32_t 			imgCapture_init(void);
-int32_t 			imgCapture_CaptureAndDecode(imgCaptureCommandCallback_t cb);
-int32_t 			imgCapture_ResetSensor(void);
 
 #endif /* IMAGE_PROCESSING_H_ */
