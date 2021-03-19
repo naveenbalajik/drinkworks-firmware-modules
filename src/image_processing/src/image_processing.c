@@ -1580,6 +1580,7 @@ img_proces_err_t	imageProces_CaptureAndDecodeImg(imgCaptureCommandCallback_t	cal
 		if(err != ESP_OK){
 			IotLogError("Failed to Decode Barcode and Trademark. Err = %d", err);
 		}
+    }
 
     // Print out the results of the decoding
 	IotLogInfo("Barcode1:%d\t Barcode2:%d\t TrademarkDiff:%d", img.barcode1.barcodeResult, img.barcode2.barcodeResult, img.trustmark.trustmarkDiff);
