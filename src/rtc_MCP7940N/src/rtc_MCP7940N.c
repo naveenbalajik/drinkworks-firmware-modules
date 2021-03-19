@@ -450,6 +450,7 @@ static _MCP7940NStatus_t rtc_IsConfigured(void)
 	}
 	else
 	{
+		bRtcPresent = true;
 		if( rtc_tkregs.OSCRUN && rtc_tkregs.VBATEN )
 		{
 			/* convert register values into standard POSIX tm struct */
@@ -467,8 +468,8 @@ static _MCP7940NStatus_t rtc_IsConfigured(void)
 			/* default to Friday 01-01-2021 09:00:00 */
 			const struct tm gm_default =
 			{
-				.tm_year = 2021,
-				.tm_mon = 1,
+				.tm_year = ( 2021 - 1900 ),											// POSIX: Years since 1900
+				.tm_mon = ( 1 - 1 ),												// POSIX: Month 0 - 11
 				.tm_mday = 1,
 				.tm_wday = 5,
 				.tm_hour = 9,
@@ -480,6 +481,7 @@ static _MCP7940NStatus_t rtc_IsConfigured(void)
 			rtcTime = mktime( ( struct tm * )&gm_default );
 
 			MCP7940N_time_set( rtcTime );											// Set RTC
+			bRtcBatEnable = true;
 			status = eMCP7940NStatus_Initialized;										//RTC successfully initialized
 		}
 	}
@@ -526,14 +528,14 @@ static void	MCP7940N_init(void)
 
 				case eMCP7940NStatus_Initialized:
 					IotLogInfo( "RTC present, battery may not be present" );
-					bRtcPresent = true;
+//					bRtcPresent = true;
 					_rtcStatus |= eRtc_Detected;
 					break;
 
 				case eMCP7940NStatus_Configured:
 					IotLogInfo( "RTC present, battery present" );
-					bRtcPresent = true;
-					bRtcBatEnable = true;
+//					bRtcPresent = true;
+//					bRtcBatEnable = true;
 					_rtcStatus |= ( eRtc_Detected | eRtc_BatEnable );
 					break;
 
@@ -544,14 +546,14 @@ static void	MCP7940N_init(void)
 
 		case eMCP7940NStatus_Initialized:
 			IotLogInfo( "RTC present, battery may not be present" );
-			bRtcPresent = true;
+//			bRtcPresent = true;
 			_rtcStatus |= eRtc_Detected;
 			break;
 
 		case eMCP7940NStatus_Configured:
 			IotLogInfo( "RTC present, battery present" );
-			bRtcPresent = true;
-			bRtcBatEnable = true;
+//			bRtcPresent = true;
+//			bRtcBatEnable = true;
 			_rtcStatus |= ( eRtc_Detected | eRtc_BatEnable );
 			break;
 
@@ -560,6 +562,7 @@ static void	MCP7940N_init(void)
 
 	}
 }
+
 
 static _rtcStatus_t MCP7940N_getStatus( void )
 {

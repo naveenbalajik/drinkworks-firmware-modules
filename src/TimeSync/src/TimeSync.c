@@ -105,6 +105,47 @@ static void sntp_sync_time_cb(struct timeval *tv)
 	time_sync.ntp_sync = true;
 }
 
+/**
+ * @brief	Set System Time from RTC
+ *
+ * If RTC is present, set TimeOfDay to RTC value.  This may not be accurate if it was
+ * initialized to default value and no SNTP sync has occurred.
+ *
+ */
+static void setSysTimeFromRtc( void )
+{
+	_rtcStatus_t status = eRtc_Unknown;
+	struct timeval tv;
+
+	IotLogInfo( "setSysTimeFromRtc" );
+
+	/* If HAL getStatus function is valid, use to determine RTC status */
+	if( NULL != time_sync.hal->getStatus )
+	{
+		status = time_sync.hal->getStatus();
+	}
+
+	/* If RTC detected */
+	if( status & eRtc_Detected )
+	{
+		/* If HAL getTime function is valid, use to read the RTC */
+		if( NULL != time_sync.hal->getTime )
+		{
+			tv.tv_sec = time_sync.hal->getTime();
+			if( -1 == tv.tv_sec )
+			{
+				IotLogError( "Error getting RTC time" );
+			}
+			else
+			{
+				IotLogInfo( "Setting System Time from RTC" );
+				tv.tv_usec = 0;
+				settimeofday( &tv, NULL );
+			}
+		}
+	}
+}
+
 
 /**
  * @brief	Get Time/Date command handler
@@ -233,7 +274,12 @@ static void vSetTime( const uint8_t *pData, const uint16_t size )
 			else
 			{
 				IotLogError( "Set Time" );
-				time_sync.hal->setTime( ( time_t )host_time );
+				time_sync.hal->setTime( ( time_t )host_time );							/* set RTC */
+
+				setSysTimeFromRtc();													/* Set System Time for RTC */
+
+				time_sync.ntp_sync = false;												/* Clear sync'd flag */
+
 				shci_postCommandComplete( eTimeSet, eCommandSucceeded );				/* success setting time */
 			}
 		}
@@ -394,6 +440,9 @@ void TimeSync_init( const rtc_hal_t * pRtcHAL )
 			time_sync.hal->init();
 		}
 	}
+
+	/* Set System Time from RTC */
+	setSysTimeFromRtc();
 
 	/* Register SHCI Get/Set Time functions */
 	shci_RegisterCommand(eTimeGet, &vGetTime );
