@@ -87,6 +87,23 @@ esp_err_t _xclk_timer_conf(int ledc_timer, int xclk_freq_hz)
     return err;
 }
 
+esp_err_t _xclk_timer_set_duty(const camera_config_t * camConfig, int dutyPercent)
+{
+	// Resolution of duty is only 2 bits, so take duty percentage and divide by 25 get setting
+	int duty = dutyPercent / 25;
+    esp_err_t err = ledc_set_duty(LEDC_HIGH_SPEED_MODE, camConfig->ledc_channel, duty);
+    if (err != ESP_OK) {
+    	IotLogError( "ledc_set_duty failed for duty %d, rc=%x", dutyPercent, err);
+    }
+
+    err = ledc_update_duty(LEDC_HIGH_SPEED_MODE, camConfig->ledc_channel);
+        if (err != ESP_OK) {
+        	IotLogError( "ledc_update_duty failed for rc=%x", err);
+        }
+
+    return err;
+}
+
 
 static void _reset_sensor(camera_setup_t * cam_setup)
 {
@@ -107,6 +124,9 @@ static void _reset_sensor(camera_setup_t * cam_setup)
 
 	// Set camera freq to I2C speed
 	_xclk_timer_conf(cam_setup->camConfig->ledc_timer, cam_setup->i2cSpeed);
+
+	// Start the MCLK
+	_xclk_timer_set_duty(cam_setup->camConfig, 50);
 
 	// Set registers over I2C
 	const addr_val_list* currentRegVal = cam_setup->addrVals;
@@ -130,6 +150,9 @@ static void _reset_sensor(camera_setup_t * cam_setup)
 
 	// Set the camera freq back to the initial value
 	_xclk_timer_conf(cam_setup->camConfig->ledc_timer, cam_setup->runtimeSpeed);
+
+	// Stop the MCLK
+	_xclk_timer_set_duty(cam_setup->camConfig, 0);
 
 }
 
@@ -175,12 +198,12 @@ static void _captureTask( void * arg)
 				case eCaptureImage:
 					// Turn ON LEDs and MCLK for capture
 					_setLEDLevel(eCAM_LED_ON);
-					_xclk_timer_conf(cam_setup->camConfig->ledc_timer, cam_setup->runtimeSpeed);
+					_xclk_timer_set_duty(cam_setup->camConfig, 50);
 					// Capture image
 					imageProces_CaptureAndDecodeImg(currentCmd.callback);
 					// Turn OFF LEDs and MCLK after capture is complete
 					_setLEDLevel(eCAM_LED_OFF);
-					_xclk_timer_conf(cam_setup->camConfig->ledc_timer, 0);
+					_xclk_timer_set_duty(cam_setup->camConfig, 0);
 					break;
 
 				case eCamLED_ON:
@@ -254,7 +277,7 @@ int32_t imgCapture_init(const camera_setup_t * camSetup)
 	// Initialize camera in esp camera component.
 	err = esp_camera_init(camSetup->camConfig);
 	// Stop the MCLK after initialize
-	_xclk_timer_conf(camSetup->camConfig->ledc_timer, 0);
+	_xclk_timer_set_duty(camSetup->camConfig, 0);
 
 	if (err != ESP_OK) {
 		IotLogError("Camera init failed with error 0x%x", err);
