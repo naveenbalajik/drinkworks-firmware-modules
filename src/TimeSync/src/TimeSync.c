@@ -276,7 +276,7 @@ static void vSetTime( const uint8_t *pData, const uint16_t size )
 				IotLogError( "Set Time" );
 				time_sync.hal->setTime( ( time_t )host_time );							/* set RTC */
 
-				setSysTimeFromRtc();													/* Set System Time for RTC */
+//				setSysTimeFromRtc();													/* Set System Time for RTC */
 
 				time_sync.ntp_sync = false;												/* Clear sync'd flag */
 
@@ -442,7 +442,7 @@ void TimeSync_init( const rtc_hal_t * pRtcHAL )
 	}
 
 	/* Set System Time from RTC */
-	setSysTimeFromRtc();
+//	setSysTimeFromRtc();
 
 	/* Register SHCI Get/Set Time functions */
 	shci_RegisterCommand(eTimeGet, &vGetTime );
