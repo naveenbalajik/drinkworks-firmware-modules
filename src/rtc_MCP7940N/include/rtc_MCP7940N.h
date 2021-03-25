@@ -229,10 +229,10 @@ typedef struct {
 
 typedef	enum
 {
-	eRtcStatus_Configured,												// RTC was configured on system power-up (VBATEN and OSCRUN bits set)
-	eRtcStatus_Initialized,												// RTC was not configured on system power-up, but was initialized with a default date/time
-	eRtcStatus_ComError,												// RTC Communication Error
-} _rtcStatus_t;
+	eMCP7940NStatus_Configured,													// RTC was configured on system power-up (VBATEN and OSCRUN bits set)
+	eMCP7940NStatus_Initialized,												// RTC was not configured on system power-up, but was initialized with a default date/time
+	eMCP7940NStatus_ComError,													// RTC Communication Error
+} _MCP7940NStatus_t;
 
 // Define Days-of-Week, per Bluetooth standard
 enum DayOfWeek {

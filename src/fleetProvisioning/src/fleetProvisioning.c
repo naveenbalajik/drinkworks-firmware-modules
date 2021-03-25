@@ -868,7 +868,19 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 {
 	esp_err_t err;
 
-	if(pProvisionRequestTopic == NULL){
+	/* Semaphore used while waiting for fleet provisioning received messages*/
+	IotSemaphore_t fleetProvisioningReceived;
+
+	// Subscribe to fleet provisioning accepted/rejected topics
+	const char* pFleetProvReturnTopics[ FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT ] =
+	{
+		pProvisionRequestAcceptedTopic,
+		pProvisionRequestRejectedTopic,
+	};
+
+
+	if( pProvisionRequestTopic == NULL )
+	{
 		IotLogError( "Error, provisioning topic not set. Need to call init to set." );
 		return ESP_FAIL;
 	}
@@ -882,7 +894,7 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 		pNetworkInterface,
 		&mqttConnection);
 
-	if (err != ESP_OK)
+	if( err != ESP_OK )
 	{
 		IotLogError( "FAILED to establish MQTT connection" );
 		return err;
@@ -896,48 +908,41 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 	};
 
 	err = _subscribeTopics(mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT, _certificateCreateSubscriptionCallback, NULL);
-	if (err != ESP_OK) {
-		return err;
+	if( ESP_OK == err )
+	{
+		err = _subscribeTopics( mqttConnection, pFleetProvReturnTopics, FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT, _fleetProvSubscriptionCallback, &fleetProvisioningReceived );
 	}
 
-	/* Semaphone used while waiting for fleet provisioning received messages*/
-	IotSemaphore_t fleetProvisioningReceived;
-	// Subscribe to fleet provisioning accepted/rejected topics
-	const char* pFleetProvReturnTopics[FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT] =
+	if( ESP_OK == err )
 	{
-		pProvisionRequestAcceptedTopic,
-		pProvisionRequestRejectedTopic,
-	};
-	err = _subscribeTopics( mqttConnection, pFleetProvReturnTopics, FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT, _fleetProvSubscriptionCallback, &fleetProvisioningReceived );
-	if (err != ESP_OK) {
-		return err;
-	}
-
-	if( IotSemaphore_Create( &fleetProvisioningReceived, 0, 1024 ) == true )
-	{
-		err = _requestFinalCertFromAWS(mqttConnection, &fleetProvisioningReceived);
-		IotSemaphore_Destroy( &fleetProvisioningReceived );
-
-		if (err != ESP_OK)
+		if( IotSemaphore_Create( &fleetProvisioningReceived, 0, 1024 ) == true )
 		{
-			return err;
+			err = _requestFinalCertFromAWS(mqttConnection, &fleetProvisioningReceived);
+			IotSemaphore_Destroy( &fleetProvisioningReceived );
+		}
+		else {
+			IotLogError( "Failed to create semaphore" );
+			err = ESP_FAIL;
 		}
 	}
-	else {
-		IotLogError( "Failed to create semaphore" );
-		return -1;
+
+	if( ESP_OK == err )
+	{
+		err = _unsubscribeTopics(mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT);
+	}
+
+	if( ESP_OK == err )
+	{
+		err = _unsubscribeTopics(mqttConnection, pFleetProvReturnTopics, FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT);
 	}
 	
-	err = _unsubscribeTopics(mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT);
-	if (err != ESP_OK) {
-		return err;
+	// For debug
+	if( err != ESP_OK )
+	{
+		IotLogError("_getFinalCertsFromAWS: err = %d, previously no MQTT Disconnect request", err );
 	}
 
-	err = _unsubscribeTopics(mqttConnection, pFleetProvReturnTopics, FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT);
-	if (err != ESP_OK) {
-		return err;
-	}
-
+	IotLogInfo( "MQTT Disconnected" );
 	IotMqtt_Disconnect(mqttConnection, 0);
 
 	return err;
