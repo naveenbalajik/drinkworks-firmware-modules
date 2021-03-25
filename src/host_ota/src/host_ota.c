@@ -1020,105 +1020,6 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 	}
 }
 
-#ifdef	DEPRICATED
-static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
-{
-	esp_err_t	err = ESP_OK;
-	int i;
-	uint16_t	crc;
-	const _otaStatusPkt_t	*pStat = ( const _otaStatusPkt_t * )pData;
-	uint32_t	address;
-
-	// Validate the Status packet
-	for( i = 0; ( ( i < NUM_STATUS_ENTRIES ) && ( ESP_OK == err ) ); ++i )
-	{
-		if( ( pStat->Generic.status == otaStatusTable[ i ].opcode ) && ( pStat->Generic.length == otaStatusTable[ i ].length ) )
-		{
-			IotLogDebug( "Found Status Entry, length matches" );
-			/* Calculate CRC on received packet */
-			crc = crc16_ccitt_compute( ( uint8_t * )pStat, ( pStat->Generic.length ) );
-			if( crc )
-			{
-				IotLogError( "Error: Non-zero CRC" );
-				err = ESP_FAIL;
-			}
-			else
-			{
-				if( pStat->Generic.status == _hostota.expectedStatus )
-				{
-					IotLogDebug( "Expected Status Received ");
-
-					switch( pStat->Generic.status )
-					{
-						case eOTA_INIT_ACK:
-							/* Verify UID and use Next Write address */
-							if( pStat->Init.uid == _hostota.uid )
-							{
-								address = SwapFourBytes( pStat->Init.nextAddr );
-
-								/* If next address in INIT_ACK is in valid range (for image), adjust to give offset from start of image */
-								if( ( address >= _hostota.LoadAddress ) && ( address < ( _hostota.LoadAddress + _hostota.ImageSize ) ) )
-								{
-									_hostota.startAddress = address - _hostota.LoadAddress;
-								}
-								else
-								{
-									_hostota.startAddress = 0;
-								}
-								IotLogDebug( "OTA_INIT_ACK: UID matches, address = %08X, startAddress = %08X", address, _hostota.startAddress );
-							}
-							else
-							{
-								IotLogError( "Error: UID mis-match" );
-								err = ESP_FAIL;
-							}
-							break;
-
-						case eOTA_DATA_ACK:
-							/* Verify Address */
-							if( SwapFourBytes( pStat->Data.Addr ) == _hostota.targetAddress )
-							{
-								IotLogDebug( "Target Address matches" );
-							}
-							else
-							{
-								IotLogError( "Error: Target Address mis-match" );
-								err = ESP_FAIL;
-							}
-							break;
-
-						default:
-							break;
-					}
-
-					_hostota.ackReceived = true;
-					break;
-				}
-				else
-				{
-					IotLogError( "Error: Unexpected Status received %02X",  pStat->Generic.status );
-					err = ESP_FAIL;
-				}
-			}
-		}
-	}
-
-	/* If anything goes wrong, or response not found in table, change to error state */
-	if( ( ESP_OK != err ) || ( NUM_STATUS_ENTRIES <= i ) )
-	{
-		_hostota.mzXfer_state = mzXfer_Error;
-#ifndef	LEGACY_BLE_INTERFACE
-		/* NACK the command */
-		shci_postCommandComplete( eHostUpdateResponse, eInvalidCommandParameters  );
-	}
-	else
-	{
-		/* ACK the command */
-		shci_postCommandComplete( eHostUpdateResponse, eCommandSucceeded );
-#endif
-	}
-}
-#endif
 
 /**
  * @brief	Print SHA256 hash value as a string with a tag - Debug Only
@@ -1933,29 +1834,6 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			_hostota.mzXfer_state = mzXfer_Init_Ack;
 			break;
 
-#ifdef	DEPRICATED
-			_hostota.pXferBuf->opCode = OTA_XMIT_OPCODE;
-			_hostota.pXferBuf->connHandle = FIXED_CONNECTION_HANDLE;
-			_hostota.pXferBuf->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
-
-			_hostota.pXferBuf->Init.command = eOTA_INIT_CMD;
-			_hostota.pXferBuf->Init.length = sizeof( _otaInit_t );
-			/* create a pseudo random 16-bit UID */
-			_hostota.pXferBuf->Init.uid = ( uint16_t ) ( IotClock_GetTimeMs() % 0x10000 );
-			crc = crc16_ccitt_compute( ( uint8_t *) &_hostota.pXferBuf->Init, ( sizeof( _otaInit_t ) - 2 ) );
-			_hostota.pXferBuf->Init.crc = SwapTwoBytes( crc );
-
-			_hostota.expectedStatus = eOTA_INIT_ACK;
-			_hostota.ackReceived = false;
-			_hostota.uid = _hostota.pXferBuf->Init.uid;
-
-			/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-			shci_PostResponse( ( uint8_t * )_hostota.pXferBuf, ( sizeof( _otaInit_t ) + 4 ) );
-
-			_hostota.mzXfer_state = mzXfer_Init_Ack;
-			break;
-#endif
-
 		case mzXfer_Init_Ack:				/* Wait for Init ACK */
 			if( _hostota.ackReceived )
 			{
@@ -1978,26 +1856,6 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 
 			_hostota.mzXfer_state = mzXfer_Erase_Ack;
 			break;
-
-#ifdef	DEPRICATED
-			_hostota.pXferBuf->opCode = OTA_XMIT_OPCODE;
-			_hostota.pXferBuf->connHandle = FIXED_CONNECTION_HANDLE;
-			_hostota.pXferBuf->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
-
-			_hostota.pXferBuf->Erase.command = eOTA_ERASE_CMD;
-			_hostota.pXferBuf->Erase.length = sizeof( _otaErase_t );
-			crc = crc16_ccitt_compute( ( uint8_t *) &_hostota.pXferBuf->Erase, ( sizeof( _otaErase_t ) - 2 ) );
-			_hostota.pXferBuf->Erase.crc = SwapTwoBytes( crc );
-
-			_hostota.expectedStatus = eOTA_ERASE_ACK;
-			_hostota.ackReceived = false;
-
-			/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-			shci_PostResponse( ( uint8_t * )_hostota.pXferBuf, ( sizeof( _otaErase_t ) + 4 ) );
-
-			_hostota.mzXfer_state = mzXfer_Erase_Ack;
-			break;
-#endif
 
 		case mzXfer_Erase_Ack:				/* Wait for Erase ACK */
 			if( _hostota.ackReceived )
@@ -2039,67 +1897,6 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			}
 			break;
 
-#ifdef	DEPRICATED
-			_hostota.pXferBuf->opCode = OTA_XMIT_OPCODE;
-			_hostota.pXferBuf->connHandle = FIXED_CONNECTION_HANDLE;
-			_hostota.pXferBuf->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
-
-			_hostota.pXferBuf->Data.command = eOTA_DATA_CMD;
-
-			/* Read a chunk of Image from Flash - use esp_partition_read() reads flash correctly whether partition is encrypted or not */
-			size = ( MAX_OTA_PKT_DLEN < remaining ) ? MAX_OTA_PKT_DLEN : remaining;
-			esp_partition_read( _hostota.partition, imageAddress, _hostota.pXferBuf->Data.buffer, size );
-
-			if( OTA_PKT_DLEN_192 == size )				/* 192 byte data command */
-			{
-				_hostota.pXferBuf->LongData.length = sizeof( _otaLongData_t );
-				_hostota.pXferBuf->LongData.address = SwapFourBytes( _hostota.targetAddress );
-				crc = crc16_ccitt_compute( ( uint8_t *) &_hostota.pXferBuf->LongData, ( sizeof( _otaLongData_t ) - 2 ) );
-				_hostota.pXferBuf->LongData.crc = SwapTwoBytes( crc );
-
-				_hostota.expectedStatus = eOTA_DATA_ACK;
-				_hostota.ackReceived = false;
-
-				/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-				shci_PostResponse( ( uint8_t * )_hostota.pXferBuf, ( sizeof( _otaLongData_t ) + 4 ) );
-				_hostota.mzXfer_state = mzXfer_Data_Ack;
-			}
-			else if( OTA_PKT_DLEN_128 == size )			/* 128 byte Data command */
-			{
-				_hostota.pXferBuf->Data.length = sizeof( _otaData_t );
-				_hostota.pXferBuf->Data.address = SwapFourBytes( _hostota.targetAddress );
-				crc = crc16_ccitt_compute( ( uint8_t *) &_hostota.pXferBuf->Data, ( sizeof( _otaData_t ) - 2 ) );
-				_hostota.pXferBuf->Data.crc = SwapTwoBytes( crc );
-
-				_hostota.expectedStatus = eOTA_DATA_ACK;
-				_hostota.ackReceived = false;
-
-				/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-				shci_PostResponse( ( uint8_t * )_hostota.pXferBuf, ( sizeof( _otaData_t ) + 4 ) );
-				_hostota.mzXfer_state = mzXfer_Data_Ack;
-			}
-			else if( OTA_PKT_DLEN_64 == size )	/* 64 byte Data command */
-			{
-				_hostota.pXferBuf->ShortData.length = sizeof( _otaShortData_t );
-				_hostota.pXferBuf->ShortData.address = SwapFourBytes( _hostota.targetAddress );
-				crc = crc16_ccitt_compute( ( uint8_t *) &_hostota.pXferBuf->ShortData, ( sizeof( _otaShortData_t ) - 2 ) );
-				_hostota.pXferBuf->ShortData.crc = SwapTwoBytes( crc );
-
-				_hostota.expectedStatus = eOTA_DATA_ACK;
-				_hostota.ackReceived = false;
-
-				/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-				shci_PostResponse( ( uint8_t * )_hostota.pXferBuf, ( sizeof( _otaShortData_t ) + 4 ) );
-				_hostota.mzXfer_state = mzXfer_Data_Ack;
-			}
-			else
-			{
-				IotLogError( "Error: Image Size is not a multiple of %d", OTA_PKT_DLEN_64 );
-				_hostota.mzXfer_state = mzXfer_Error;
-			}
-			break;
-#endif
-
 		case mzXfer_Data_Ack:				/* Wait for Data ACK */
 			if( _hostota.ackReceived )
 			{
@@ -2134,29 +1931,6 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 			_hostota.mzXfer_state = mzXfer_Verify_Ack;
 			break;
 
-#ifdef	DEPRICATED
-			_hostota.pXferBuf->opCode = OTA_XMIT_OPCODE;
-			_hostota.pXferBuf->connHandle = FIXED_CONNECTION_HANDLE;
-			_hostota.pXferBuf->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
-
-			_hostota.pXferBuf->Verify.command = eOTA_VERIFY_CMD;
-			_hostota.pXferBuf->Verify.length = sizeof( _otaVerify_t );
-			_hostota.pXferBuf->Verify.startAddr = SwapFourBytes( _hostota.LoadAddress );
-			_hostota.pXferBuf->Verify.imgLength = SwapFourBytes( _hostota.ImageSize );
-			memcpy( _hostota.pXferBuf->Verify.sha256hash, &_hostota.sha256Plain, 32 );
-			crc = crc16_ccitt_compute( ( uint8_t *) &_hostota.pXferBuf->Verify, ( sizeof( _otaVerify_t ) - 2 ) );
-			_hostota.pXferBuf->Verify.crc = SwapTwoBytes( crc );
-
-			_hostota.expectedStatus = eOTA_VERIFY_ACK;
-			_hostota.ackReceived = false;
-
-			/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-			shci_PostResponse( ( uint8_t * )_hostota.pXferBuf, ( sizeof( _otaVerify_t ) + 4 ) );
-
-			_hostota.mzXfer_state = mzXfer_Verify_Ack;
-			break;
-#endif
-
 		case mzXfer_Verify_Ack:				/* Wait for Verify ACK */
 			if( _hostota.ackReceived )
 			{
@@ -2175,22 +1949,6 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 
 			_hostota.mzXfer_state = mzXfer_Complete;
 			break;
-
-#ifdef	DEPRICATED
-			_hostota.pXferBuf->opCode = OTA_XMIT_OPCODE;
-			_hostota.pXferBuf->connHandle = FIXED_CONNECTION_HANDLE;
-			_hostota.pXferBuf->charHandle = SwapTwoBytes( OTA_COMMAND_HANDLE );
-
-			_hostota.pXferBuf->Reset.command = eOTA_RESET_CMD;
-			_hostota.pXferBuf->Reset.length = sizeof( _otaErase_t );
-			crc = crc16_ccitt_compute( ( uint8_t *) &_hostota.pXferBuf->Reset, ( sizeof( _otaReset_t ) - 2 ) );
-			_hostota.pXferBuf->Reset.crc = SwapTwoBytes( crc );
-
-			/* Post SHCI Command to message queue, length is command size + 4, for the SHCI header */
-			shci_PostResponse( ( uint8_t * )_hostota.pXferBuf, ( sizeof( _otaReset_t ) + 4 ) );
-			_hostota.mzXfer_state = mzXfer_Complete;
-			break;
-#endif
 
 		case mzXfer_Complete:
 			if( NULL != _hostota.pXferBuf )

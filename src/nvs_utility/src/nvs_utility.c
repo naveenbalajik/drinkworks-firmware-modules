@@ -4,7 +4,6 @@
  * Created on: May 4, 2020
  * 		Author: nick.weber
  */
-
 /* Standard includes. */
 #include <string.h>
 
@@ -26,74 +25,6 @@
  */
 #define nvsKeys_PARTITION  "nvs_keys"
 
-#ifdef	DEPRECIATED
-/**
- * @brief List all NVS Partitions with labels and encrypted flags
- */
-static NVS_Partition_Details_t NVS_Partitions[] =
-{
-		[ NVS_PART_NVS ] =
-		{
-			.label = "nvs",
-			.encrypted = false,
-			.initialized = false,
-		},
-		[ NVS_PART_STORAGE ] =
-		{
-			.label = pkcs11configSTORAGE_PARTITION,
-			.encrypted = true,
-			.initialized = false,
-		},
-		[ NVS_PART_PDATA ] =
-		{
-			.label = "pdata",
-			.encrypted = false,
-			.initialized = false,
-		},
-		[ NVS_PART_XDATA ] =
-		{
-			.label = "xdata",
-			.encrypted = true,
-			.initialized = false,
-		},
-		[ NVS_PART_EDATA ] =
-		{
-			.label = "edata",
-			.encrypted = false,
-			.initialized = false,
-		}
-};
-
-#define NUM_PARTITIONS	( sizeof( NVS_Partitions ) / sizeof( NVS_Partition_Details_t ) )
-
-/**
-* @brief All NVS items are stored in this table. Each element in the array holds the partition, partitionNamespace, and nvsKey of that element in the NVS
-*
-* Item indexes should be unique. If they are not unique, then the NVS functions will use the first element in the array that matches the itemIndex
-*/
-static const NVS_Entry_Details_t NVS_Items[] =
-{
-	[ NVS_CLAIM_CERT ]        = {	.type = NVS_TYPE_BLOB, 	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ClaimCert" },
-	[ NVS_CLAIM_PRIVATE_KEY ] = {	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ClaimPKey" },
-	[ NVS_FINAL_CERT ]        = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "FinalCert" },
-	[ NVS_FINAL_PRIVATE_KEY ] = {	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "FinalPKey" },
-	[ NVS_THING_NAME ]        = { 	.type = NVS_TYPE_STR,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ThingName" },
-	[ NVS_SERIAL_NUM ]        = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "SerialNumber" },
-	[ NVS_FIFO_CONTROLS ]     = { 	.type = NVS_TYPE_U32,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoControls" },
-	[ NVS_FIFO_MAX ]          = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoMax" },
-	[ NVS_EVENT_RECORD ]      = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "EventRecord" },
-	[ NVS_PROD_PUB_INDEX ]    = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "Prod",					.nvsKey = "LastPubIndex" },
-	[ NVS_PROD_REC_EVENT ]    = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "Prod",					.nvsKey = "LastRecEvent" },
-	[ NVS_DEV_PUB_INDEX ]     = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "Dev",						.nvsKey = "LastPubIndex" },
-	[ NVS_DEV_REC_EVENT ]     = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "Dev",						.nvsKey = "LastRecEvent" },
-	[ NVS_HOSTOTA_STATE ]     = {	.type = NVS_TYPE_U32,	.partition = NVS_PART_PDATA,		.namespace = "OTA",						.nvsKey = "HostOtaState" },
-	[ NVS_DATA_SHARE ]        = {	.type = NVS_TYPE_U8,	.partition = NVS_PART_PDATA,		.namespace = "Settings",				.nvsKey = "DataShare" },
-	[ NVS_PRODUCTION ]        = {	.type = NVS_TYPE_U8,	.partition = NVS_PART_PDATA,		.namespace = "Settings",				.nvsKey = "Production" },
-	/* Following entry is only needed if running the EventFifo Unit Test */
-	//	[ NVS_FIFO_TEST ]          = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "Fifotest" },			/**< For test purposes only */
-};
-#define NUM_NVS_ITEMS  			(sizeof(NVS_Items)/sizeof(NVS_Items[0]))
-#endif
 
 #ifdef CONFIG_NVS_ENCRYPTION
 	/**
