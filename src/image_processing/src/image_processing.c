@@ -22,6 +22,8 @@
 #define TRANSITION_NOT_FOUND	-1
 #define	TRANSITION_FOUND		1
 
+#define NOT_INITIALIZED						-1
+
 #define BITS_PER_PIXEL						8
 #define MEDIAN_FILTER_SIZE					7
 #define ROW_CONSIS_CHECK_JUMP				40
@@ -139,8 +141,6 @@ static const bool						masterDrinkworksTrademark[DRINKWORKS_TEMPLATE_TMARK_HEIGH
 	{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 	{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
-
-Image_Proces_Frame_t img = VGA_IMG_DEFAULT_INITIALIZATION;
 
 static img_proces_err_t _calcImgRegionAvg( Image_Region_Avg_t* imgRegionAvg, camera_fb_t* fb )
 {
@@ -1197,19 +1197,27 @@ uint32_t CalcID( int32_t* distances )
 }
 
 
+/**
+ * @brief Decode a barcode. This function takes the filtered barcode array and determines the binary barcode number from the array
+ *
+ * @param[in] bcode		barcode to be decoded
+ *
+ * @return 	img_proces_err_t ESP_OK if passed, error code if failed
+ */
 static img_proces_err_t _decodeBarcode( BarcodeRegion_t* bcode )
 {
 	img_proces_err_t err = IMG_PROCES_OK;
 
-	int32_t integerID = 0;																				// Returned ID of barcode
+	int32_t integerID = 0;																// Returned ID of barcode
 	uint32_t w2bLoc[MAX_TRANS_LOCATIONS] = {0};											// White to Black transition locations array
 	uint32_t b2wLoc[MAX_TRANS_LOCATIONS] = {0};											// Black to White transition locations array
-	int32_t gapDistance[BARCODE_BITS] = {0};														//	Array of distances between transition locations (gaps)
+	int32_t gapDistance[BARCODE_BITS] = {0};											//	Array of distances between transition locations (gaps)
 	int32_t i = 0, j=0, k=0;
 
-
+	// Median filter the barcode buffer
 	err = _medianFilterUINT32(bcode->regionAvg.avgBuf, bcode->regionAvg.len, MEDIAN_FILTER_SIZE);
 
+	// Scale the buffer to white or black depending on the threshold
 	for(i = 0; i<bcode->regionAvg.len; i++){
 		if(bcode->regionAvg.avgBuf[i] > bcode->thresholdAvg[i]){
 			bcode->regionAvg.avgBuf[i] = WHITE;
@@ -1219,11 +1227,13 @@ static img_proces_err_t _decodeBarcode( BarcodeRegion_t* bcode )
 		}
 	}
 
+	// Calculate the barcode gradient to determine transition locations from white to black
 	int32_t* barcodeGradient =(int32_t*)calloc(bcode->regionAvg.len, sizeof(uint32_t));
 	for(i = 0; i<bcode->regionAvg.len - 2; i++){
 		barcodeGradient[i] = (int32_t) bcode->regionAvg.avgBuf[i + 1] - (int32_t) bcode->regionAvg.avgBuf[i];
 	}
 
+	// Loop through the gradient and determine white to black transitions
 	uint32_t peakCount = 0;
 	for(i = 1; i<bcode->regionAvg.len - 1; i++){																								// Loop through the gradient
 		if ((barcodeGradient[i - 1] < barcodeGradient[i]) && (barcodeGradient[i + 1]<=barcodeGradient[i]) && (barcodeGradient[i]>MIN_POS_HT))		// If a peak is detected in the gradient
@@ -1235,10 +1245,12 @@ static img_proces_err_t _decodeBarcode( BarcodeRegion_t* bcode )
 		}
 	}
 
+	// Flip the array to look for black to white transitions
 	for(i = 1; i<bcode->regionAvg.len; i++){
 		barcodeGradient[i] = -barcodeGradient[i];
 	}
 
+	// Loop through the gradient and determine black to white transitions
 	peakCount = 0;
 	for(i = 1; i<bcode->regionAvg.len - 1; i++)																							// Loop through the gradient
 	{
@@ -1300,6 +1312,7 @@ static img_proces_err_t _decodeBarcode( BarcodeRegion_t* bcode )
 
 	integerID = CalcID(gapDistance);															// Decode barcode based upon gap distances
 
+	// Store the barcode result
 	if( bcode->singleBit.bitResult == 1 )
 	{
 		bcode->barcodeResult = integerID + 1024;
@@ -1316,6 +1329,19 @@ static img_proces_err_t _decodeBarcode( BarcodeRegion_t* bcode )
 	return err;
 }
 
+/**
+ * @brief Threshold which average pixel value is compared to to determine if a pod exists in the PM
+ */
+#define NO_POD_PIXEL_AVG_THRES				33
+
+/**
+ * @brief Check if the captured image contains a pod. The function sums every 4th pixel in an
+ * 			image and compares the total sum to a threshold. If the image is all black (no pod)
+ * 			then the sum will fall below that thresold and a no pod flag will be set.
+ *
+ * @param[in] img	Image processing frame to analyze
+ *
+ */
 static void _checkForPod( Image_Proces_Frame_t* img )
 {
 	uint32_t i;
@@ -1343,7 +1369,29 @@ static void _checkForPod( Image_Proces_Frame_t* img )
 	}
 }
 
-void _resetBarcodeResults( Image_Proces_Frame_t* img )
+/**
+ * @brief The row averages are only calculated for a window in the middle of the image. This is the start column for that window
+ */
+#define	ROW_AVG_START_COL					200
+/**
+ * @brief The row averages are only calculated for a window in the middle of the image. This is the end column for that window
+ */
+#define	ROW_AVG_END_COL						440
+/**
+ * @brief Height of a VGA Image
+ */
+#define	VGA_HEIGHT							480
+
+/**
+ * @brief Initialize the barcode results for the start of a new capture
+ *
+ * @note The buffers (i.e. rowAvg.AvgBuf) will be set to NULL in this function. Ensure that they were not previously malloc'd
+ *
+ * @param[in] img	Image processing frame to initialize.
+ *
+ * @return 	img_proces_err_t ESP_OK if passed, error code if failed
+ */
+void _initBarcodeResults( Image_Proces_Frame_t* img )
 {
 	imageProces_CleanupFrame(img);
 
@@ -1355,11 +1403,23 @@ void _resetBarcodeResults( Image_Proces_Frame_t* img )
 	img->result = (Image_Decode_Result_t){NOT_INITIALIZED, IMG_PROCES_FAIL_NOT_INITIALIZED};
 }
 
+/**
+ * @brief Decode an image and identify relevant properties such as barcodes, trademarks and pod existance
+ *
+ * @note The relevant parameters will be stored in the img process frame passed as a parameter.
+ *
+ * @param[in] img	Image processing frame to perform analysis on. The frame buffer should be filled when the function is called.
+ * 					All other parameters will be set by the function.
+ *
+ * @return 	img_proces_err_t ESP_OK if passed, error code if failed
+ */
 img_proces_err_t imageProces_DecodeDWBarcode( Image_Proces_Frame_t* img )
 {
 	img_proces_err_t err = IMG_PROCES_OK;
 	uint32_t currentScanRow = 0;
-	_resetBarcodeResults(img);
+
+	// Initialize the frame results
+	_initBarcodeResults(img);
 
 	// Check if a pod is in the PM
 	_checkForPod(img);
@@ -1367,20 +1427,24 @@ img_proces_err_t imageProces_DecodeDWBarcode( Image_Proces_Frame_t* img )
 	// Calculate the row average from the frame buffer
 	err = _calcImgRegionAvg( &(img->rowAvg), &(img->fb) );
 
+	// Perform a median filter on the row average frame buffer
 	if( err == IMG_PROCES_OK )
 	{
 		err = _medianFilterUINT32( img->rowAvg.avgBuf, img->rowAvg.len, MEDIAN_FILTER_SIZE );
 	}
 
+	// Scale the buffer to be in the range of 0-255. Range needed for image processing algorithms
 	if( err == IMG_PROCES_OK )
 	{
 		_scaleBufferUINT32( img->rowAvg.avgBuf, img->rowAvg.len, 255 );
 	}
 
+	// Loop through the scan rows until a trademark is authenticated
 	while( img->result.fail != IMG_PROCES_FAIL_NO_FAILURE && currentScanRow < img->fb.height )
 	{
 		if( err == IMG_PROCES_OK )
 		{
+			// Determine if the current scan row matches the start stop row signature
 			err = _determineStartStopRow( img, &currentScanRow );
 			if( err )
 			{
@@ -1391,6 +1455,7 @@ img_proces_err_t imageProces_DecodeDWBarcode( Image_Proces_Frame_t* img )
 
 		if( err == IMG_PROCES_OK )
 		{
+			// Determine if the current scan row matches the start stop column signature
 			err = _determineStartStopCol( img );
 			if( err )
 			{
@@ -1401,6 +1466,8 @@ img_proces_err_t imageProces_DecodeDWBarcode( Image_Proces_Frame_t* img )
 
 		if( err == IMG_PROCES_OK )
 		{
+			// Determine if the current scan row can authenticate the trustmark
+			// The img->result.fail will be set to IMG_PROCES_FAIL_NO_FAILURE if success
 			err = _authenticateTrustmark( img );
 			if( err )
 			{
@@ -1410,26 +1477,31 @@ img_proces_err_t imageProces_DecodeDWBarcode( Image_Proces_Frame_t* img )
 		}
 	}
 
+	// Fill the top and bottom barcode region average buffers based on the previously determined barcode location
 	if( err == IMG_PROCES_OK )
 	{
 		err = _fillBarcodeAvgRegions( img );
 	}
 
+	// Use the are around the barcodes to set a black/white threshold
 	if( err == IMG_PROCES_OK )
 	{
 		err = _defineBcodeThresholds( img );
 	}
 
+	// Determine if the 11th bits to the left and right of the trademark exist
 	if( err == IMG_PROCES_OK )
 	{
 		err = _eleventhBitDeterminations( img );
 	}
 
+	// Decode barcode1 using the barcode avg array, the threshold settings, and the 11th bit information
 	if( err == IMG_PROCES_OK )
 	{
 		err = _decodeBarcode( &(img->barcode1) );
 	}
 
+	// Decode barcode2 using the barcode avg array, the threshold settings, and the 11th bit information
 	if( err == IMG_PROCES_OK )
 	{
 		err = _decodeBarcode( &(img->barcode2) );
@@ -1442,6 +1514,7 @@ img_proces_err_t imageProces_DecodeDWBarcode( Image_Proces_Frame_t* img )
 /**
  * @brief Cleanup malloc'd memory
  *
+ * @param[in] img	Image processing frame to be free'd
  */
 void imageProces_CleanupFrame( Image_Proces_Frame_t* img )
 {
@@ -1488,370 +1561,67 @@ void imageProces_CleanupFrame( Image_Proces_Frame_t* img )
 	}
 }
 
-// ********** Task creation ********
 
-#define IMG_CAPTURE_STACK_SIZE		4096
-#define IMG_CAPTURE_PRIORITY		12
-
-typedef enum
-{
-	eCaptureNoAction,
-	eResetSensor,
-	eCaptureImage
-}imgCapture_Command_t;
-
-
-typedef struct
-{
-	imgCapture_Command_t			command;
-	imgCaptureCommandCallback_t		callback;
-}imgProces_QueueItem_t;
-
-
-static TaskHandle_t _captureTaskHandle;
-
-
-QueueHandle_t	imgProces_Queue = NULL;
-
-static void _capture_and_decode_img(imgCaptureCommandCallback_t	callback)
+/**
+ * @brief Capture and Decode image. This function is the high level call to decode an image. It
+ * allocated a frame buffer, captures an image, calls a callback, then frees all dynamicall allocated buffers
+ *
+ * @note The Image_Proces_Frame_t parameter for the callback is on the stack of the image process
+ * function. It will need to be copied if used outside of the callback
+ *
+ * @param[in] callback	Callback function to be returned with decoded Image_Proces_Frame_t
+ *
+ * @return 	img_proces_err_t ESP_OK if passed, error code if failed
+ */
+img_proces_err_t	imageProces_CaptureAndDecodeImg( imgCaptureCommandCallback_t callback )
 {
 	esp_err_t	err = ESP_OK;
 
-	/* Turn on camera LEDs for capture */
-	//cam_set_LEDs(1);
-	gpio_set_level(15,1);
-
-	// Capture image
+	// Capture image from the camera and store into a frame buffer
 	camera_fb_t *fb = NULL;
 	fb = esp_camera_fb_get();
 	if( fb == NULL )
 	{
-		IotLogError("Camera capture failed to get fb");
+		IotLogError( "Camera capture failed to get fb" );
 		err = ESP_FAIL;
 	}
 	else
 	{
-		/* Turn off camera LEDs after capture */
-		//cam_set_LEDs(0);
-		gpio_set_level(15,0);
-
-
+		// Allocate an image processing frame
 		Image_Proces_Frame_t img = {0};
-		// Set the frame buffer to be analyzed
-		img.fb = *fb;
-
-		if(err == ESP_OK){
-			err = imageProces_DecodeDWBarcode(&img);
-			if(err != ESP_OK){
-				IotLogError("Failed to Decode Barcode and Trademark. Err = %d", err);
-			}
-		}
-
-		IotLogInfo("Barcode1:%d\t Barcode2:%d\t TrademarkDiff:%d", img.barcode1.barcodeResult, img.barcode2.barcodeResult, img.trustmark.trustmarkDiff);
-
-		imageProces_CleanupFrame(&img);
-
-		callback(&img);
-	}
-}
-
-#include "driver/ledc.h"
-#include "driver/i2c.h"
-
-#define I2C_CAM_SPEED		8000000
-#define GC0309_RUN_SPEED	2400000
-
-typedef struct{
-	uint8_t reg_addr;
-	uint8_t reg_val;
-}addr_val_list;
-
-static const addr_val_list GC0309_default[] =
-{
-	    {0xfe,0x80},
-	    {0xfe,0x00},
-	    {0x1a,0x26},
-
-	    {0x22,0x55},
-	    {0x5a,0x57},
-	    {0x5b,0x40},
-	    {0x5c,0x45},
-	    {0x01,0x6a},
-	    {0x02,0x70},
-
-	    {0xe3,0x96},
-	    {0xe4,0x02},
-	    {0xe5,0x58},
-	    {0xe6,0x03},
-	    {0xe7,0x84},
-	    {0xe8,0x07},
-	    {0xe9,0x08},
-	    {0xea,0x0d},
-	    {0xeb,0x7a},
-
-	    {0x05,0x00},
-	    {0x06,0x00},
-	    {0x07,0x00},
-	    {0x08,0x00},
-	    {0x09,0x01},
-	    {0x0a,0xe8},
-	    {0x0b,0x02},
-	    {0x0c,0x88},
-	    {0x0d,0x02},
-	    {0x0e,0x02},
-	    {0x0f,0x00},
-	    {0x10,0x26},
-	    {0x11,0x0d},
-	    {0x12,0x2a},
-	    {0x13,0x00},
-	    {0x14,0x00},
-	    {0x15,0x0a},
-	    {0x16,0x05},
-	    {0x17,0x01},
-	    {0x18,0x44},
-	    {0x19,0x44},
-	    {0x1b,0x03},
-	    {0x1c,0x49},
-	    {0x1d,0x98},
-	    {0x1e,0x20},
-	    {0x1f,0x16},
-	    {0x20,0xff},
-	    {0x21,0xf8},
-	    {0x22,0x57},
-	    {0x24,0xb9},
-	    {0x25,0x0f},
-	    {0x26,0x02},
-	    {0x2f,0x01},
-
-	    {0x30,0xf7},
-	    {0x31,0x40},
-	    {0x32,0x00},
-	    {0x39,0x04},
-	    {0x3a,0x20},
-	    {0x3b,0x20},
-	    {0x3c,0x02},
-	    {0x3d,0x02},
-	    {0x3e,0x02},
-	    {0x3f,0x02},
-
-	    {0x50,0x24},
-	    {0x53,0x80},
-	    {0x54,0x80},
-	    {0x55,0x80},
-	    {0x56,0x80},
-
-	    {0xd0,0xc9},
-	    {0xd1,0x10},
-	    {0xd2,0x90},
-	    {0xd3,0x80},
-	    {0xd5,0xf2},
-	    {0xd6,0x16},
-	    {0xdb,0x92},
-	    {0xdc,0xa5},
-	    {0xdf,0x23},
-
-	    {0xd9,0x00},
-	    {0xda,0x00},
-	    {0xe0,0x09},
-
-	    {0xec,0x20},
-	    {0xed,0x04},
-	    {0xee,0xa0},
-	    {0xef,0x40},
-
-	    {0xfe,0x00},
-	    {0xd2,0x90},  // Open AEC at last.
-
-
-	    // THESE ARE MODIFICATIONS TO THE CAMERA REGISTERS
-	    {0x14,0x00},    // direction
-	    {0x24,0xd1},    // only y
-	    {0x26,0x0B},    // Gate PCLK
-	    {0x06,0x00},    // Row Start
-	    {0x08,0x00},    // Col Start
-	    {0x09,0x01},    // Window Height High (488)
-	    {0x0a,0xe8},    // Window Height Low
-	    {0x0b,0x02},    // Window Width High (648)
-	    {0x0c,0x88},    // Window Width Low
-	    {0xd2,0x00},    //Exposure control
-	    {0x04,0x15},    //Exposure control low bit								// 0x09 for exposure based upon GEN1 PM testing
-	    {0x03,0x00},     //Exposure control high bit
-	    {0x0f,0x01},    // horizontal blanking time
-	    // Luma Contrast Increase for better black/white contrast
-	    {0xb3,0xf0},
-
-	    {0x01,0x00},    //HSYNC down time
-	    {0x02,0x10},    //VSYNC down time
-
-	     /*
-	    {0xfe,0x01},    // set page one
-	    {0x53,0x82},
-	//    {0x54,0x44},
-	    {0x54,0x22},
-	    {0x56,0x00},
-	    {0x57,0x00},
-	    {0x58,0x00},
-	    {0x59,0x00},
-	    {0x55,0x01},
-	//    */
-
-	    {0xff,0xff}   // End Marker
-};
-
-esp_err_t _xclk_timer_conf(int ledc_timer, int xclk_freq_hz)
-{
-    ledc_timer_config_t timer_conf;
-    timer_conf.duty_resolution = 2;
-    timer_conf.freq_hz = xclk_freq_hz;
-    timer_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
-#if ESP_IDF_VERSION_MAJOR >= 4
-    timer_conf.clk_cfg = LEDC_AUTO_CLK;
-#endif
-    timer_conf.timer_num = (ledc_timer_t)ledc_timer;
-    esp_err_t err = ledc_timer_config(&timer_conf);
-    if (err != ESP_OK) {
-    	IotLogError( "ledc_timer_config failed for freq %d, rc=%x", xclk_freq_hz, err);
-    }
-    return err;
-}
-
-#ifdef MODEL_B_V1
-#define 	CAM_PIN_RESET 33                  /*!< GPIO pin for camera reset line */
-#else
-#define 	CAM_PIN_RESET 12                  /*!< GPIO pin for camera reset line */
-#endif
-
-static void _reset_sensor(void)
-{
-	esp_err_t err = ESP_OK;
-	// Pull reset pin
-    gpio_config_t conf = { 0 };
-    conf.pin_bit_mask = 1LL << CAM_PIN_RESET;
-    conf.mode = GPIO_MODE_OUTPUT;
-    gpio_config(&conf);
-    gpio_matrix_out(CAM_PIN_RESET, SIG_GPIO_OUT_IDX, true, false);             /* Invert signal */
-
-    gpio_set_level(CAM_PIN_RESET, 0);
-    vTaskDelay(30 / portTICK_PERIOD_MS);
-    gpio_set_level(CAM_PIN_RESET, 1);
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-
-
-	// Set camera freq to I2C speed
-	_xclk_timer_conf(LEDC_TIMER_0, I2C_CAM_SPEED);
-
-	// Set registers over I2C
-	addr_val_list* currentRegVal = (addr_val_list*) GC0309_default;
-	i2c_cmd_handle_t cmd;
-	while(!(currentRegVal->reg_addr == 0xff && currentRegVal->reg_val == 0xff)){
-		cmd = i2c_cmd_link_create();
-		i2c_master_start(cmd);
-		i2c_master_write_byte(cmd, 0x42, 1);
-		i2c_master_write_byte(cmd, currentRegVal->reg_addr, 1);
-		i2c_master_write_byte(cmd, currentRegVal->reg_val, 1);
-		i2c_master_stop(cmd);
-		err = i2c_master_cmd_begin(I2C_NUM_1, cmd, 1000);
-		i2c_cmd_link_delete(cmd);
-		if(err != ESP_OK){
-			IotLogError("Failed setting camera register settings. Err");
-		}
-		currentRegVal++;
-	}
-
-	vTaskDelay(100 / portTICK_PERIOD_MS);
-
-	// Set the camera freq back to the initial value
-	_xclk_timer_conf(LEDC_TIMER_0, GC0309_RUN_SPEED);
-}
-
-
-static void _captureTask( void * arg)
-{
-	// Receive queue capable of handling 4 messages
-	imgProces_Queue = xQueueCreate(6, sizeof(imgProces_QueueItem_t));
-	imgProces_QueueItem_t	currentCmd;
-
-	for( ;; )
-	{
-		currentCmd.command = eCaptureNoAction;							// Default to no action
-
-		// Poll the queue for receive messages
-		if( xQueueReceive(imgProces_Queue, &currentCmd, 500/portTICK_PERIOD_MS) == pdPASS )
+		// Set the frame buffer as the captured image
+		if( err == ESP_OK )
 		{
-			switch(currentCmd.command)
+			img.fb = *fb;
+		}
+
+		// Decode the captured image
+		if( err == ESP_OK )
+		{
+			err = imageProces_DecodeDWBarcode( &img );
+			if( err != ESP_OK )
 			{
-				case eResetSensor:
-					IotLogInfo( "Reset Sensor" );
-					_reset_sensor();
-					break;
-
-				case eCaptureImage:
-					IotLogInfo( "Capture and Decode Image" );
-					_capture_and_decode_img( currentCmd.callback );
-					break;
-
-				case eCaptureNoAction:
-				default:
-					break;
+				IotLogError( "Failed to Decode Barcode and Trademark. Err = %d ", err);
 			}
 		}
-		vTaskDelay( 1000/portTICK_PERIOD_MS );
-	}
-}
 
-int32_t _sendToQueue(imgCapture_Command_t	command, imgCaptureCommandCallback_t	callback)
-{
-	img_proces_err_t err = IMG_PROCES_OK;
-	bool sentToQueue = 0;
-	imgProces_QueueItem_t	queueCmd = {command, callback};
+		// Print out the results of the decoding
+		IotLogInfo( "Barcode1:%d\t Barcode2:%d\t TrademarkDiff:%d", img.barcode1.barcodeResult, img.barcode2.barcodeResult, img.trustmark.trustmarkDiff );
 
-	if(imgProces_Queue != NULL){
-		sentToQueue = xQueueSendToBack(imgProces_Queue, (void *)&queueCmd, 0);
-	}
-	else{
-		IotLogError("Error: Image processing queue == NULL");
-		err = IMG_PROCES_FAIL;
-	}
+		// Cleanup the allocated buffers in the image processing frame
+		imageProces_CleanupFrame( &img );
 
-	if(!sentToQueue){
-		IotLogError("Error: Queue Full");
-		err = IMG_PROCES_FAIL;
+		// Call the callback
+		if( callback != NULL )
+		{
+			callback( &img );
+		}
+		else
+		{
+			IotLogInfo( "No Callback set parameter for captured image" );
+		}
 	}
-
 	return err;
-}
 
-int32_t imgCapture_ResetSensor(void)
-{
-	return _sendToQueue( eResetSensor, NULL );
-}
-
-int32_t imgCapture_CaptureAndDecode(imgCaptureCommandCallback_t cb)
-{
-	return _sendToQueue( eCaptureImage, cb );
-}
-
-int32_t imgCapture_init(void)
-{
-	int err = IMG_PROCES_OK;
-
-	xTaskCreate(_captureTask, "capture_task", IMG_CAPTURE_STACK_SIZE, NULL, IMG_CAPTURE_PRIORITY, &_captureTaskHandle );
-
-	if(_captureTaskHandle == NULL)
-	{
-		err = IMG_PROCES_FAIL;
-	}
-
-	return err;
-}
-
-
-void capture_deinit(void)
-{
-	if(_captureTaskHandle != NULL)
-	{
-		IotLogInfo( "Deleting img_cap Task" );
-		vTaskDelete( _captureTaskHandle );
-	}
 }
 
