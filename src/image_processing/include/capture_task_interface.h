@@ -1,5 +1,5 @@
-/*
- * capture_task.h
+/**
+ * @file capture_task.h
  *
  *  Created on: January 8, 2020
  *      Author: Nicholas.Weber

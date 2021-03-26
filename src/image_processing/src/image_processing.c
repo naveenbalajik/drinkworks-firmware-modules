@@ -1,5 +1,5 @@
-/*
- * image_processing.c
+/**
+ * @file image_processing.c
  *
  *  Created on: Jun 4, 2020
  *      Author: Nicholas.Weber

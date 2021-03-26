@@ -1,5 +1,5 @@
-/*
- * capture_task_interface.c
+/**
+ * @file capture_task_interface.c
  *
  *  Created on: January 8, 2020
  *      Author: Nicholas.Weber

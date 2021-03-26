@@ -1,5 +1,5 @@
-/*
- * image_processing.h
+/**
+ * @file image_processing.h
  *
  *  Created on: Jul 21, 2020
  *      Author: Nicholas.Weber
