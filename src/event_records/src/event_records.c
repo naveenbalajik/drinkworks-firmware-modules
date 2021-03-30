@@ -157,6 +157,7 @@ typedef struct
 	{
 		int32_t			lastReceivedIndex;										/**< Record Index received in last Event Record, -1 if no record received, 0 is a valid index */
 		int32_t			nextRequestIndex;										/**< Record Index to be used for next request */
+		int32_t			lastRecordedIndex;										/**< Last Recorded Event Record Index */
 	} nvs;																		/**< Control items to be stored in NVS, as a blob */
 
 	bool				updateNvs;												/**< true: nvs items need to be saved in NVS */
@@ -170,8 +171,7 @@ typedef struct
 	bool				shadowUpdateComplete;									/**< Flag set to true when Shadow Update completes */
 	bool				shadowUpdateSuccess;									/**< Flag set to true when Shadow Update is successful */
 	int32_t				highestReadIndex;										/**< Highest Record Index value read from FIFO */
-	int32_t				lastPublishedIndex;										/**< Last/Highest Record Index successfully published, stored in NVS */
-	int32_t				lastRecordedIndex;										/**< Last Recorded Event Record Index */
+	int32_t				lastPublishedIndex;										/**< Last/Highest Record Index successfully published to AWS, stored in NVS */
 } event_records_t;
 
 
@@ -182,7 +182,7 @@ static event_records_t _evtrec =
 	.lastRequestIndex = -1,
 	.publishState = ePublishRead,
 	.highestReadIndex = -1,
-	.lastRecordedIndex = -1,
+//	.lastRecordedIndex = -1,
 };
 
 /**
@@ -723,6 +723,7 @@ static void publishRecords( const char *topic )
 				nRecords = fifo_size( _evtrec.fifoHandle );
 				if( 0 < nRecords )
 				{
+					IotLogInfo( "Event Record FIFO has %d records", nRecords );
 					/* Limit number of records per message */
 					nRecords = ( MAX_RECORDS_PER_MESSAGE < nRecords ) ? MAX_RECORDS_PER_MESSAGE : nRecords;
 
@@ -746,6 +747,7 @@ static void publishRecords( const char *topic )
 
 						vPortFree( jsonBuffer );					/* free buffer after if is processed */
 
+						IotLogInfo( "publishState -> WaitComplete" );
 						_evtrec.publishState = ePublishWaitComplete;
 					}
 				}
@@ -773,12 +775,14 @@ static void publishRecords( const char *topic )
 					IotLogInfo( "Update Last Published Index: %d", _evtrec.lastPublishedIndex );
 					shadowUpdates_publishedIndex( _evtrec.lastPublishedIndex, &vEventRecordShadowUpdateComplete );
 
+					IotLogInfo( "publishState -> WaitShadowUpdate" );
 					_evtrec.publishState = ePublishWaitShadowUpdate;
 				}
 				else
 				{
 					IotLogError(" Error publishing Event Record(s) - Abort FIFO read" );
 					fifo_commitRead( _evtrec.fifoHandle, false );
+					IotLogInfo( "publishState -> Read" );
 					_evtrec.publishState = ePublishRead;
 				}
 			}
@@ -795,11 +799,13 @@ static void publishRecords( const char *topic )
 				{
 					IotLogError( "Shadow Update: fail");
 				}
+				IotLogInfo( "publishState -> Read" );
 				_evtrec.publishState = ePublishRead;
 			}
 			break;
 
 		default:
+			IotLogInfo( "publishState -> Read" );
 			_evtrec.publishState = ePublishRead;
 			break;
 	}
@@ -876,13 +882,16 @@ static void _eventRecordsTask(void *arg)
  */
 static uint32_t	_getNextIndex( void )
 {
+	size_t size = sizeof( struct event_record_nvs_s );
+
 	/* Increment the last recorded Event Record Index */
-	_evtrec.lastRecordedIndex++;
+	_evtrec.nvs.lastRecordedIndex++;
 
 	/* Save in NVS */
-	NVS_Set( NVS_LAST_EVT_RECORD, &_evtrec.lastRecordedIndex, NULL );
+//	NVS_Set( NVS_LAST_EVT_RECORD, &_evtrec.lastRecordedIndex, NULL );
+	NVS_Set( _evtrec.key, &_evtrec.nvs, &size );				// Update NVS
 
-	return( _evtrec.lastRecordedIndex );
+	return( _evtrec.nvs.lastRecordedIndex );
 }
 
 
@@ -906,25 +915,31 @@ int32_t eventRecords_init( fifo_handle_t fifo, NVS_Items_t nvsKey )
 
 	/*
 	 * Restore Event Record access variables from NVS Storage
+	 * Member items may be model specific.
 	 */
-	if( ESP_OK == err)
+	if( ESP_OK == err )
 	{
 		size = sizeof( struct event_record_nvs_s );
 		err = NVS_Get( _evtrec.key, &_evtrec.nvs, &size );
-		if( err != ESP_OK )
+
+		/* Set member itens to defaults if error reading NVS, or size does not match */
+		if( ( err != ESP_OK ) || ( size != sizeof( struct event_record_nvs_s ) ) )
 		{
 			_evtrec.nvs.lastReceivedIndex = -1;
 			_evtrec.nvs.nextRequestIndex = 0;
+			_evtrec.nvs.lastRecordedIndex = -1;												// default to -1, if NVS item does not exist
 			size = sizeof( struct event_record_nvs_s );
 			err = NVS_Set( _evtrec.key, &_evtrec.nvs, &size );				// Update NVS
 		}
 	}
+
 
 	IotLogInfo( "Initializing Event Records:" );
 	IotLogInfo( "  Handle = %p", ( (uint32_t *) _evtrec.fifoHandle ) );
 	IotLogInfo( "  lastReportedIndex = %d", _evtrec.lastReportedIndex );
 	IotLogInfo( "  lastReceivedIndex = %d", _evtrec.nvs.lastReceivedIndex );
 	IotLogInfo( "  nextRequestIndex = %d",  _evtrec.nvs.nextRequestIndex );
+	IotLogInfo( "  lastRecordedIndex = %d", _evtrec.nvs.lastRecordedIndex );
 
 #ifdef	MODEL_A
 	/* Register commands */
@@ -1023,6 +1038,8 @@ void eventRecords_saveRecord( char * pInput )
 	/* Free format buffers */
 	free( pCommon );
 	free( pInput );
+
+	IotLogInfo( "eventRecords_saveRecord: %s", pJSON );
 
 	/* Save record in FIFO */
 	fifo_put( _evtrec.fifoHandle, pJSON, strlen( pJSON ) );

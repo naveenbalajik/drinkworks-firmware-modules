@@ -157,6 +157,7 @@ static int32_t _getNVSnamespaceHandle( const NVS_Entry_Details_t *pItem, int32_t
 		IotLogError( "FAILED NVS OPEN. Namespace \"%s\" may not exist yet, err: 0x%04X", pItem->namespace, err );
 	}
 
+	IotLogInfo( "Namespace %s opened, handle = %p", pPartition->label, *handle );
 	return err;
 }
 
