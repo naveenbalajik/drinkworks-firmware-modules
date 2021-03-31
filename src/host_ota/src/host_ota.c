@@ -33,6 +33,7 @@
 #include	"shadow.h"
 #include	"esp_partition.h"
 #include	"esp_err.h"
+#include	"event_notification.h"
 
 /* Platform includes. */
 #include	"platform/iot_clock.h"
@@ -115,7 +116,7 @@ typedef enum
 /**
  * @brief	Update Notification Event Name
  */
-static const char hostOta_notificationEventName[] = "MZ_Update";
+//static const char hostOta_notificationEventName[] = "MZ_Update";
 
 /**
  * @brief	Update Available SHCI Event packet
@@ -740,7 +741,7 @@ static void hostOtaNotificationUpdate( hostOta_notification_t notify, double par
 		case eNotifyHostReset:
 		case eNotifyUpdateFailed:
 			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q}}",
-					hostOta_notificationEventName, "State", NotificationMessage[ notify ] );
+					eventNotification_getSubject( eEventSubject_PicUpdate ), "State", NotificationMessage[ notify ] );
 			break;
 
 		case eNotifyFlashProgram:
@@ -749,13 +750,13 @@ static void hostOtaNotificationUpdate( hostOta_notification_t notify, double par
 			{
 				_hostota.lastPercentComplete = percent;
 				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%d}}",
-						hostOta_notificationEventName, "State", NotificationMessage[ notify ], "percent", percent );
+						eventNotification_getSubject( eEventSubject_PicUpdate ), "State", NotificationMessage[ notify ], "percent", percent );
 			}
 			break;
 
 		case eNotifyUpdateSuccess:
 			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%f}}",
-					hostOta_notificationEventName, "State", NotificationMessage[ notify ], "version", param  );
+					eventNotification_getSubject( eEventSubject_PicUpdate ), "State", NotificationMessage[ notify ], "version", param  );
 			break;
 
 		default:
