@@ -255,6 +255,7 @@ static int _replaceCharsInString( char * str, int strSize, const char * oldWord,
  *
  * @return Pointer to new string allocation if successful. NULL if failed
  */
+#ifdef	DEPRICATED
 static char * _replaceWildcardAppend( const char * strWithWildcard, const char * replacement, const char * additions )
 {
 	int err = ESP_OK;
@@ -313,7 +314,87 @@ static char * _replaceWildcardAppend( const char * strWithWildcard, const char *
 
 	return newString;
 }
+#endif
 
+static char * _replaceWildcardAppend( const char * strWithWildcard, const char * replacement, const char * additions )
+{
+	int err = ESP_OK;
+	char * newString = NULL;
+	size_t	newLength;
+	char *pSrc, *pDest, *pRepl, *pAddn;
+
+	if( ( strWithWildcard == NULL ) || ( replacement == NULL ) )
+	{
+		err = ESP_FAIL;
+		IotLogError( "_replaceWildcardAppend: source or replacement is NULL" );
+	}
+
+	if( err == ESP_OK )
+	{
+		/* Allocate buffer for new string */
+		newLength = strlen( strWithWildcard ) + strlen( replacement );
+		if( additions != NULL )
+		{
+			newLength += strlen( additions );
+		}
+		newString = ( char * )calloc( newLength, sizeof( char ) );
+		if( newString == NULL )
+		{
+			err = ESP_FAIL;
+			IotLogError( "Error: Could not allocate memory for new string with replaced wildcard" );
+		}
+	}
+
+	if( err == ESP_OK )
+	{
+		pSrc = ( char * )strWithWildcard;
+		pDest = newString;
+
+		/* copy from source to destination, up to wild-card */
+		while( ( *pSrc != 0x2A ) && ( *pSrc != 0x0 ) )
+		{
+			*pDest++ = *pSrc++;
+		}
+
+		/* On wild-card */
+		if( *pSrc == 0x2A )
+		{
+			pRepl = ( char * )replacement;
+
+			/* copy replacement */
+			while( *pRepl != 0x0 )
+			{
+				*pDest++ = *pRepl++;
+			}
+
+			/* skip wild-card */
+			pSrc++;
+
+			/* copy remaining source string */
+			while( *pSrc != 0x0 )
+			{
+				*pDest++ = *pSrc++;
+			}
+		}
+
+		/* Append addition */
+		if( additions != NULL )
+		{
+			pAddn = ( char * )additions;
+			while( *pAddn != 0x0 )
+			{
+				*pDest++ = *pAddn++;
+			}
+		}
+
+		/* Terminate string */
+		*pDest = 0x0;
+	}
+
+	IotLogInfo( "_replaceWildcardAppend: %s", newString );
+
+	return newString;
+}
 
 /**
  * @brief Establish a new connection to the MQTT server.
@@ -547,33 +628,40 @@ static void _fleetProvSubscriptionCallback( void* param1, IotMqttCallbackParam_t
 		// Look for the thing name in the message
 		if( MJSON_TOK_STRING == mjson_find( pPayload, pPublish->u.message.info.payloadLength, "$.thingName", &val, &len ) )
 		{
-			// Extract thing name (max thing name length is 23)
-			char thingName[ 24 ] = { 0 };
-			memcpy( thingName, ( val + 1 ), ( len - 2 ) );
+			if( len < 24 )
+			{
+				// Extract thing name (max thing name length is 23)
+				char thingName[ 24 ] = { 0 };
+				memcpy( thingName, ( val + 1 ), ( len - 2 ) );
 
-			// Store thing name in NVS memory
-			err = _storeThingName( thingName );
+				// Store thing name in NVS memory
+				err = _storeThingName( thingName );
 
-			if( err == ESP_OK )
-			{
-				err = _setFinalCredsToPKCS11Object();
-			}
-			/* The cert/key should be set to nvs memory after they PKCS11 objects are set.
-			 This is because the fleet provisioning call checks for the existence of credentials in nvs to confirm they are set.
-			 We want to avoid the scenario where are the credentials are set in nvs but fail to get saved as a PKCS11 object */
-			if( err == ESP_OK )
-			{
-				err = NVS_Set( NVS_FINAL_PRIVATE_KEY, finalKey, &finalKeyLength );
-			}
-			if( err == ESP_OK )
-			{
-				err = NVS_Set( NVS_FINAL_CERT, finalCert, &finalCertLength );
-			}
+				if( err == ESP_OK )
+				{
+					err = _setFinalCredsToPKCS11Object();
+				}
+				/* The cert/key should be set to nvs memory after they PKCS11 objects are set.
+				 This is because the fleet provisioning call checks for the existence of credentials in nvs to confirm they are set.
+				 We want to avoid the scenario where are the credentials are set in nvs but fail to get saved as a PKCS11 object */
+				if( err == ESP_OK )
+				{
+					err = NVS_Set( NVS_FINAL_PRIVATE_KEY, finalKey, &finalKeyLength );
+				}
+				if( err == ESP_OK )
+				{
+					err = NVS_Set( NVS_FINAL_CERT, finalCert, &finalCertLength );
+				}
 
-			if( err == ESP_OK )
+				if( err == ESP_OK )
+				{
+					/* Increment the number of PUBLISH messages received. */
+					IotSemaphore_Post( pPublishesReceived );
+				}
+			}
+			else
 			{
-				/* Increment the number of PUBLISH messages received. */
-				IotSemaphore_Post( pPublishesReceived );
+				IotLogError( "ThingName length too long: %d", len );
 			}
 		}
 		else
@@ -716,23 +804,31 @@ static int32_t _unsubscribeTopics( IotMqttConnection_t mqttConnection, const cha
 	IotMqttSubscription_t* pSubscriptions = ( IotMqttSubscription_t * )pvPortMalloc( numTopics * sizeof( IotMqttSubscription_t ) );
 	int i;
 
-	/* Set up the subscription parameters */
-	for( i = 0; i < numTopics; i++ )
+	if( pSubscriptions != NULL )
 	{
-		pSubscriptions[ i ].qos = IOT_MQTT_QOS_1;
-		pSubscriptions[ i ].pTopicFilter = pTopicsList[ i ];
-		pSubscriptions[ i ].topicFilterLength = ( ( uint16_t )strlen( pTopicsList[ i ] ) );
-		pSubscriptions[ i ].callback.function = NULL;
-		pSubscriptions[ i ].callback.pCallbackContext = NULL;
-	}
+		/* Set up the subscription parameters */
+		for( i = 0; i < numTopics; i++ )
+		{
+			pSubscriptions[ i ].qos = IOT_MQTT_QOS_1;
+			pSubscriptions[ i ].pTopicFilter = pTopicsList[ i ];
+			pSubscriptions[ i ].topicFilterLength = ( ( uint16_t )strlen( pTopicsList[ i ] ) );
+			pSubscriptions[ i ].callback.function = NULL;
+			pSubscriptions[ i ].callback.pCallbackContext = NULL;
+		}
 
-	subscriptionStatus = IotMqtt_TimedUnsubscribe( mqttConnection, pSubscriptions, numTopics, 0, MQTT_TIMEOUT_MS );
-	if (IOT_MQTT_SUCCESS != IOT_MQTT_SUCCESS)
+		subscriptionStatus = IotMqtt_TimedUnsubscribe( mqttConnection, pSubscriptions, numTopics, 0, MQTT_TIMEOUT_MS );
+		if (IOT_MQTT_SUCCESS != IOT_MQTT_SUCCESS)
+		{
+			IotLogError( "Failure unsubscribing from topics. Failure code:%d", subscriptionStatus );
+		}
+
+		vPortFree( pSubscriptions );
+	}
+	else
 	{
-		IotLogError( "Failure unsubscribing from topics. Failure code:%d", subscriptionStatus );
+		IotLogError( "_unsubscribeTopics: Failed to allocate buffer" );
+		subscriptionStatus = IOT_MQTT_NO_MEMORY;
 	}
-
-	vPortFree( pSubscriptions );
 
 	return subscriptionStatus;
 }
@@ -758,55 +854,63 @@ static int32_t _subscribeTopics( IotMqttConnection_t mqttConnection,
 	IotMqttSubscription_t* pSubscriptions = ( IotMqttSubscription_t * )pvPortMalloc( numTopics * sizeof( IotMqttSubscription_t ) );
 	int i;
 
-	/* Set up the subscription parameters */
-	for( i = 0; i < numTopics; i++ )
+	if( pSubscriptions != NULL )
 	{
-		pSubscriptions[ i ].qos = IOT_MQTT_QOS_1;
-		pSubscriptions[ i ].pTopicFilter = pTopicsList[ i ];
-		pSubscriptions[ i ].topicFilterLength = ( ( uint16_t )strlen( pTopicsList[ i ] ) );
-		pSubscriptions[ i ].callback.function = callbackFunc;
-		pSubscriptions[ i ].callback.pCallbackContext = pCallbackParameter;
+		/* Set up the subscription parameters */
+		for( i = 0; i < numTopics; i++ )
+		{
+			pSubscriptions[ i ].qos = IOT_MQTT_QOS_1;
+			pSubscriptions[ i ].pTopicFilter = pTopicsList[ i ];
+			pSubscriptions[ i ].topicFilterLength = ( ( uint16_t )strlen( pTopicsList[ i ] ) );
+			pSubscriptions[ i ].callback.function = callbackFunc;
+			pSubscriptions[ i ].callback.pCallbackContext = pCallbackParameter;
+		}
+
+		/* Subscribe to topics */
+		subscriptionStatus = IotMqtt_TimedSubscribe( mqttConnection, pSubscriptions, numTopics, 0, MQTT_TIMEOUT_MS );
+
+		/* Check the status of SUBSCRIBE. */
+		switch( subscriptionStatus )
+		{
+			case IOT_MQTT_SUCCESS:
+				IotLogInfo( "All topic subscriptions accepted" );
+				break;
+
+			case IOT_MQTT_SERVER_REFUSED:
+
+				/* Check which subscriptions were rejected before exiting the demo. */
+				for( i = 0; i < numTopics; i++ )
+				{
+					if( IotMqtt_IsSubscribed(mqttConnection,
+						pSubscriptions[ i ].pTopicFilter,
+						pSubscriptions[ i ].topicFilterLength,
+						NULL ) == true )
+					{
+						IotLogError( "Topic filter %.*s was accepted",
+							pSubscriptions[ i ].topicFilterLength,
+							pSubscriptions[ i ].pTopicFilter );
+					}
+					else
+					{
+						IotLogError( "Fail subscribe. Topic filter %.*s was rejected",
+							pSubscriptions[ i ].topicFilterLength,
+							pSubscriptions[ i ].pTopicFilter );
+					}
+				}
+				break;
+
+			default:
+				IotLogError( "Topic Subscribed Failure:%d", subscriptionStatus );
+				break;
+		}
+
+		vPortFree( pSubscriptions );
 	}
-
-	/* Subscribe to topics */
-	subscriptionStatus = IotMqtt_TimedSubscribe( mqttConnection, pSubscriptions, numTopics, 0, MQTT_TIMEOUT_MS );
-
-	/* Check the status of SUBSCRIBE. */
-	switch( subscriptionStatus )
+	else
 	{
-		case IOT_MQTT_SUCCESS:
-			IotLogInfo( "All topic subscriptions accepted" );
-			break;
-
-		case IOT_MQTT_SERVER_REFUSED:
-
-			/* Check which subscriptions were rejected before exiting the demo. */
-			for( i = 0; i < numTopics; i++ )
-			{
-				if( IotMqtt_IsSubscribed(mqttConnection,
-					pSubscriptions[ i ].pTopicFilter,
-					pSubscriptions[ i ].topicFilterLength,
-					NULL ) == true )
-				{
-					IotLogError( "Topic filter %.*s was accepted",
-						pSubscriptions[ i ].topicFilterLength,
-						pSubscriptions[ i ].pTopicFilter );
-				}
-				else
-				{
-					IotLogError( "Fail subscribe. Topic filter %.*s was rejected",
-						pSubscriptions[ i ].topicFilterLength,
-						pSubscriptions[ i ].pTopicFilter );
-				}
-			}
-			break;
-
-		default:
-			IotLogError( "Topic Subscribed Failure:%d", subscriptionStatus );
-			break;
+		IotLogError( "_subscribeTopics: Failed to allocate buffer" );
+		subscriptionStatus = IOT_MQTT_NO_MEMORY;
 	}
-
-	vPortFree( pSubscriptions );
 
 	return subscriptionStatus;
 }
@@ -1007,7 +1111,7 @@ static int32_t _getFinalCertsFromAWS( void* pNetworkServerInfo,
  *
  * @return ESP_OK if successful, error otherwise
  */
-int32_t _getSetCredentials( void * pNetworkServerInfo, void* pCredentials, const IotNetworkInterface_t * pNetworkInterface )
+static int32_t _getSetCredentials( void * pNetworkServerInfo, void* pCredentials, const IotNetworkInterface_t * pNetworkInterface )
 {
 	esp_err_t err;
 	uint32_t size;
@@ -1054,7 +1158,7 @@ int32_t _getSetCredentials( void * pNetworkServerInfo, void* pCredentials, const
  * @param[in] pArgs		Semaphore that will be posted to once the provisioning completes.
  *
  */
-void _fleetProvTask( void * pArgs )
+static void _fleetProvTask( void * pArgs )
 {
 	esp_err_t err = ESP_OK;
 	IotSemaphore_t * completeSemaphore = (IotSemaphore_t *) pArgs;
@@ -1162,6 +1266,9 @@ int32_t fleetProv_Init( fleetProv_InitParams_t * pfleetProvInitParams, IotSemaph
 
 	if( NULL == _xFleetProvTaskHandle )
 	{
+		// Free any buffers that have been allocated
+		_fleetProvCleanup();
+
 		err = ESP_FAIL;
 		IotLogError( "Error Creating Fleet Provisioning Task" );
 	}
