@@ -29,7 +29,12 @@ static const char * _subjectString[] =
 	[ eEventSubject_DispenseError ] = "DispenseError",
 	[ eEventSubject_HandleRaised ] = "HandleRaised",
 	[ eEventSubject_ImageCaptureComplete ] = "CaptureComplete",
+	[ eEventSubject_FillStart ] = "FillStart",
+	[ eEventSubject_CarbonationStart] = "CabonationStart",
+	[ eEventSubject_PourStart ] = "PourStart",
 	[ eEventSubject_PicUpdate ] = "PICupdate",
+	[ eEventSubject_NoWater ] = "NoWater",
+	[ eEventSubject_NoCO2Available ] = "NoCO2Available",
 };
 
 /**

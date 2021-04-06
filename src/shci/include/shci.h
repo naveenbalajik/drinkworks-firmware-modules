@@ -84,6 +84,7 @@ enum ShciOpcode
 	eEventRecordWriteIndex = 								0xBB,		/**< Event: Update Event Record index (Model-A) */
 	eEventRecordData =										0xBC,		/**< Command: Send Event Record data (Model-A) */
 	eRecipeRead =											0xBD,		/**< Command: */
+	eStateChange =											0xBE,		/**< Command: Notify change of Dispense State */
 
 	eEspSetSerialNumber = 									0xC0,		/**< Command: */
 	eEspSetPowerState = 									0xC1,		/**< Command: */

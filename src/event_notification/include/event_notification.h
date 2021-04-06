@@ -32,6 +32,11 @@ typedef enum
 	eEventSubject_PicUpdate,
 	eEventSubject_HandleRaised,
 	eEventSubject_ImageCaptureComplete,
+	eEventSubject_FillStart,
+	eEventSubject_CarbonationStart,
+	eEventSubject_PourStart,
+	eEventSubject_NoWater,
+	eEventSubject_NoCO2Available,
 	eEventSubject_EndOfList
 } _eventSubject_t;
 
