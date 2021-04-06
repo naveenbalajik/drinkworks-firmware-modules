@@ -202,28 +202,40 @@ static unsigned int		finalKeyLength = 0;
 *
 * @return The new string size after replacement completed. -1 if error
 */
-static int _replaceCharsInString(char* str, int strSize, const char* oldWord, const char* newWord) {
+static int _replaceCharsInString( char * str, int strSize, const char * oldWord, const char * newWord )
+{
 
 	int i = 0;
 	int wordLengthDifference;
 
-	wordLengthDifference = strlen(oldWord) - strlen(newWord);
+	wordLengthDifference = strlen( oldWord ) - strlen( newWord );
 
-	if (wordLengthDifference < 0) {
+	if( wordLengthDifference < 0 )
+	{
 		return -1;
 	}
 
-	for (i = 0; i < strSize; i++) {
-		if (memcmp(str + i, oldWord, strlen(oldWord)) == 0) {
-			memcpy((str + i), newWord, strlen(newWord));
-			if (wordLengthDifference > 0) {
+	/* search string */
+	for( i = 0; i < strSize; i++ )
+	{
+		/* Look for oldWord */
+		if( memcmp( ( str + i ), oldWord, strlen( oldWord ) ) == 0 )
+		{
+			/* Replace with newWord */
+			memcpy( ( str + i ), newWord, strlen( newWord ) );
+			/* If change in string length */
+			if( wordLengthDifference > 0 )
+			{
+				/* adjust string length */
 				strSize -= wordLengthDifference;
-				memcpy(str + i + 1, str + i + 1 + wordLengthDifference, strSize - i);
+				/* copy remainder of string, eliminating extra characters */
+				memcpy( ( str + i + 1 ), ( str + i + 1 + wordLengthDifference ), ( strSize - i ) );
 			}
 		}
 	}
 
-	*(str + strSize - 1) = 0;
+	/* terminate string with replacements */
+	*( str + strSize - 1 ) = 0;
 
 	return strSize;
 
@@ -231,14 +243,19 @@ static int _replaceCharsInString(char* str, int strSize, const char* oldWord, co
 
 /**
  * @brief Replaces wildcard in a string and appends another string to the end of the string
+ *
+ * Wildcard character is '*' (0x2A, 42d)
+ *
  * Note: All inputs to the function must be strings (null terminated)
  * Note: Output string will be dynamically allocated
  *
  * @param[in] strWithWildcard		String with wildcard
+ * @param[in] replacement			Wildcard replacement string
+ * @param[in] additions				String to be appended, optional
  *
  * @return Pointer to new string allocation if successful. NULL if failed
  */
-static char * _replaceWildcardAppend(const char * strWithWildcard, const char * replacement, const char * additions)
+static char * _replaceWildcardAppend( const char * strWithWildcard, const char * replacement, const char * additions )
 {
 	int err = ESP_OK;
 	int index = 0;
@@ -246,44 +263,51 @@ static char * _replaceWildcardAppend(const char * strWithWildcard, const char * 
 	char * wildcardPosition = NULL;
 
 	// Allocate memory for the new string
-	if(additions == NULL)
+	if( additions == NULL )
 	{
-		newString = (char *) calloc(strlen(strWithWildcard) + strlen(replacement), sizeof(char));
+		newString = ( char * )calloc( strlen( strWithWildcard ) + strlen( replacement ), sizeof( char ) );
 	}
 	else
 	{
-		newString = (char *) calloc(strlen(strWithWildcard) + strlen(replacement) + strlen(additions), sizeof(char));
+		newString = ( char * )calloc( strlen( strWithWildcard ) + strlen( replacement ) + strlen( additions ), sizeof( char ) );
 	}
-	if(newString == NULL)
+	if( newString == NULL )
 	{
 		err = ESP_FAIL;
-		IotLogError("Error: Could not allocate memory for new string with replaced wildcard");
+		IotLogError( "Error: Could not allocate memory for new string with replaced wildcard" );
 	}
 
-	if(err == ESP_OK){
+	if( err == ESP_OK )
+	{
 		// Set the newly allocated array to the string with wildcard
-		memcpy(newString, strWithWildcard, strlen(strWithWildcard));
+		memcpy( newString, strWithWildcard, strlen( strWithWildcard ) );
 		// Find the wildcard
-		wildcardPosition = strchr(strWithWildcard, 42);
-		index = wildcardPosition - strWithWildcard;
-		if(wildcardPosition == NULL){
+		wildcardPosition = strchr( strWithWildcard, 42 );
+		if( wildcardPosition == NULL )
+		{
 			err = ESP_FAIL;
-			free(newString);
+			free( newString );
 			newString = NULL;
-			IotLogError("Error: Wildcard not found in string");
+			IotLogError( "Error: Wildcard not found in string" );
 		}
 	}
 
-	if(err ==ESP_OK){
+	if( err == ESP_OK )
+	{
+		index = wildcardPosition - strWithWildcard;
+
 		// Replace the wildcard with the replacement string
-		strcpy(newString + index, replacement);
-		index += strlen(replacement);
+		strcpy( ( newString + index ), replacement );
+		index += strlen( replacement );
+
 		// Refill the end of the string
-		strcpy(newString + index, wildcardPosition + 1);
-		index += strlen(wildcardPosition + 1);
+		strcpy( ( newString + index ), ( wildcardPosition + 1 ) );
+		index += strlen( wildcardPosition + 1 );
+
 		// Place any additions on the end of the string
-		if(additions != NULL){
-			strcpy(newString + index, additions);
+		if( additions != NULL )
+		{
+			strcpy( ( newString + index ), additions );
 		}
 	}
 
@@ -305,10 +329,10 @@ static char * _replaceWildcardAppend(const char * strWithWildcard, const char * 
  * @return `EXIT_SUCCESS` if the connection is successfully established; `EXIT_FAILURE`
  * otherwise.
  */
-static int32_t _establishMqttConnection(void* pNetworkServerInfo,
+static int32_t _establishMqttConnection( void* pNetworkServerInfo,
 									void* pNetworkCredentialInfo,
 									const IotNetworkInterface_t* pNetworkInterface,
-									IotMqttConnection_t* pMqttConnection)
+									IotMqttConnection_t* pMqttConnection )
 {
 	esp_err_t err = 0;
 	IotMqttError_t connectStatus = IOT_MQTT_STATUS_PENDING;
@@ -334,14 +358,14 @@ static int32_t _establishMqttConnection(void* pNetworkServerInfo,
 	bleGap_fetchSerialNumber(pClientIdentifierBuffer, &length);
 
 	connectInfo.pClientIdentifier = pClientIdentifierBuffer;
-	connectInfo.clientIdentifierLength = (uint16_t)strlen(pClientIdentifierBuffer);
+	connectInfo.clientIdentifierLength = ( uint16_t )strlen( pClientIdentifierBuffer );
 
-	connectStatus = IotMqtt_Connect(&networkInfo,
+	connectStatus = IotMqtt_Connect( &networkInfo,
 		&connectInfo,
 		MQTT_TIMEOUT_MS,
-		pMqttConnection);
+		pMqttConnection );
 
-	if (connectStatus != IOT_MQTT_SUCCESS)
+	if( connectStatus != IOT_MQTT_SUCCESS )
 	{
 		IotLogError( "ERROR: MQTT CONNECT returned error %s.", IotMqtt_strerror( connectStatus ) );
 		err = connectStatus;
@@ -356,34 +380,35 @@ static int32_t _establishMqttConnection(void* pNetworkServerInfo,
  * @brief Cleanup malloc'd memory
  *
  */
-static void _fleetProvCleanup(void){
-	if (NULL != finalCert)
+static void _fleetProvCleanup( void )
+{
+	if( NULL != finalCert )
 	{
-		vPortFree(finalCert);
+		vPortFree( finalCert );
 		finalCert = NULL;
 	}
 
-	if (NULL != finalKey)
+	if( NULL != finalKey )
 	{
-		vPortFree(finalKey);
+		vPortFree( finalKey );
 		finalKey = NULL;
 	}
 
-	if(NULL != pProvisionRequestTopic)
+	if( NULL != pProvisionRequestTopic )
 	{
-		vPortFree(pProvisionRequestTopic);
+		vPortFree( pProvisionRequestTopic );
 		pProvisionRequestTopic = NULL;
 	}
 
-	if(NULL != pProvisionRequestAcceptedTopic)
+	if( NULL != pProvisionRequestAcceptedTopic )
 	{
-		vPortFree(pProvisionRequestAcceptedTopic);
+		vPortFree( pProvisionRequestAcceptedTopic );
 		pProvisionRequestAcceptedTopic = NULL;
 	}
 
-	if(NULL != pProvisionRequestRejectedTopic)
+	if( NULL != pProvisionRequestRejectedTopic )
 	{
-		vPortFree(pProvisionRequestRejectedTopic);
+		vPortFree( pProvisionRequestRejectedTopic );
 		pProvisionRequestRejectedTopic = NULL;
 	}
 
@@ -401,7 +426,7 @@ static void _fleetProvCleanup(void){
  *
  * @return 	ESP_OK
  */
-static uint32_t _fleetProvisionRequest(IotMqttConnection_t mqttConnection, const char* pCertOwnershipToken, int sizeCertOwnershipToken)
+static uint32_t _fleetProvisionRequest( IotMqttConnection_t mqttConnection, const char* pCertOwnershipToken, int sizeCertOwnershipToken )
 {
 	IotMqttPublishInfo_t publishInfo = IOT_MQTT_PUBLISH_INFO_INITIALIZER;
 	publishInfo.qos = IOT_MQTT_QOS_1;
@@ -411,19 +436,19 @@ static uint32_t _fleetProvisionRequest(IotMqttConnection_t mqttConnection, const
 	publishInfo.topicNameLength = strlen(pProvisionRequestTopic);
 
 	// Get the parameter information for the fleet provisioning response
-	char sernum[16] = {0};
+	char sernum[ 16 ] = { 0 };
 	size_t length = sizeof( sernum );
 	// Get Serial Number from NV storage
-	bleGap_fetchSerialNumber(sernum, &length);
+	bleGap_fetchSerialNumber( sernum, &length );
 	/* Get WiFi MAC Address (byte reversed) to attach to end of message*/
-	uint8_t wifi_addr[6];
-	esp_wifi_get_mac(WIFI_IF_STA, wifi_addr);
-	char macAddress[18] = {0};
-	sprintf(macAddress, "%02x:%02x:%02x:%02x:%02x:%02x", wifi_addr[5], wifi_addr[4], wifi_addr[3], wifi_addr[2], wifi_addr[1], wifi_addr[0]);
+	uint8_t wifi_addr[ 6 ];
+	esp_wifi_get_mac( WIFI_IF_STA, wifi_addr );
+	char macAddress[ 18 ] = { 0 };
+	sprintf( macAddress, "%02x:%02x:%02x:%02x:%02x:%02x", wifi_addr[ 5 ], wifi_addr[ 4 ], wifi_addr[ 3 ], wifi_addr[ 2 ], wifi_addr[ 1 ], wifi_addr[ 0 ] );
 
 	// Create an mjson document with the certificate ownership token
 	char * provisionPayload = NULL;
-	mjson_printf(&mjson_print_dynamic_buf, &provisionPayload,"{%Q:%.*s, %Q: {%Q:%Q, %Q:%Q}}", \
+	mjson_printf( &mjson_print_dynamic_buf, &provisionPayload,"{%Q:%.*s, %Q: {%Q:%Q, %Q:%Q}}", \
 															"certificateOwnershipToken", \
 															sizeCertOwnershipToken, pCertOwnershipToken, \
 															"parameters", \
@@ -435,16 +460,12 @@ static uint32_t _fleetProvisionRequest(IotMqttConnection_t mqttConnection, const
 
 	// Set the publish payload to the
 	publishInfo.pPayload = provisionPayload;
-	publishInfo.payloadLength = strlen(provisionPayload);
-	IotMqtt_Publish(mqttConnection,
-									&publishInfo,
-									0,
-									NULL,
-									NULL);
+	publishInfo.payloadLength = strlen( provisionPayload );
+	IotMqtt_Publish( mqttConnection, &publishInfo, 0, NULL,	NULL );
 
-	if(NULL != provisionPayload)
+	if( NULL != provisionPayload )
 	{
-		free(provisionPayload);
+		free( provisionPayload );
 	}
 
 	return ESP_OK;
@@ -457,18 +478,17 @@ static uint32_t _fleetProvisionRequest(IotMqttConnection_t mqttConnection, const
  *
  * @param[in] thingName		pointer to null-terminated string
  */
-static int32_t _storeThingName(const char* thingName)
+static int32_t _storeThingName( const char* thingName )
 {
 	esp_err_t xRet;
-	xRet = NVS_Set(NVS_THING_NAME, (void*)thingName, NULL);
+	xRet = NVS_Set( NVS_THING_NAME, ( void * )thingName, NULL );
 
-	if (xRet == ESP_OK)
+	if( xRet == ESP_OK )
 	{
 		IotLogInfo( "storeThingName(%s) - set OK", thingName );
 	}
 
 	return xRet;
-
 }
 
 /**
@@ -476,7 +496,7 @@ static int32_t _storeThingName(const char* thingName)
  *
  * @return 	ESP_OK if successful, error otherwise
  */
-static int32_t _setFinalCredsToPKCS11Object(void)
+static int32_t _setFinalCredsToPKCS11Object( void )
 {
 
 	esp_err_t err;
@@ -488,15 +508,17 @@ static int32_t _setFinalCredsToPKCS11Object(void)
 	xParams.pucClientCertificate = finalCert;
 	xParams.ulClientCertificateLength = finalCertLength;
 
-	err = setPKCS11CredObjectParams(&xParams);
-	if (err != ESP_OK) {
-		NVS_EraseKey(NVS_CLAIM_CERT);
-		NVS_EraseKey(NVS_CLAIM_PRIVATE_KEY);
+	err = setPKCS11CredObjectParams( &xParams );
+	if( err != ESP_OK )
+	{
+		NVS_EraseKey( NVS_CLAIM_CERT );
+		NVS_EraseKey( NVS_CLAIM_PRIVATE_KEY );
 		IotLogError( "FAILED to set final creds to PKCS11 object" );
 	}
 
-	if(err == ESP_OK){
-		AwsIotNetworkManager_UpdateTCPIPCreds(&xParams);
+	if( err == ESP_OK )
+	{
+		AwsIotNetworkManager_UpdateTCPIPCreds( &xParams );
 	}
 
 	return err;
@@ -508,45 +530,50 @@ static int32_t _setFinalCredsToPKCS11Object(void)
  * @param[in] param1	Semaphore for provisioning request
  * @param[in] pOperation	Information about the completed operation passed by the MQTT library.
  */
-static void _fleetProvSubscriptionCallback(void* param1, IotMqttCallbackParam_t* const pPublish) 
+static void _fleetProvSubscriptionCallback( void* param1, IotMqttCallbackParam_t* const pPublish )
 {	
 	esp_err_t err = ESP_OK;
-	IotSemaphore_t* pPublishesReceived = (IotSemaphore_t*)param1;
+	IotSemaphore_t* pPublishesReceived = ( IotSemaphore_t * )param1;
 	const char* pPayload = pPublish->u.message.info.pPayload;
 
 	IotLogInfo( "Message received from topic:%.*s", pPublish->u.message.topicFilterLength, pPublish->u.message.pTopicFilter );
 
 	// Ensure that the message came in on the accepted topic
-	if(memcmp(pPublish->u.message.pTopicFilter, pProvisionRequestAcceptedTopic, strlen(pProvisionRequestAcceptedTopic)) == 0)
+	if( memcmp( pPublish->u.message.pTopicFilter, pProvisionRequestAcceptedTopic, strlen( pProvisionRequestAcceptedTopic ) ) == 0 )
 	{
 		const char *val;
 		int len = 0;
+
 		// Look for the thing name in the message
-		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.thingName", &val, &len))
+		if( MJSON_TOK_STRING == mjson_find( pPayload, pPublish->u.message.info.payloadLength, "$.thingName", &val, &len ) )
 		{
 			// Extract thing name (max thing name length is 23)
-			char thingName[24] = {0};
-			memcpy(thingName, val+1, len-2);
+			char thingName[ 24 ] = { 0 };
+			memcpy( thingName, ( val + 1 ), ( len - 2 ) );
 
 			// Store thing name in NVS memory
-			err = _storeThingName(thingName);
+			err = _storeThingName( thingName );
 
-			if(err == ESP_OK){
+			if( err == ESP_OK )
+			{
 				err = _setFinalCredsToPKCS11Object();
 			}
 			/* The cert/key should be set to nvs memory after they PKCS11 objects are set.
 			 This is because the fleet provisioning call checks for the existence of credentials in nvs to confirm they are set.
 			 We want to avoid the scenario where are the credentials are set in nvs but fail to get saved as a PKCS11 object */
-			if(err == ESP_OK){
-				err = NVS_Set(NVS_FINAL_PRIVATE_KEY, finalKey, &finalKeyLength);
+			if( err == ESP_OK )
+			{
+				err = NVS_Set( NVS_FINAL_PRIVATE_KEY, finalKey, &finalKeyLength );
 			}
-			if(err == ESP_OK){
-				err = NVS_Set(NVS_FINAL_CERT, finalCert, &finalCertLength);
+			if( err == ESP_OK )
+			{
+				err = NVS_Set( NVS_FINAL_CERT, finalCert, &finalCertLength );
 			}
 
-			if(err == ESP_OK){
+			if( err == ESP_OK )
+			{
 				/* Increment the number of PUBLISH messages received. */
-				IotSemaphore_Post(pPublishesReceived);
+				IotSemaphore_Post( pPublishesReceived );
 			}
 		}
 		else
@@ -556,7 +583,7 @@ static void _fleetProvSubscriptionCallback(void* param1, IotMqttCallbackParam_t*
 	}
 	else
 	{
-//		Verbose messaging to help diagnose why a proviosning request is rejected
+//		Verbose messaging to help diagnose why a provisioning request is rejected
 //		printf( "Rejection message: %.*s\n", pPublish->u.message.info.payloadLength, ( char * )pPublish->u.message.info.pPayload );
 		IotLogError( "Failed. Message Received from Fleet Provisioning Rejected Topic" );
 	}
@@ -568,25 +595,28 @@ static void _fleetProvSubscriptionCallback(void* param1, IotMqttCallbackParam_t*
  *
  * @return 	ESP_OK if successful, error otherwise
  */
-static int32_t _updateTCPIPCredsWithFinalParamsFromNVS(void)
+static int32_t _updateTCPIPCredsWithFinalParamsFromNVS( void )
 {
 	esp_err_t err = ESP_OK;
 	uint32_t certBlobSize, keyBlobSize;
 
-	err = NVS_Get_Size_Of(NVS_FINAL_CERT, &certBlobSize);
+	err = NVS_Get_Size_Of( NVS_FINAL_CERT, &certBlobSize );
 
-	if(err == ESP_OK){
-		finalCert = pvPortMalloc(certBlobSize);
-		err = NVS_Get(NVS_FINAL_CERT, finalCert, &certBlobSize);
+	if( err == ESP_OK )
+	{
+		finalCert = pvPortMalloc( certBlobSize );
+		err = NVS_Get( NVS_FINAL_CERT, finalCert, &certBlobSize );
 	}
 
-	if(err == ESP_OK){
-		err = NVS_Get_Size_Of(NVS_FINAL_PRIVATE_KEY, &keyBlobSize);
+	if( err == ESP_OK )
+	{
+		err = NVS_Get_Size_Of( NVS_FINAL_PRIVATE_KEY, &keyBlobSize );
 	}
 
-	if(err == ESP_OK){
-		finalKey = pvPortMalloc(keyBlobSize);
-		err = NVS_Get(NVS_FINAL_PRIVATE_KEY, finalKey, &keyBlobSize);
+	if( err == ESP_OK )
+	{
+		finalKey = pvPortMalloc( keyBlobSize );
+		err = NVS_Get( NVS_FINAL_PRIVATE_KEY, finalKey, &keyBlobSize );
 	}
 
 	ProvisioningParams_t xParams;
@@ -597,8 +627,9 @@ static int32_t _updateTCPIPCredsWithFinalParamsFromNVS(void)
 	xParams.pucClientPrivateKey = finalKey;
 	xParams.ulClientPrivateKeyLength = keyBlobSize;
 
-	if(err == ESP_OK){
-		AwsIotNetworkManager_UpdateTCPIPCreds(&xParams);
+	if( err == ESP_OK )
+	{
+		AwsIotNetworkManager_UpdateTCPIPCreds( &xParams );
 	}
 
 	return err;
@@ -607,46 +638,55 @@ static int32_t _updateTCPIPCredsWithFinalParamsFromNVS(void)
 /**
  * @brief Callback from certificate create request
  *
+ *	The certificate file and private key are copied into allocated buffers, pointed to be static variables
+ *	finalCert and finalKey.
+ *
  * @param[in] param1	Not used
  * @param[in] pOperation	Information about the completed operation passed by the MQTT library.
  */
-static void _certificateCreateSubscriptionCallback(void* param1, IotMqttCallbackParam_t* const pPublish)
+static void _certificateCreateSubscriptionCallback( void* param1, IotMqttCallbackParam_t* const pPublish )
 {
 	IotLogInfo( "Message received from topic:%.*s", pPublish->u.message.topicFilterLength, pPublish->u.message.pTopicFilter );
+
 	const char* pPayload = pPublish->u.message.info.pPayload;
+
 	/* If the message was received on the accepted topic of certificate creation then parse message */
-	if (strncmp(pPublish->u.message.pTopicFilter, CERT_CREATE_RETURN_TOPIC_ACCEPTED, sizeof(CERT_CREATE_RETURN_TOPIC_ACCEPTED) - 1) == 0)
+	if( strncmp(pPublish->u.message.pTopicFilter, CERT_CREATE_RETURN_TOPIC_ACCEPTED, ( sizeof( CERT_CREATE_RETURN_TOPIC_ACCEPTED ) - 1 ) ) == 0 )
 	{
 		int parsedParametersFound = 0;
 		char *val;
 		int len = 0;
+
 		// Find the certificate ownership token
-		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.certificateOwnershipToken", (const char **)&val, &len))
+		if( MJSON_TOK_STRING == mjson_find( pPayload, pPublish->u.message.info.payloadLength, "$.certificateOwnershipToken", ( const char ** )&val, &len ) )
 		{
 			// Send the ownership token along with the device parameters
-			_fleetProvisionRequest(pPublish->mqttConnection, val, len);
+			_fleetProvisionRequest( pPublish->mqttConnection, val, len );
 			parsedParametersFound++;
 		}
+
 		// Find the certificate file
-		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.certificatePem", (const char **)&val, &len))
+		if( MJSON_TOK_STRING == mjson_find( pPayload, pPublish->u.message.info.payloadLength, "$.certificatePem", ( const char ** )&val, &len ) )
 		{
 			// Copy the certificate into a new buffer before storing in the final cert
-			char * cert = (char *) calloc(len, sizeof(char));
-			memcpy(cert, val + 1, len - 2);
-			if(cert != NULL){
-				finalCertLength = _replaceCharsInString(cert, len - 2, "\\n", "\n");
-				finalCert = pvPortMalloc(finalCertLength);
-				memcpy(finalCert, cert, finalCertLength);
+			char * cert = ( char * ) calloc( len, sizeof( char ) );
+			memcpy( cert, ( val + 1 ), ( len - 2 ) );
+			if( cert != NULL )
+			{
+				finalCertLength = _replaceCharsInString( cert, ( len - 2 ), "\\n", "\n" );
+				finalCert = pvPortMalloc( finalCertLength );
+				memcpy( finalCert, cert, finalCertLength );
 				parsedParametersFound++;
-				free(cert);
+				free( cert );
 			}
 		}
+
 		// Find the private key
-		if(MJSON_TOK_STRING == mjson_find(pPayload, pPublish->u.message.info.payloadLength, "$.privateKey", (const char **)&val, &len))
+		if( MJSON_TOK_STRING == mjson_find( pPayload, pPublish->u.message.info.payloadLength, "$.privateKey", ( const char ** )&val, &len ) )
 		{
-			finalKeyLength = _replaceCharsInString(val + 1, len - 2, "\\n", "\n");
-			finalKey = pvPortMalloc(finalKeyLength);
-			memcpy(finalKey, val + 1, finalKeyLength);
+			finalKeyLength = _replaceCharsInString( ( val + 1 ), ( len - 2 ), "\\n", "\n" );
+			finalKey = pvPortMalloc( finalKeyLength );
+			memcpy( finalKey, val + 1, finalKeyLength );
 			parsedParametersFound++;
 		}
 
@@ -655,7 +695,8 @@ static void _certificateCreateSubscriptionCallback(void* param1, IotMqttCallback
 			IotLogError( "Failed to find ownershipToken, cert, or private key in message" );
 		}
 	}
-	else {
+	else
+	{
 		IotLogError( "AWS rejected request for certificate creation. Response topic: %.*s", pPublish->u.message.topicFilterLength, pPublish->u.message.pTopicFilter );
 	}
 }
@@ -663,35 +704,35 @@ static void _certificateCreateSubscriptionCallback(void* param1, IotMqttCallback
 /**
  * @brief Unsubscribe to topics
  *
- * @param[in] mqttConnection	Current Mqtt connection
+ * @param[in] mqttConnection	Current MQTT connection
  * @param[in] pTopicsList	List of topics to unsubscribe from. Must be null terminated strings
  * @param[in] numTopics		Number of topics to unsubscribe from
  *
  * @return 	subscriptionStatus of type IotMqttError_t
  */
-static int32_t _unsubscribeTopics(IotMqttConnection_t mqttConnection, const char** pTopicsList, uint8_t numTopics)
+static int32_t _unsubscribeTopics( IotMqttConnection_t mqttConnection, const char** pTopicsList, uint8_t numTopics )
 {
 	IotMqttError_t subscriptionStatus = IOT_MQTT_STATUS_PENDING;
-	IotMqttSubscription_t* pSubscriptions = (IotMqttSubscription_t*)pvPortMalloc(numTopics * sizeof(IotMqttSubscription_t));
+	IotMqttSubscription_t* pSubscriptions = ( IotMqttSubscription_t * )pvPortMalloc( numTopics * sizeof( IotMqttSubscription_t ) );
 	int i;
 
 	/* Set up the subscription parameters */
-	for (i = 0; i < numTopics; i++)
+	for( i = 0; i < numTopics; i++ )
 	{
-		pSubscriptions[i].qos = IOT_MQTT_QOS_1;
-		pSubscriptions[i].pTopicFilter = pTopicsList[i];
-		pSubscriptions[i].topicFilterLength = ((uint16_t)strlen(pTopicsList[i]));
-		pSubscriptions[i].callback.function = NULL;
-		pSubscriptions[i].callback.pCallbackContext = NULL;
+		pSubscriptions[ i ].qos = IOT_MQTT_QOS_1;
+		pSubscriptions[ i ].pTopicFilter = pTopicsList[ i ];
+		pSubscriptions[ i ].topicFilterLength = ( ( uint16_t )strlen( pTopicsList[ i ] ) );
+		pSubscriptions[ i ].callback.function = NULL;
+		pSubscriptions[ i ].callback.pCallbackContext = NULL;
 	}
 
-	subscriptionStatus = IotMqtt_TimedUnsubscribe(mqttConnection, pSubscriptions, numTopics, 0, MQTT_TIMEOUT_MS);
+	subscriptionStatus = IotMqtt_TimedUnsubscribe( mqttConnection, pSubscriptions, numTopics, 0, MQTT_TIMEOUT_MS );
 	if (IOT_MQTT_SUCCESS != IOT_MQTT_SUCCESS)
 	{
 		IotLogError( "Failure unsubscribing from topics. Failure code:%d", subscriptionStatus );
 	}
 
-	vPortFree(pSubscriptions);
+	vPortFree( pSubscriptions );
 
 	return subscriptionStatus;
 }
@@ -699,39 +740,39 @@ static int32_t _unsubscribeTopics(IotMqttConnection_t mqttConnection, const char
 /**
  * @brief Subscribe to topics
  *
- * @param[in] mqttConnection	Current Mqtt connection
+ * @param[in] mqttConnection	Current MQTT connection
  * @param[in] pTopicsList	List of topics to unsubscribe from. Must be null terminated string.
  * @param[in] numTopics		Number of topics to unsubscribe from
- * @param[in] callbackFunc	Callback funtion when message received from topic
+ * @param[in] callbackFunc	Callback function when message received from topic
  * @param[in] pCallbackParameter	parameter to pass to callback function
  *
  * @return 	subscriptionStatus of type IotMqttError_t
  */
-static int32_t _subscribeTopics(IotMqttConnection_t mqttConnection,
+static int32_t _subscribeTopics( IotMqttConnection_t mqttConnection,
 	const char** pTopicsList,
 	uint8_t numTopics,
 	void* callbackFunc,
-	void* pCallbackParameter)
+	void* pCallbackParameter )
 {
 	IotMqttError_t subscriptionStatus = IOT_MQTT_STATUS_PENDING;
-	IotMqttSubscription_t* pSubscriptions = (IotMqttSubscription_t*)pvPortMalloc(numTopics * sizeof(IotMqttSubscription_t));
+	IotMqttSubscription_t* pSubscriptions = ( IotMqttSubscription_t * )pvPortMalloc( numTopics * sizeof( IotMqttSubscription_t ) );
 	int i;
 
 	/* Set up the subscription parameters */
-	for (i = 0; i < numTopics; i++)
+	for( i = 0; i < numTopics; i++ )
 	{
-		pSubscriptions[i].qos = IOT_MQTT_QOS_1;
-		pSubscriptions[i].pTopicFilter = pTopicsList[i];
-		pSubscriptions[i].topicFilterLength = ((uint16_t)strlen(pTopicsList[i]));
-		pSubscriptions[i].callback.function = callbackFunc;
-		pSubscriptions[i].callback.pCallbackContext = pCallbackParameter;
+		pSubscriptions[ i ].qos = IOT_MQTT_QOS_1;
+		pSubscriptions[ i ].pTopicFilter = pTopicsList[ i ];
+		pSubscriptions[ i ].topicFilterLength = ( ( uint16_t )strlen( pTopicsList[ i ] ) );
+		pSubscriptions[ i ].callback.function = callbackFunc;
+		pSubscriptions[ i ].callback.pCallbackContext = pCallbackParameter;
 	}
 
 	/* Subscribe to topics */
-	subscriptionStatus = IotMqtt_TimedSubscribe(mqttConnection, pSubscriptions, numTopics, 0, MQTT_TIMEOUT_MS);
+	subscriptionStatus = IotMqtt_TimedSubscribe( mqttConnection, pSubscriptions, numTopics, 0, MQTT_TIMEOUT_MS );
 
 	/* Check the status of SUBSCRIBE. */
-	switch (subscriptionStatus)
+	switch( subscriptionStatus )
 	{
 		case IOT_MQTT_SUCCESS:
 			IotLogInfo( "All topic subscriptions accepted" );
@@ -765,7 +806,7 @@ static int32_t _subscribeTopics(IotMqttConnection_t mqttConnection,
 			break;
 	}
 
-	vPortFree(pSubscriptions);
+	vPortFree( pSubscriptions );
 
 	return subscriptionStatus;
 }
@@ -778,11 +819,13 @@ static int32_t _subscribeTopics(IotMqttConnection_t mqttConnection,
  *
  * @return 	ESP_OK if successful, -1 if failed
  */
-static int32_t _requestFinalCertFromAWS(IotMqttConnection_t mqttConnection, IotSemaphore_t* pSemaphore) {
+static int32_t _requestFinalCertFromAWS( IotMqttConnection_t mqttConnection, IotSemaphore_t* pSemaphore )
+{
 	IotMqttPublishInfo_t publishInfo = IOT_MQTT_PUBLISH_INFO_INITIALIZER;
+
 	/* Set the common members of the publish info. */
 	publishInfo.qos = IOT_MQTT_QOS_1;
-	publishInfo.topicNameLength = sizeof(CERT_CREATE_REQUEST_AWS_TOPIC_NAME) - 1;
+	publishInfo.topicNameLength = sizeof( CERT_CREATE_REQUEST_AWS_TOPIC_NAME ) - 1;
 	publishInfo.pPayload = "";
 	publishInfo.retryMs = PUBLISH_RETRY_MS;
 	publishInfo.retryLimit = PUBLISH_RETRY_LIMIT;
@@ -811,18 +854,20 @@ static int32_t _requestFinalCertFromAWS(IotMqttConnection_t mqttConnection, IotS
  * @return ESP_OK upon successful credential setup.
  * Otherwise, a positive PKCS #11 error code.
  */
-int32_t _setClaimCredsToPKCS11Object(void)
+int32_t _setClaimCredsToPKCS11Object( void )
 {
 	esp_err_t err = ESP_OK;
 	uint32_t size;
-	err = NVS_Get_Size_Of(NVS_CLAIM_CERT, &size);
+
+	err = NVS_Get_Size_Of( NVS_CLAIM_CERT, &size );
 
 	// Determine if an object is already set to the PKCS11 certificate. If object is already set, then the claim credentials are already in place and no need to rewrite them
-	if(err != ESP_OK){
-
+	if( err != ESP_OK )
+	{
 		err = credentialUtility_decryptCredentials();
 
-		if(err != ESP_OK){
+		if( err != ESP_OK )
+		{
 			IotLogError( "Failed Credential decryption" );
 			return -1;
 		}
@@ -835,16 +880,18 @@ int32_t _setClaimCredsToPKCS11Object(void)
 		xParams.pucClientPrivateKey = plaintextClaimPrivKey;
 		xParams.ulClientPrivateKeyLength = claimPrivKeyLength;
 
-		err = setPKCS11CredObjectParams(&xParams);
+		err = setPKCS11CredObjectParams( &xParams );
 
 		/* The cert/key should be set to nvs memory after they PKCS11 objects are set.
 		 This is because the fleet provisioning call checks for the existence of credentials in nvs to confirm they are set.
 		 We want to avoid the scenario where are the credentials are set in nvs but fail to get saved as a PKCS11 object */
-		if(err == ESP_OK){
-			err = NVS_Set(NVS_CLAIM_PRIVATE_KEY, plaintextClaimPrivKey, &claimPrivKeyLength);
+		if( err == ESP_OK )
+		{
+			err = NVS_Set( NVS_CLAIM_PRIVATE_KEY, plaintextClaimPrivKey, &claimPrivKeyLength );
 		}
-		if(err == ESP_OK){
-			err = NVS_Set(NVS_CLAIM_CERT, plaintextClaimCert, &claimCertLength);
+		if( err == ESP_OK )
+		{
+			err = NVS_Set( NVS_CLAIM_CERT, plaintextClaimCert, &claimCertLength );
 		}
 	}
 
@@ -862,9 +909,9 @@ int32_t _setClaimCredsToPKCS11Object(void)
  *
  * @return 	ESP_OK if successful, error otherwise
  */
-static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
+static int32_t _getFinalCertsFromAWS( void* pNetworkServerInfo,
 										void* pNetworkCredentialInfo,
-										const IotNetworkInterface_t* pNetworkInterface)
+										const IotNetworkInterface_t* pNetworkInterface )
 {
 	esp_err_t err;
 
@@ -889,10 +936,10 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 	IotMqttConnection_t mqttConnection = IOT_MQTT_CONNECTION_INITIALIZER;
 
 	/* Establish a new MQTT connection. */
-	err = _establishMqttConnection(pNetworkServerInfo,
+	err = _establishMqttConnection( pNetworkServerInfo,
 		pNetworkCredentialInfo,
 		pNetworkInterface,
-		&mqttConnection);
+		&mqttConnection );
 
 	if( err != ESP_OK )
 	{
@@ -907,7 +954,7 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 		CERT_CREATE_RETURN_TOPIC_REJECTED,
 	};
 
-	err = _subscribeTopics(mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT, _certificateCreateSubscriptionCallback, NULL);
+	err = _subscribeTopics( mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT, _certificateCreateSubscriptionCallback, NULL );
 	if( ESP_OK == err )
 	{
 		err = _subscribeTopics( mqttConnection, pFleetProvReturnTopics, FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT, _fleetProvSubscriptionCallback, &fleetProvisioningReceived );
@@ -917,10 +964,11 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 	{
 		if( IotSemaphore_Create( &fleetProvisioningReceived, 0, 1024 ) == true )
 		{
-			err = _requestFinalCertFromAWS(mqttConnection, &fleetProvisioningReceived);
+			err = _requestFinalCertFromAWS( mqttConnection, &fleetProvisioningReceived );
 			IotSemaphore_Destroy( &fleetProvisioningReceived );
 		}
-		else {
+		else
+		{
 			IotLogError( "Failed to create semaphore" );
 			err = ESP_FAIL;
 		}
@@ -928,12 +976,12 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 
 	if( ESP_OK == err )
 	{
-		err = _unsubscribeTopics(mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT);
+		err = _unsubscribeTopics( mqttConnection, pCertCreatedReturnTopics, CERT_CREATED_SUBSCRIBE_TOPIC_CNT );
 	}
 
 	if( ESP_OK == err )
 	{
-		err = _unsubscribeTopics(mqttConnection, pFleetProvReturnTopics, FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT);
+		err = _unsubscribeTopics( mqttConnection, pFleetProvReturnTopics, FLEET_PROVIS_SUBSCRIBE_TOPIC_CNT );
 	}
 	
 	// For debug
@@ -943,7 +991,7 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
 	}
 
 	IotLogInfo( "MQTT Disconnected" );
-	IotMqtt_Disconnect(mqttConnection, 0);
+	IotMqtt_Disconnect( mqttConnection, 0 );
 
 	return err;
 }
@@ -959,7 +1007,7 @@ static int32_t _getFinalCertsFromAWS(void* pNetworkServerInfo,
  *
  * @return ESP_OK if successful, error otherwise
  */
-int32_t _getSetCredentials(void * pNetworkServerInfo, void* pCredentials, const IotNetworkInterface_t * pNetworkInterface)
+int32_t _getSetCredentials( void * pNetworkServerInfo, void* pCredentials, const IotNetworkInterface_t * pNetworkInterface )
 {
 	esp_err_t err;
 	uint32_t size;
@@ -967,23 +1015,27 @@ int32_t _getSetCredentials(void * pNetworkServerInfo, void* pCredentials, const 
 	//Check for Final Certificate
 	IotLogInfo( "Checking for Final Credentials" );
 	err = NVS_Get_Size_Of( NVS_FINAL_CERT, &size );
-	if (err == ESP_OK)
+	if( err == ESP_OK )
 	{
 		IotLogInfo( "Found Final Credentials" );
 		err = _updateTCPIPCredsWithFinalParamsFromNVS();
 	}
-	else {
+	else
+	{
 		IotLogInfo( "Final credentials not set" );
 		IotLogInfo( "Setting claim credentials to PKCS11 Object" );
 		err = _setClaimCredsToPKCS11Object();  // Check if any PKCS object is set. Only write to PKCS object if certificate is empty
-		if (err != ESP_OK) {
+		if( err != ESP_OK )
+		{
 			IotLogError( "CRITICAL ERROR: Could not write claim credentials from program flash to nvs" );
 		}
 
-		if(err == ESP_OK){
+		if( err == ESP_OK )
+		{
 			IotLogInfo( "Requesting final credentials from AWS" );
-			err = _getFinalCertsFromAWS(pNetworkServerInfo, pCredentials, pNetworkInterface);
-			if (err != ESP_OK) {
+			err = _getFinalCertsFromAWS( pNetworkServerInfo, pCredentials, pNetworkInterface );
+			if( err != ESP_OK )
+			{
 				IotLogError( "CRITICAL ERROR: Failed to get final credentials from AWS" );
 			}
 		}
@@ -1002,34 +1054,37 @@ int32_t _getSetCredentials(void * pNetworkServerInfo, void* pCredentials, const 
  * @param[in] pArgs		Semaphore that will be posted to once the provisioning completes.
  *
  */
-void _fleetProvTask( void * pArgs)
+void _fleetProvTask( void * pArgs )
 {
 	esp_err_t err = ESP_OK;
 	IotSemaphore_t * completeSemaphore = (IotSemaphore_t *) pArgs;
 
 	_fleetProvStatus = eFLEETPROV_IN_PROCESS;
 
-	if(_fleetProvParams.pConnectionParams != NULL && _fleetProvParams.pCredentials != NULL && _fleetProvParams.pNetworkInterface != NULL)
+	if( ( _fleetProvParams.pConnectionParams != NULL ) && ( _fleetProvParams.pCredentials != NULL ) && ( _fleetProvParams.pNetworkInterface != NULL ) )
 	{
-		err = _getSetCredentials(_fleetProvParams.pConnectionParams, _fleetProvParams.pCredentials, _fleetProvParams.pNetworkInterface);
+		err = _getSetCredentials( _fleetProvParams.pConnectionParams, _fleetProvParams.pCredentials, _fleetProvParams.pNetworkInterface );
 	}
-	else{
-		IotLogError(" Error: A fleet provisioning parameter is set to NULL ");
+	else
+	{
+		IotLogError( " Error: A fleet provisioning parameter is set to NULL" );
 		err = ESP_FAIL;
 	}
 
-	if(err == ESP_OK){
+	if( err == ESP_OK )
+	{
 		_fleetProvStatus = eFLEETPROV_COMPLETED_SUCCESS;
 		// Post to the semaphore indicating the fleet provisioning has been completed
-		IotSemaphore_Post(completeSemaphore);
-		IotLogInfo( "Fleet Prov Completed Successfully " );
+		IotSemaphore_Post( completeSemaphore );
+		IotLogInfo( "Fleet Prov Completed Successfully" );
 	}
-	else{
+	else
+	{
 		_fleetProvStatus = eFLEETPROV_COMPLETED_FAILED;
-		IotLogError("Fleet Prov Failed ");
+		IotLogError("Fleet Prov Failed" );
 	}
 
-	// Delete the task once credentials have been proisionined
+	// Delete the task once credentials have been provisioned
 	IotLogInfo( " Deleting Fleet Provisioning Task " );
 	vTaskDelete(NULL);
 
@@ -1045,7 +1100,7 @@ void _fleetProvTask( void * pArgs)
  * @brief Clear out the final credentials from nvs. On subsequent boot the fleet provisioning
  * will request new credentials from AWS
  */
-void fleetProv_ClearFinalCredentials(void)
+void fleetProv_ClearFinalCredentials( void )
 {
 	NVS_EraseKey(NVS_CLAIM_CERT);
 	NVS_EraseKey(NVS_CLAIM_PRIVATE_KEY);
@@ -1073,7 +1128,7 @@ int32_t fleetProv_GetStatus( void )
  *
  * @return ESP_OK if successful, error otherwise
  */
-int32_t fleetProv_Init(fleetProv_InitParams_t * pfleetProvInitParams, IotSemaphore_t* pSemaphore)
+int32_t fleetProv_Init( fleetProv_InitParams_t * pfleetProvInitParams, IotSemaphore_t* pSemaphore )
 {
 	esp_err_t err = ESP_OK;
 
@@ -1083,30 +1138,36 @@ int32_t fleetProv_Init(fleetProv_InitParams_t * pfleetProvInitParams, IotSemapho
 	_fleetProvParams.pNetworkInterface = pfleetProvInitParams->pNetworkInterface;
 
 	// Set the template name
-	if(pfleetProvInitParams->pProvTemplateName != NULL){
+	if( pfleetProvInitParams->pProvTemplateName != NULL )
+	{
 		pTemplateName = (char*) pfleetProvInitParams->pProvTemplateName;
 	}
-	else{
+	else
+	{
 		err = ESP_FAIL;
 	}
 	// Set the request, accepted, and rejected topics based on the fleet provisioning input template
-	if(err == ESP_OK){
+	if( err == ESP_OK )
+	{
 		pProvisionRequestTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, NULL);
 		pProvisionRequestAcceptedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/accepted");
 		pProvisionRequestRejectedTopic = _replaceWildcardAppend(PROVISION_TOPIC_STUCTURE, pTemplateName, "/rejected");
 	}
 
 	// Create the fleet provisioning task
-	if(err == ESP_OK){
-		xTaskCreate(_fleetProvTask, "fleetProv", FLEET_PROV_STACK_SIZE, (void *) pSemaphore, FLEET_PROV_TASK_PRIORITY, &_xFleetProvTaskHandle);
+	if( err == ESP_OK )
+	{
+		xTaskCreate( _fleetProvTask, "fleetProv", FLEET_PROV_STACK_SIZE, (void *) pSemaphore, FLEET_PROV_TASK_PRIORITY, &_xFleetProvTaskHandle );
 	}
 
-	if(NULL == _xFleetProvTaskHandle){
+	if( NULL == _xFleetProvTaskHandle )
+	{
 		err = ESP_FAIL;
 		IotLogError( "Error Creating Fleet Provisioning Task" );
 	}
-	else{
-		IotLogInfo("Fleet Prov task created");
+	else
+	{
+		IotLogInfo( "Fleet Prov task created" );
 	}
 
 	return err;
