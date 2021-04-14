@@ -37,7 +37,11 @@ typedef enum
 	eEventSubject_PourStart,
 	eEventSubject_NoWater,
 	eEventSubject_NoCO2Available,
-	eEventSubject_EndOfList
+	eEventSubject_OverPressure,
+	eEventSubject_CarbonationTimeout,
+	eEventSubject_PmError,
+	eEventSubject_RecoveryStart,
+	eEventSubject_EndOfList,
 } _eventSubject_t;
 
 /**

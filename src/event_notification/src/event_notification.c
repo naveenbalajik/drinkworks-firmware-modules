@@ -35,6 +35,10 @@ static const char * _subjectString[] =
 	[ eEventSubject_PicUpdate ] = "PICupdate",
 	[ eEventSubject_NoWater ] = "NoWater",
 	[ eEventSubject_NoCO2Available ] = "NoCO2Available",
+	[ eEventSubject_OverPressure ] = "OverPressure",
+	[ eEventSubject_CarbonationTimeout ] = "CarbonationTimeout",
+	[ eEventSubject_PmError ] = "PunctureMechError",
+	[ eEventSubject_RecoveryStart ] = "RecoveryStart"
 };
 
 /**
