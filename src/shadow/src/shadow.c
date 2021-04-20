@@ -472,6 +472,7 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 		}
 
     }
+
     if( deltaFound )
     {
     	updateDocument = _formatShadowUpdate();
@@ -482,6 +483,10 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 			_updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
 			free( updateDocument );
     	}
+    }
+    else
+    {
+    	IotLogInfo( "Not found: %.*s", pCallbackParam->u.callback.documentLength, pCallbackParam->u.callback.pDocument );
     }
     /* Post to the delta semaphore to unblock the thread sending Shadow updates. */
 //    IotSemaphore_Post( pDeltaSemaphore );
