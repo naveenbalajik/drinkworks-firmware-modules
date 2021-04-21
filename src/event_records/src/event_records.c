@@ -135,7 +135,7 @@ typedef struct
 #define	FREEZE_ENTRY_MIN_SIZE		( DISPENSE_RECORD_MAX_SIZE - 2 )			// Minimum size for a FreezeEvents entry
 #define	FIRMWARE_ENTRY_MIN_SIZE		( DISPENSE_RECORD_MAX_SIZE - 6 )			// Minimum size for a Firmware entry
 
-#define	EVENT_RECORD_STACK_SIZE    ( 3076 )
+#define	EVENT_RECORD_STACK_SIZE    ( 3072 )
 
 #define	EVENT_RECORD_TASK_PRIORITY	( 5 )
 

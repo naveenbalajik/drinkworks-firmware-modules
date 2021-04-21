@@ -25,7 +25,7 @@
 #include "capture_task_interface.h"
 
 
-#define IMG_CAPTURE_STACK_SIZE		4096
+#define IMG_CAPTURE_STACK_SIZE		( 3072 )
 #define IMG_CAPTURE_PRIORITY		12
 
 #define NOT_INITIALIZED						-1
