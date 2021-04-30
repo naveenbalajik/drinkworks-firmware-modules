@@ -1,12 +1,18 @@
-** Code Signing Certificate
+# Code Signing Certificate
 
-The files in this folder are believed to be the original code signing certificate and private key, generated on 4/7/2020, and uploaded to AWS for signing IoT firmware images.
+These files are for the code signing certificate.  The most useful in here is
+that of the private key which is utilized to generate out new certificates when
+necessary (every 365 days).  This is necessary in order for new firmware images
+to be able to be signed.
 
-The certificate had a life of 365 days, and thus expired on 4/8/2021.
+To generate out a new certificate a single command is needed:
 
-These files were added to the repo on 4/29/2021.
-The certificate matches the certificate that has been embedded in the ESP firmware (code-signing-cerificate.txt) up to this time.
-The private key has not been verfied to the certificate.
+`openssl req -new -x509 -config cert_config.txt -extensions my_exts -nodes -days 365 -key ecdsasigner.key -out ecdsasigner.crt`
 
-Ian Whitehead
-4/29/2021
+Once this certificate has been generated, you need to go to the AWS console and
+navigate to the Certificate Manager.  Inside of the Certificate Manager find the
+certificate labeled: "Firmware Code Signer".  To update the certificate, press
+the button: "Reimport Certificate" and copy the certificate and private key and
+paste them into their respective form fields.
+
+You should now be able to proceed with life as normal.
