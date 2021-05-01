@@ -41,7 +41,20 @@ typedef enum
 	eEventSubject_CarbonationTimeout,
 	eEventSubject_PmError,
 	eEventSubject_RecoveryStart,
+	eEventSubject_OobeStart,
+	eEventSubject_OobeFirmwareUpdate,
+	eEventSubject_OobeReset,
+	eEventSubject_OobeRinseStart,
+	eEventSubject_OobeFillCarbonator,
+	eEventSubject_OobeNoWater,
+	eEventSubject_OobeSoak,
+	eEventSubject_OobePress2Empty,
+	eEventSubject_OobeEmptyCarbonator,
+	eEventSubject_OobeEmptyAWT,
+	eEventSubject_OobeFinalPurge,
+	eEventSubject_OobeStage2Complete,
 	eEventSubject_EndOfList,
+	eEventSubject_None
 } _eventSubject_t;
 
 /**

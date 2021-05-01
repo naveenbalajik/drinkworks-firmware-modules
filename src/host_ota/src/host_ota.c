@@ -1445,7 +1445,7 @@ static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 	IotLogDebug( "Send Flash Write" );
 
 	/* FIXME notifications bypassed for debug */
-//	hostOtaNotificationUpdate( eNotifyFlashProgram, pHost->percentComplete );
+	hostOtaNotificationUpdate( eNotifyFlashProgram, pHost->percentComplete );
 
 	/* loop if page is empty. unless at end of image */
 	while(1 )
