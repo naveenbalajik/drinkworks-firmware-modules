@@ -1470,7 +1470,7 @@ static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 		{
 			break;
 		}
-		IotLogInfo( "Image page @ %08X is blank - skip writing", pHost->imageAddress );
+		IotLogDebug( "Image page @ %08X is blank - skip writing", pHost->imageAddress );
 
 		/* increment addresses, decrement counters */
 		nextBlock( pHost );

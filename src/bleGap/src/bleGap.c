@@ -27,7 +27,7 @@ char	completeDeviceName[24] = "Drinkworks";
 
 static const BTUuid_t _dwAdvUUID =
 {
-    .uu.uu128 = DW_SERVICE_UUID,
+    .uu.uu128 = DW_MODB_SERVICE_UUID,
     .ucType   = eBTuuidType128
 };
 
