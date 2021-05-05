@@ -70,6 +70,8 @@ enum ShciOpcode
 	eBleBondWindow =										0xA4,		/**< Command: Enable/Disable BLE Bonding Window */
 	eHostUpdateAvailable =									0xA5,		/**< Event: Host Firmware Update Available */
 
+	eMqttStatus =											0xA6,		/**< Event: Mqtt connected/disconnect event */
+
 	eWiFiStatus = 											0xB0,		/**< Event: */
 	eNetworkInitializedEvent = 								0xB1,		/**< Event: */
 	eWifiTestParameter =									0xB2,		/**< Command: */
@@ -160,6 +162,14 @@ enum
 typedef uint8_t _errorCodeType_t;
 
 
+/**
+ * @brief	MQTT Status values
+ */
+typedef enum
+{
+	eMqttDisconnected = 0,
+	eMqttConnected = 1
+} _mqttStatus_t;
 
 /**
  * @brief Callback called when an SHCI command is received
