@@ -50,7 +50,20 @@ static const char * _subjectString[] =
 	[ eEventSubject_OobeEmptyCarbonator]	= "OobeEmptyCarbonator",
 	[ eEventSubject_OobeEmptyAWT]			= "OobeEmptyAWT",
 	[ eEventSubject_OobeFinalPurge ]		= "OobeFinalPurge",
-	[ eEventSubject_OobeStage2Complete ]	= "OobeStage2Complete"
+	[ eEventSubject_OobeStage2Complete ]	= "OobeStage2Complete",
+	[ eEventSubject_Clean_CleanFill ]		= "Clean_CleanFill",
+	[ eEventSubject_Clean_CleanNoWater ]	= "Clean_CleanNoWater",
+	[ eEventSubject_Clean_CleanRefill ]		= "Clean_CleanRefill",
+	[ eEventSubject_Clean_CleanSoak ]		= "Clean_CleanSoak",
+	[ eEventSubject_Clean_Press2Empty ]		= "Clean_Press2Empty",
+	[ eEventSubject_Clean_CleanEmptyCarb ]	= "Clean_CleanEmptyCarb",
+	[ eEventSubject_Clean_RinseFill ]		= "Clean_RinseFill",
+	[ eEventSubject_Clean_RinseNoWater ]	= "Clean_RinseNoWater",
+	[ eEventSubject_Clean_RinseRefill ]		= "Clean_RinseRefill",
+	[ eEventSubject_Clean_RinseSoak ]		= "Clean_RinseSoak",
+	[ eEventSubject_Clean_RinseEmptyAWT ]	= "Clean_RinseEmptyAWT",
+	[ eEventSubject_Clean_RinseEmptyCarb ]	= "Clean_RinseEmptyCarb",
+	[ eEventSubject_Clean_Complete ]		= "Clean_Complete"
 };
 
 /**

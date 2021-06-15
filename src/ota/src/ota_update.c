@@ -570,7 +570,7 @@ static void _OTAUpdateTask( void *arg )
 				else
 				{
 					/* Periodically output statistics */
-					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u\r\n", _pStateStr[ otaData.eState ],
+					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u", _pStateStr[ otaData.eState ],
 								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
 
 					/* Wait - one second. */
