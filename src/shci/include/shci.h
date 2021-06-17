@@ -71,6 +71,7 @@ enum ShciOpcode
 	eHostUpdateAvailable =									0xA5,		/**< Event: Host Firmware Update Available */
 
 	eMqttStatus =											0xA6,		/**< Event: Mqtt connected/disconnect event */
+	eOobeBypass =											0xA7,		/**< Event: Bypass OOBE event */
 
 	eWiFiStatus = 											0xB0,		/**< Event: */
 	eNetworkInitializedEvent = 								0xB1,		/**< Event: */
