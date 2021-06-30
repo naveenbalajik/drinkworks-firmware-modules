@@ -10,6 +10,11 @@
 
 #include "aws_iot_ota_agent.h"
 
+/**
+ * @brief	OTA Notification Callback type
+ */
+typedef void (* _otaNotifyCallback_t)( char *pJson );
+
 /*--------------- Secondary Processor OTA callbacks --------------------------*/
 
 /**
@@ -175,6 +180,7 @@ typedef bool (* hostOtaPendUpdateCallback_t)( void );
 int OTAUpdate_init( 	const char * pIdentifier,
                             void * pNetworkCredentialInfo,
                             const IotNetworkInterface_t * pNetworkInterface,
+							_otaNotifyCallback_t notifyCb,
 							IotSemaphore_t *pSemaphore,
 							hostOtaPendUpdateCallback_t function,
 							const AltProcessor_Functions_t * altProcessorFunctions );

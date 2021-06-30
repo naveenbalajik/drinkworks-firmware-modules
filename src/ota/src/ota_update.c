@@ -83,6 +83,28 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 
 #define	OTA_UPDATE_TASK_PRIORITY	( 7 )
 
+/**
+ * @brief	OTA Notification Event statuses
+ */
+typedef	enum
+{
+	eNotifyOtaWaitForImage,
+	eNotifyOtaDownload,
+	eNotifyOtaImageVerification,
+	eNotifyOtaUpdateSuccess,
+	eNotifyOtaUpdateFailed
+} _otaNotification_t;
+
+static const char *NotificationMessage[] =
+{
+	[ eNotifyOtaWaitForImage ]			= "Waiting for update",
+	[ eNotifyOtaDownload ]				= "Downloading image",
+	[ eNotifyOtaImageVerification ]		= "Verifying image",
+	[ eNotifyOtaUpdateSuccess ]			= "Update complete",
+	[ eNotifyOtaUpdateFailed ]			= "Update failed"
+};
+
+
 typedef	enum
 {
 	eOtaTaskInit,
@@ -99,13 +121,18 @@ typedef	struct
 	TaskHandle_t				taskHandle;									/**< handle for OTA Update Task */
 	_otaTaskState_t				taskState;
 	bool						bConnected;
-	OTA_State_t					eState;
+	OTA_State_t					eState;										/** Current OTA Agent State */
+	OTA_State_t					previousState;								/**< Previous OTA Agent State */
 	OTA_ConnectionContext_t		connectionCtx;
 	const char * 				pIdentifier;
 	IotSemaphore_t	*			pHostUpdateComplete;
 	hostOtaPendUpdateCallback_t	pendingHostOtaUpdate;						/**< callback function, returns true if HostOta task is pending on an image update; false indicates task is otherwise busy */
 	const AltProcessor_Functions_t * hostPal;									/**< pointer to Host OTA PAL functions */
-
+	_otaNotifyCallback_t		notify;										/**< callback function: OTA Notification */
+	OTA_FileContext_t *			C;											/**< Save file context pointer */
+	uint32_t					fileBlocks;									/**< Total number of blocks associated with current file */
+	uint32_t					lastPrecentComplete;						/**< Last percent complete of update */
+	TimerHandle_t				xTimer;										/**< Timer used to detect no update job */
 } otaData_t;
 
 static otaData_t otaData =
@@ -316,6 +343,9 @@ static OTA_Err_t prvPAL_CreateFileForRx_override( OTA_FileContext_t * const C )
         return kOTA_Err_RxFileCreateFailed;
     }
 
+    /* Save File Context pointer */
+    otaData.C = C;
+
     if ( C->ulServerFileID == 0 )
     {
         // Update self
@@ -458,6 +488,75 @@ int16_t prvPAL_WriteBlock_override( OTA_FileContext_t * const C,
 }
 
 /* end of secondaryota_patch.txt */
+/**
+ * @brief	Post notification of Host OTA Update Status
+ *
+ * This function could post the notification to the device shadow, or to the MQTT Event topic.
+ * The basic notification message would be the same in either case, the function to perform the
+ * MQTT publish is different.
+ *
+ * Notification messages include:
+ *  - Waiting for Image
+ * 	- Downloading
+ * 	- Image Verification
+ * 	- Flash Erase
+ * 	- Flash Program x%
+ * 	- Update Validation
+ * 	- Update Complete vN.NN
+ */
+static void OtaNotificationUpdate( hostOta_notification_t notify, double param )
+{
+	char * jsonBuffer = NULL;
+	int	n = 0;
+	int percent;
+
+	/* Format Notification update */
+	switch( notify )
+	{
+		case eNotifyWaitForImage:
+		case eNotifyDownload:
+		case eNotifyImageVerification:
+		case eNotifyFlashErase:
+		case eNotifyUpdateValidation:
+		case eNotifyHostReset:
+		case eNotifyUpdateFailed:
+			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q}}",
+					eventNotification_getSubject( eEventSubject_OtaUpdate ), "State", NotificationMessage[ notify ] );
+			break;
+
+		case eNotifyFlashProgram:
+			percent = ( int ) param;
+			if( percent != _hostota.lastPercentComplete )
+			{
+				_hostota.lastPercentComplete = percent;
+				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%d}}",
+						eventNotification_getSubject( eEventSubject_PicUpdate ), "State", NotificationMessage[ notify ], "percent", percent );
+			}
+			break;
+
+		case eNotifyUpdateSuccess:
+			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%f}}",
+					eventNotification_getSubject( eEventSubject_PicUpdate ), "State", NotificationMessage[ notify ], "version", param  );
+			break;
+
+		default:
+			break;
+	}
+
+	if( n )
+	{
+		IotLogDebug( "hostOta notify: %s", jsonBuffer );
+
+		/* Call notification handler, if one has been registered */
+		if( NULL != otaData.notify )
+		{
+			otaData.notify( jsonBuffer );
+		}
+
+		/* Free buffer */
+		vPortFree( jsonBuffer );
+	}
+}
 
 /**
  * @brief	OTA Update Task
@@ -486,14 +585,35 @@ static void _OTAUpdateTask( void *arg )
         .xCompleteCallback         = App_OTACompleteCallback,
         .xCustomJobCallback        = NULL	// otaDemoCustomJobCallback
     };
+    bool	bNoUpdateAvailable = false;
+    double percent;
 
 	IotLogInfo( "_OTAUpdateTask" );
+	otaData.previousState = OTA_GetAgentState();
 
 	/* Continually loop until OTA process is completed */
 	for( ; ; )
 	{
 		otaData.bConnected = mqtt_IsConnected();
 		otaData.eState = OTA_GetAgentState();
+
+		/* Look for state changes of OTA Agent */
+//		if( otaData.eState != otaData.previousState )
+//		{
+//			IotLogInfo( "OTA Agent State: %s -> %s", _pStateStr[ otaData.previousState ], _pStateStr[ otaData.eState ] );
+//			if( ( otaData.previousState == eOTA_AgentState_Ready ) && ( otaData.eState == eOTA_AgentState_WaitingForJob ) )
+//			{
+//				IotLogInfo( "No update available" );
+//				bNoUpdateAvailable = true;
+//			}
+//			else if( otaData.eState == eOTA_AgentState_WaitingForFileBlock )
+//			{
+//				otaData.lastPrecentComplete = 0;
+//				otaData.fileBlocks = otaData.C->ulBlocksRemaining;
+//				IotLogInfo( "Total File Blocks = %u", otaData.fileBlocks );
+//			}
+//			otaData.previousState = otaData.eState;
+//		}
 
 		switch( otaData.taskState )
 		{
@@ -567,15 +687,58 @@ static void _OTAUpdateTask( void *arg )
 						/* Command not accepted - where to now? */
 					}
 				}
+				else if( otaData.eState == eOTA_AgentState_WaitingForJob )
+				{
+					if( otaData.previousState != otaData.eState )
+					{
+						IotLogInfo( "OTA Agent State: %s -> %s", _pStateStr[ otaData.previousState ], _pStateStr[ otaData.eState ] );
+						otaData.fileBlocks = 0;												// Clear File Blocks on entry into WaitForJob
+						xTimerStart( otaData.xTimer, 0 );									// Start Timer
+					}
+					vTaskDelay( 10 / portTICK_PERIOD_MS );			// short delay to catch transitions
+				}
+				else if( otaData.eState == eOTA_AgentState_WaitingForFileBlock )
+				{
+					xTimerStop( otaData.xTimer, 0 );										// Stop the timer once the transfer starts
+					if( otaData.previousState != otaData.eState )
+					{
+						/* Just entered WaitingForFileBlock */
+						IotLogInfo( "OTA Agent State: %s -> %s", _pStateStr[ otaData.previousState ], _pStateStr[ otaData.eState ] );
+						/* If FileBlocks is zero, set to BlockRemaining from file context */
+						if( ( otaData.C != NULL ) && ( !otaData.fileBlocks ) )
+						{
+							otaData.fileBlocks = otaData.C->ulBlocksRemaining;
+						}
+					}
+					/* compute percent complete */
+					if( ( otaData.C != NULL ) && ( otaData.fileBlocks ) )
+					{
+						percent = ( ( double )( otaData.fileBlocks - otaData.C->ulBlocksRemaining ) / otaData.fileBlocks ) * 100;
+						/* If percentage has changed */
+						if( otaData.lastPrecentComplete != ( uint32_t )percent )
+						{
+							/* Save and report new percentage */
+							otaData.lastPrecentComplete = ( uint32_t ) percent;
+							IotLogInfo( "FileId: %u  Remaining: %u/%u (%u)", otaData.C->ulServerFileID, otaData.C->ulBlocksRemaining, otaData.fileBlocks, otaData.lastPrecentComplete );
+						}
+					}
+					vTaskDelay( 10 / portTICK_PERIOD_MS );			// short delay to catch transitions
+				}
 				else
 				{
-					/* Periodically output statistics */
-					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u", _pStateStr[ otaData.eState ],
-								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
-
-					/* Wait - one second. */
-					IotClock_SleepMs( OTA_TASK_DELAY_SECONDS * 1000 );
+					if( otaData.eState != otaData.previousState )
+					{
+						IotLogInfo( "OTA Agent State: %s -> %s", _pStateStr[ otaData.previousState ], _pStateStr[ otaData.eState ] );
+					}
+					vTaskDelay( 10 / portTICK_PERIOD_MS );			// short delay to catch transitions
 				}
+//				{
+//					/* Periodically output statistics */
+//					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u", _pStateStr[ otaData.eState ],
+//								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
+//					/* Wait - one second ... this may cause state transitions to be missed */
+//					IotClock_SleepMs( OTA_TASK_DELAY_SECONDS * 1000 );
+//				}
 				break;
 
 
@@ -633,6 +796,8 @@ static void _OTAUpdateTask( void *arg )
 				/* FIXME - Why would we disconnect the MQTT connection? What should we do or completion */
 				break;
 		}
+
+		otaData.previousState = otaData.eState;						// Save state so we can detect transitions
 	}
 }
 
@@ -711,6 +876,17 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
     }
 }
 
+/**
+ * @brief	OTA Timer Callback handler
+ */
+void vTimerCallback( TimerHandle_t xTimer )
+{
+	if( xTimer != NULL )
+	{
+		IotLogInfo( "OTA Timer expired - No Update available" );
+	}
+}
+
 /* ************************************************************************* */
 /* ************************************************************************* */
 /* **********        I N T E R F A C E   F U N C T I O N S        ********** */
@@ -732,6 +908,7 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
 int OTAUpdate_init( 	const char * pIdentifier,
                             void * pNetworkCredentialInfo,
                             const IotNetworkInterface_t * pNetworkInterface,
+							_otaNotifyCallback_t notifyCb,
 							IotSemaphore_t *pSemaphore,
 							hostOtaPendUpdateCallback_t function,
 							const AltProcessor_Functions_t * altProcessorFunctions )
@@ -753,11 +930,21 @@ int OTAUpdate_init( 	const char * pIdentifier,
 	otaData.connectionCtx.pvNetworkCredentials = pNetworkCredentialInfo;
 	otaData.pIdentifier = pIdentifier;
 
+	/* save the Notification callback function */
+	otaData.notify = notifyCb;
+
 	/* Save the callback function for pendingHostOtaUpdate */
 	otaData.pendingHostOtaUpdate = function;
 
 	/* Save the Alternate Processor PAL function table */
 	otaData.hostPal = altProcessorFunctions;
+
+	/* Create a Timer - 5 seconds was too short */
+	otaData.xTimer = xTimerCreate( "OtaTimer", ( 10000 / portTICK_PERIOD_MS ), pdFALSE, ( void * )0, vTimerCallback );
+	if( otaData.xTimer == NULL )
+	{
+		IotLogError( "Could not create OtaTimer" );
+	}
 
 	/* Create Task on new thread */
     xTaskCreate( _OTAUpdateTask, "ota_update", OTA_UPDATE_STACK_SIZE, NULL, OTA_UPDATE_TASK_PRIORITY, &otaData.taskHandle );

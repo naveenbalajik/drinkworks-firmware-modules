@@ -32,6 +32,7 @@ static const char * _subjectString[] =
 	[ eEventSubject_FillStart ]				= "FillStart",
 	[ eEventSubject_CarbonationStart]		= "CabonationStart",
 	[ eEventSubject_PourStart ]				= "PourStart",
+	[ eEventSubject_OtaUpdate ]				= "OTAupdate",
 	[ eEventSubject_PicUpdate ]				= "PICupdate",
 	[ eEventSubject_NoWater ]				= "NoWater",
 	[ eEventSubject_NoCO2Available ]		= "NoCO2Available",

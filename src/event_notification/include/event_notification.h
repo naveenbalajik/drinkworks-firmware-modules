@@ -29,6 +29,7 @@ typedef enum
 	eEventSubject_DispenseStart,
 	eEventSubject_DispenseComplete,
 	eEventSubject_DispenseError,
+	eEventSubject_OtaUpdate,
 	eEventSubject_PicUpdate,
 	eEventSubject_HandleRaised,
 	eEventSubject_ImageCaptureComplete,

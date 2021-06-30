@@ -110,7 +110,8 @@ typedef enum
 	eHostOtaTransfer,
 	eHostOtaActivate,
 	eHostOtaWaitReset,
-	eHostOtaError
+	eHostOtaError,
+	eHostOtaReadMetaData
 } _hostOtaStates_t;
 
 /**
@@ -577,6 +578,7 @@ typedef struct
 	uint8_t				length;						/**< Command length: 5 bytes */
 	_otaOpcode_t		command;					/**< OpCode: "b" */
 	uint8_t				data[ 5 ];					/**< Data: "ootme" */
+	uint8_t				image;						/**< Image Flag: 0 = Factory, 1 = OTA */
 	uint16_t			crc;						/**< command CRC */
 }  __attribute__ ((packed)) _bootme_t;
 
@@ -656,6 +658,7 @@ typedef struct
 	size_t				transferSize;				/**< Size, in bytes, of the current transfer block */
 	_blStep_t			*pStep;						/**< Pointer to current ImageTransfer step */
 	bool				bBootme;					/**< true if BootMe message received */
+	bool				bFactoryImage;				/**< true if BootMe is requesting the factory image */
 	uint16_t			calc_crc;					/**< CRC value calculated by host */
 	_xferStatus_t		xferStatus;
 } host_ota_t;
@@ -874,9 +877,12 @@ static esp_err_t onStatus_FlashWriteAck( const void * pData )
 static esp_err_t onStatus_Bootme( const void * pData )
 {
 	esp_err_t	err = ESP_OK;
+	const _bootme_t *pBoot = pData;
 	IotLogInfo( "Bootme" );
 
+	/* Set bBootme flag and bFactoryImage, if image value is zero */
 	_hostota.bBootme = true;
+	_hostota.bFactoryImage = ( pBoot->image == 0 ) ? true : false;
 
 	return( err );
 }
@@ -975,7 +981,7 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 			{
 				if( pStat->Generic.status == _hostota.expectedStatus )
 				{
-					IotLogDebug( "Expected Status Received ");
+					IotLogDebug( "Expected Status Received: 0x%02X", _hostota.expectedStatus );
 
 					/* Call onStatus function, if present */
 					if( NULL != pStatusEntry->onStatus)
@@ -2045,8 +2051,14 @@ static void _hostOtaTask(void *arg)
     	switch( _hostota.state )
     	{
     		case eHostOtaInit:
+    			/* If BootMe flag is set, read Meta-Data without delay */
+    			if( _hostota.bBootme )
+    			{
+    				IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+    				_hostota.state = eHostOtaReadMetaData;
+    			}
     			/* wait for an MQTT connection before starting the host ota update */
-    			if( mqtt_IsConnected() )
+    			else if( mqtt_IsConnected() )
     			{
     				IotLogInfo( "_hostOtaTask -> PendUpdate" );
     				_hostota.state = eHostOtaPendUpdate;
@@ -2068,7 +2080,34 @@ static void _hostOtaTask(void *arg)
 				IotLogInfo( "host ota: current PIC version = %5.2f", _hostota.currentVersion_PIC );
 
 				/* hardwire partition for initial development */
-				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_fw" );
+				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_ota0" );
+				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
+
+				/*
+				 *	Read the first 512 bytes from the Flash partition
+				 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
+				 */
+				esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
+
+				IotLogInfo( "_hostOtaTask -> ParseJSON" );
+				_hostota.state = eHostOtaParseJSON;
+				break;
+
+			case eHostOtaReadMetaData:
+				/* Get currently running PIC firmware version */
+				_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
+				IotLogInfo( "host ota: current PIC version = %5.2f", _hostota.currentVersion_PIC );
+
+				/* Read picFactory partition or pic_ota0 for the moment */
+				if( _hostota.bBootme )
+				{
+					_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x56, "picFactory" );
+				}
+				else
+				{
+					_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_ota0" );
+				}
+
 				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
 
 				/*
