@@ -656,11 +656,15 @@ typedef struct
 	size_t				imageAddress;				/**< Current offset, from start of Flash Partition, used to read image block */
 	size_t				bytesRemaining;				/**< Number of bytes remaining to be transfered */
 	size_t				transferSize;				/**< Size, in bytes, of the current transfer block */
-	_blStep_t			*pStep;						/**< Pointer to current ImageTransfer step */
+	const _blStep_t			*pStep;						/**< Pointer to current ImageTransfer step */
 	bool				bBootme;					/**< true if BootMe message received */
 	bool				bFactoryImage;				/**< true if BootMe is requesting the factory image */
 	uint16_t			calc_crc;					/**< CRC value calculated by host */
 	_xferStatus_t		xferStatus;
+	bool				bUpdateAvailable;			/**< A validate PIC image is available */
+	QueueHandle_t		queue;						/**< queue for ota_update module to communicate */
+	hostOta_status_t	reportedStatus;				/**< OTA Status reported by ota_update module via queue */
+
 } host_ota_t;
 
 typedef size_t ( * _function_t )( host_ota_t *pHost, _otaOpcode_t opcode );
@@ -689,6 +693,7 @@ static host_ota_t _hostota =
 {
 	.state = eHostOtaInit,													/**< Start in Init state */
 	.bBootme = false,
+	.queue = NULL,
 };
 
 /**
@@ -710,6 +715,16 @@ static AltProcessor_Functions_t hostOtaFunctions =
     .xWriteBlock               = hostOta_WriteBlock,
 };
 
+/**
+ * @brief	Host OTA Interface
+ *
+ * Pointer to this structure is passed to ota_update module during initialization.
+ */
+static hostOta_Interface_t	hostOtaInterface =
+{
+	.pal_functions = &hostOtaFunctions,
+	.function = &hostOta_pendUpdate
+};
 
 /**
  * @brief	Post notification of Host OTA Update Status
@@ -878,11 +893,12 @@ static esp_err_t onStatus_Bootme( const void * pData )
 {
 	esp_err_t	err = ESP_OK;
 	const _bootme_t *pBoot = pData;
-	IotLogInfo( "Bootme" );
 
 	/* Set bBootme flag and bFactoryImage, if image value is zero */
 	_hostota.bBootme = true;
 	_hostota.bFactoryImage = ( pBoot->image == 0 ) ? true : false;
+
+	IotLogInfo( "Bootme: %s", _hostota.bFactoryImage ? "Factory" : "OTA" );
 
 	return( err );
 }
@@ -901,6 +917,45 @@ static esp_err_t onStatus_CalcCrcAck( const void * pData )
 	_hostota.calc_crc = pCrc->value;
 
 	return( err );
+}
+
+/**
+ * @brief	Get Boot Status
+ *
+ * Get the status of the OTA Update, to inform the PIC Bootloader.
+ *
+ * Possible Statuses:
+ *		- eChecking				Checking if a PIC Update is available
+ *		- eImageDownloading		A PIC Image is being downloaded
+ *		- eImageAvailable		A PIC Update Image is available (Image transfer will start momentarily)
+ *		- eNoImageAvailable		No PIC Image is available
+ *
+ *	Note that if a PIC Image has not already been downloaded to the OTA partition, it is possible that AWS will send
+ *	an ESP Update Job.  If so, eChecking status will be returned until the ESP Transfer is complete.
+ *
+ *	This function should return the correct status even if the ESP has been reset since a PIC Image was downloaded,
+ *	i.e. cannot rely on dynamic status of the download operation.
+ *
+ *	@return	OtaStatus
+ */
+static hostOta_status_t getBootStatus( void )
+{
+	if( _hostota.bUpdateAvailable )
+	{
+		return	eImageAvailable;
+	}
+	else if( _hostota.reportedStatus == eImageDownloading )
+	{
+		return eImageDownloading;
+	}
+	else if( _hostota.reportedStatus == eNoImageAvailable  )
+	{
+		return eNoImageAvailable;
+	}
+	else
+	{
+		return eChecking;
+	}
 }
 
 /**
@@ -962,7 +1017,7 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 	int i;
 	uint16_t	crc;
 	const _otaStatusPkt_t	*pStat = ( const _otaStatusPkt_t * )pData;
-	_otaStatusEntry_t * pStatusEntry;
+	const _otaStatusEntry_t * pStatusEntry;
 
 	// Validate the Status packet
 	for( i = 0, pStatusEntry = &otaStatusTable[ 0 ]; i < NUM_STATUS_ENTRIES; ++i, ++pStatusEntry )
@@ -1018,6 +1073,14 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 #ifndef	LEGACY_BLE_INTERFACE
 		/* NACK the command */
 		shci_postCommandComplete( eHostUpdateResponse, eInvalidCommandParameters  );
+	}
+	else if( pStatusEntry->opcode == eBL_BOOTME )				/* BootMe has expanded ACK */
+	{
+		uint8_t	responseBuffer[ 5 ] = { eCommandComplete, eHostUpdateResponse,eCommandSucceeded, eBL_BOOTME };
+
+		responseBuffer[ 4 ] = ( uint8_t )getBootStatus();
+		IotLogInfo( "BootmeResponse: %d", responseBuffer[ 4 ] );
+		shci_PostResponse(  responseBuffer, sizeof( responseBuffer ) );
 	}
 	else
 	{
@@ -1481,7 +1544,15 @@ static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 		/* increment addresses, decrement counters */
 		nextBlock( pHost );
 
-    	vTaskDelay( 10 / portTICK_PERIOD_MS );
+		/*
+		 * Delay, to yield processor to other tasks.  For develop build, with logging enabled, a delay of
+		 * 30ms is necessary to avoid task_wdt events.  When skipping lots of blocks (e.g. 107) there are
+		 * a lot of long log messages which will consume ~8ms each.
+		 *
+		 * Setting the delay to 50ms should be safe. It will increase the transfer time by ~4.3s, compared with
+		 * a 10ms delay ... but it will work!
+		 */
+    	vTaskDelay( 50 / portTICK_PERIOD_MS );
 	}
 
 	/* Pack data into command */
@@ -2019,6 +2090,10 @@ static void _hostOtaTask(void *arg)
 	mbedtls_sha256_context ctx;
 	int mjson_stat;
 	esp_err_t	err = ESP_OK;
+	hostota_QueueItem_t	currentMessage;
+
+	/* Create a queue to allow ota_upate module to communicate */
+	_hostota.queue = xQueueCreate( 5, sizeof( hostota_QueueItem_t ) );
 
 	/* Create semaphore to wait for Image Download from AWS IoT */
 	if( IotSemaphore_Create( &_hostota.iotUpdateSemaphore, 0, 1 ) == false )
@@ -2029,6 +2104,10 @@ static void _hostOtaTask(void *arg)
 	{
 		IotLogInfo( "iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
 	}
+
+	/* Fill out dynamic elements of hostOtaInterface */
+	hostOtaInterface.pSemaphore = &_hostota.iotUpdateSemaphore;
+	hostOtaInterface.queue = _hostota.queue;
 
 	/* Attempt to retrieve image state from NVS */
 	err = NVS_Get( NVS_HOSTOTA_STATE, &_hostota.imageState, NULL);
@@ -2048,9 +2127,19 @@ static void _hostOtaTask(void *arg)
     while( 1 )
 	{
 
+		// Poll the queue for receive messages, do not block
+		if( xQueueReceive( _hostota.queue, &currentMessage, 0 ) == pdPASS )
+		{
+			_hostota.reportedStatus = currentMessage.message;
+			IotLogInfo( "Read from queue: %02X", _hostota.reportedStatus );
+		}
+
     	switch( _hostota.state )
     	{
     		case eHostOtaInit:
+    			/* default to no update available */
+    			_hostota.bUpdateAvailable = false;
+
     			/* If BootMe flag is set, read Meta-Data without delay */
     			if( _hostota.bBootme )
     			{
@@ -2099,7 +2188,7 @@ static void _hostOtaTask(void *arg)
 				IotLogInfo( "host ota: current PIC version = %5.2f", _hostota.currentVersion_PIC );
 
 				/* Read picFactory partition or pic_ota0 for the moment */
-				if( _hostota.bBootme )
+				if( _hostota.bFactoryImage )
 				{
 					_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x56, "picFactory" );
 				}
@@ -2287,6 +2376,7 @@ static void _hostOtaTask(void *arg)
 					IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
     				IotLogInfo( "_hostOtaTask -> UpdateAvailable" );
  					_hostota.state = eHostOtaUpdateAvailable;
+ 					_hostota.bUpdateAvailable = true;					/* validated image is available */
 				}
 				else
 				{
@@ -2364,7 +2454,7 @@ static void _hostOtaTask(void *arg)
 
 			case eHostOtaUpdateAvailable:												/* Update image is available */
 				/* Inform host - post Update Available SHCI Event */
-				shci_PostResponse( &updateAvailableEvent, sizeof( updateAvailableEvent ) );
+				shci_PostResponse( updateAvailableEvent, sizeof( updateAvailableEvent ) );
 
 				IotLogInfo( "_hostOtaTask -> WaitBootme" );
 				_hostota.state = eHostOtaWaitBootme;
@@ -2490,10 +2580,11 @@ OTA_PAL_ImageState_t hostOta_getImageState( void )
 	return _hostota.imageState;
 }
 
-void hostOta_setImageState( OTA_ImageState_t eState )
+OTA_Err_t hostOta_setImageState( OTA_ImageState_t eState )
 {
 	IotLogInfo( "Set ImageState = %d", eState);
 	_hostota.imageState = eState;
+	return( kOTA_Err_None );
 }
 
 /**
@@ -2512,4 +2603,14 @@ bool hostOta_pendUpdate( void )
 const AltProcessor_Functions_t * hostOta_getFunctionTable( void )
 {
 	return &hostOtaFunctions;
+}
+
+/**
+ * @brief	Get Host OTA Interface
+ *
+ * @return	Pointer to Host Ota Interface
+ */
+hostOta_Interface_t * hostOta_getInterface( void )
+{
+	return &hostOtaInterface;
 }

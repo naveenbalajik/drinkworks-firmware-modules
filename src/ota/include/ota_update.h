@@ -9,6 +9,7 @@
 #define _OTA_UPDATE_H_
 
 #include "aws_iot_ota_agent.h"
+#include <freertos/queue.h>
 
 /**
  * @brief	OTA Notification Callback type
@@ -154,7 +155,8 @@ typedef OTA_JobParseErr_t (* pxOTACustomJobCallback_t)( const char * pcJSON,
 /*--------------------------- OTA structs ----------------------------*/
 /**
  * @ingroup ota_datatypes_structs
- * @brief OTA PAL Alternate Processor function table */
+ * @brief OTA PAL Alternate Processor function table
+ */
 typedef struct
 {
     pxAltOTAPALAbort_t xAbort;                                 /* OTA Abort callback pointer */
@@ -175,15 +177,31 @@ typedef struct
 typedef bool (* hostOtaPendUpdateCallback_t)( void );
 
 /**
+ * @brief	All Interface items for Host Ota module
+ */
+typedef struct
+{
+	const AltProcessor_Functions_t * pal_functions;
+	IotSemaphore_t * pSemaphore;
+	hostOtaPendUpdateCallback_t function;
+	QueueHandle_t	queue;
+} hostOta_Interface_t;
+
+/**
  * @brief
  */
 int OTAUpdate_init( 	const char * pIdentifier,
                             void * pNetworkCredentialInfo,
                             const IotNetworkInterface_t * pNetworkInterface,
 							_otaNotifyCallback_t notifyCb,
-							IotSemaphore_t *pSemaphore,
-							hostOtaPendUpdateCallback_t function,
-							const AltProcessor_Functions_t * altProcessorFunctions );
+							hostOta_Interface_t * pHostInterface );
+//int OTAUpdate_init( 	const char * pIdentifier,
+//                            void * pNetworkCredentialInfo,
+//                            const IotNetworkInterface_t * pNetworkInterface,
+//							_otaNotifyCallback_t notifyCb,
+//							IotSemaphore_t *pSemaphore,
+//							hostOtaPendUpdateCallback_t function,
+//							const AltProcessor_Functions_t * altProcessorFunctions );
 
 
 #endif /* _OTA_UPDATE_H_ */

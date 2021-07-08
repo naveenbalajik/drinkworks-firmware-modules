@@ -656,6 +656,9 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 					pShadowItem->handler( pShadowItem );
 				}
 			}
+
+			/* Allow other tasks to run - prevent task_wdt events when processing large delta documents */
+			vTaskDelay( 10 / portTICK_PERIOD_MS );
 		}
 	}
 }

@@ -13,7 +13,7 @@ if __name__ == "__main__":
     parser.add_argument("thingGroupTarget", help="set target thing group. Example: MODB_PIC18_Firmware_Update")
     parser.add_argument("pic18ProgramS3Filepath", help="Filepath of the PIC18 program in the afr-ota-drinkwork-firmware bucket. Example: \'PIC18F/MODB_v0.29.aws\'")
     parser.add_argument("--fileID", help="Set fileID. Default is 1", type=int)
-    parser.add_argument("--fileName", help="Set fileName. Default is \'pic_fw\'")
+    parser.add_argument("--fileName", help="Set fileName. Default is \'pic_ota0\'")
     parser.add_argument("--signerRoleArn", help="Set the role arn for the code signing. Default is \'profile_for_ESP32\'")
     parser.add_argument("--streamJobRoleArn", help="Set role arn for stream and job creation. Default is \'IoT_Update_Role\'")
     args = parser.parse_args()
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     pic18ProgramS3Filepath = args.pic18ProgramS3Filepath
     fileID = 1
     streamName = jobName + "_Stream"
-    fileName = 'pic_fw'
+    fileName = 'pic_ota0'
     signerRoleArn = 'profile_for_ESP32'
     streamJobRoleArn = 'IoT_Update_Role'
     # Overwrite values based on optional variables

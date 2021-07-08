@@ -682,6 +682,15 @@ int16_t hostOta_WriteBlock( OTA_FileContext_t * const C,
 }
 
 
+/**
+ * @brief	Is the Host OTA Image valid?
+ *
+ * @return	true = image is valid, false = image is invalid
+ */
+bool hostOta_isImageValid( void )
+{
+	return ota_ctx.valid_image;
+}
 
 
 #ifdef AMAZON_FREERTOS_ENABLE_UNIT_TESTS
