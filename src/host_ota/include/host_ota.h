@@ -14,14 +14,16 @@
 
 /**
  * @brief	Host OTA Status enumerated type
+ *
+ * This type is used in the queue for communicating from Ota_Update module to Host_Ota module.
  */
 typedef enum
 {
-	eChecking,				/**< Checking if a PIC Update is available */
-	eImageDownloading,		/**< A PIC Image is being downloaded */
-	eImageAvailable,		/**< A PIC Update Image is available (Image transfer will start momentarily) */
-	eNoImageAvailable,		/**< No PIC Image is available */
-	eUnknown,				/**< Unknown status - default */
+	eChecking,														/**< Checking if a PIC Update is available */
+	eImageDownloading,												/**< A PIC Image is being downloaded */
+	eImageAvailable,												/**< A PIC Update Image is available (Image transfer will start momentarily) */
+	eNoImageAvailable,												/**< No PIC Image is available */
+	eUnknown,														/**< Unknown status - default */
 } hostOta_status_t;
 
 /**
@@ -32,21 +34,29 @@ typedef	struct
 	hostOta_status_t		message;
 } hostota_QueueItem_t;
 
-///**
-// * @brief Type definition of function to call to get Host Ota Update module's status
-// */
-//typedef bool (* hostOtaPendUpdateCallback_t)( void );
-//
-///**
-// * @brief	All Interface items for Host Ota module
-// */
-//typedef struct
-//{
-//	const AltProcessor_Functions_t * pal_functions;
-//	IotSemaphore_t * pSemaphore;
-//	hostOtaPendUpdateCallback_t function;
-//	QueueHandle_t	queue;
-//} hostOta_Interface_t;
+
+/**
+ * @brief	Host Image Available/Unavailable type
+ *
+ * This type is used to qualify the SHCI eHostOtaUpdateAvailable event
+ */
+enum
+{
+	eHostImage_Available 		= 0x5979,							/**< Host Image is available */
+	eHostImage_Unavailable		= 0x4e6e							/**< No Host Image is available */
+};
+
+typedef	uint16_t _available_t;
+
+/**
+ * @brief	SHCI Host Ota Update Available Event data structure
+ */
+typedef struct
+{
+	uint8_t			opcode;											/**< Opcode: eHostOtaUpdateAvailable */
+	_available_t	parameter;										/**< Parameter: available/unavailable */
+} __attribute__((packed)) _updateAvailable_t;
+
 
 /**
  * @brief Callback called for Host OTA Update Notification

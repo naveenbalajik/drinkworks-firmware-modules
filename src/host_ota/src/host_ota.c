@@ -122,7 +122,20 @@ typedef enum
 /**
  * @brief	Update Available SHCI Event packet
  */
-static const uint8_t updateAvailableEvent[] = { eHostUpdateAvailable };
+static const _updateAvailable_t updateAvailableEvent =
+{
+	.opcode		= eHostUpdateAvailable,
+	.parameter	= eHostImage_Available
+};
+
+/**
+ * @brief	Update Unavailable SHCI Event packet
+ */
+static const _updateAvailable_t updateUnavailableEvent =
+{
+	.opcode		= eHostUpdateAvailable,
+	.parameter	= eHostImage_Unavailable
+};
 
 /**
  * @brief	Update Notification Event statuses
@@ -688,7 +701,16 @@ typedef struct
 	_statusFunction_t	onStatus;						/**< function to be called upon receipt of an OTA Status packet, optional */
 } _otaStatusEntry_t;
 
+/* ************************************************************************* */
+/* **********  L O C A L   F U N C T I O N   P R O T O T Y P E S  ********** */
+/* ************************************************************************* */
 
+static void _postNoImageAvailable( void );
+static bool _transferPending( void );
+
+/* ************************************************************************* */
+/* **********             L O C A L   V A R I A B L E S           ********** */
+/* ************************************************************************* */
 static host_ota_t _hostota =
 {
 	.state = eHostOtaInit,													/**< Start in Init state */
@@ -723,8 +745,14 @@ static AltProcessor_Functions_t hostOtaFunctions =
 static hostOta_Interface_t	hostOtaInterface =
 {
 	.pal_functions = &hostOtaFunctions,
-	.function = &hostOta_pendUpdate
+	.pendDownloadCb = &hostOta_pendUpdate,
+	.imageUnavailableCb = &_postNoImageAvailable,
+	.transferPendingCb = &_transferPending
 };
+
+/* ************************************************************************* */
+/* **********            L O C A L   F U N C T I O N S            ********** */
+/* ************************************************************************* */
 
 /**
  * @brief	Post notification of Host OTA Update Status
@@ -2050,7 +2078,7 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 }
 
 /**
- * @Brief	Set ImageState and save to NVS
+ * @brief	Set ImageState and save to NVS
  *
  * @param[in]	eState		Image State to set and save
  */
@@ -2058,6 +2086,46 @@ static void setImageState( OTA_PAL_ImageState_t eState)
 {
 	_hostota.imageState = eState;
 	NVS_Set( NVS_HOSTOTA_STATE, &_hostota.imageState, NULL);
+}
+
+/**
+ * @brief	Post No Image Available event
+ */
+static void _postNoImageAvailable( void )
+{
+	shci_PostResponse( ( const uint8_t * ) &updateUnavailableEvent, sizeof( _updateAvailable_t ) );
+}
+
+/**
+ * @brief	Is Image Transfer Pending?
+ *
+ *	If in doubt, return true
+ *
+ * @return	true = Image Transfer is pending; false = Image Transfer is not pending
+ */
+static bool _transferPending( void )
+{
+	switch( _hostota.state )
+	{
+		case eHostOtaIdle:
+		case eHostOtaParseJSON:
+		case eHostOtaVerifyImage:
+		case eHostOtaVersionCheck:
+		case eHostOtaUpdateAvailable:
+		case eHostOtaWaitBootme:
+		case eHostOtaTransfer:
+		case eHostOtaActivate:
+		case eHostOtaWaitReset:
+		case eHostOtaReadMetaData:
+			return	true;
+
+		case eHostOtaInit:
+		case eHostOtaWaitMQTT:
+		case eHostOtaPendUpdate:
+		case eHostOtaError:
+		default:
+			return	false;
+	}
 }
 
 /**
@@ -2422,19 +2490,19 @@ static void _hostOtaTask(void *arg)
 				if( eOTA_PAL_ImageState_PendingCommit == _hostota.imageState )
 				{
 					/* If image state is pending commit */
-					if( _hostota.Version_MZ == _hostota.currentVersion_MZ )
+					if( _hostota.Version_PIC == _hostota.currentVersion_PIC )
 					{
 						/* If downloaded Image version is equal to current version: update was successful */
-						hostOtaNotificationUpdate( 	eNotifyUpdateSuccess, _hostota.currentVersion_MZ );
+						hostOtaNotificationUpdate( 	eNotifyUpdateSuccess, _hostota.currentVersion_PIC );
 						setImageState( eOTA_PAL_ImageState_Valid );
-						IotLogInfo( "Host update successful, current version: %5.2f", _hostota.currentVersion_MZ );
+						IotLogInfo( "Host update successful, current version: %5.2f", _hostota.currentVersion_PIC );
 					}
 					else
 					{
 						/* If downloaded Image version is not equal to current version: update failed */
 						hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );
 						setImageState( eOTA_PAL_ImageState_Invalid );
-						IotLogInfo( "Host update failed, current version: %5.2f", _hostota.currentVersion_MZ );
+						IotLogInfo( "Host update failed, current version: %5.2f", _hostota.currentVersion_PIC );
 					}
 
 				}
@@ -2454,7 +2522,7 @@ static void _hostOtaTask(void *arg)
 
 			case eHostOtaUpdateAvailable:												/* Update image is available */
 				/* Inform host - post Update Available SHCI Event */
-				shci_PostResponse( updateAvailableEvent, sizeof( updateAvailableEvent ) );
+				shci_PostResponse( ( const uint8_t * ) &updateAvailableEvent, sizeof( _updateAvailable_t ) );
 
 				IotLogInfo( "_hostOtaTask -> WaitBootme" );
 				_hostota.state = eHostOtaWaitBootme;

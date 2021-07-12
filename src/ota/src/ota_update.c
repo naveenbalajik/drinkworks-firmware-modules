@@ -125,30 +125,33 @@ typedef	enum
 
 typedef	struct
 {
-	TaskHandle_t				taskHandle;									/**< handle for OTA Update Task */
-	_otaTaskState_t				taskState;
-	bool						bConnected;
-	OTA_State_t					eState;										/** Current OTA Agent State */
-	OTA_State_t					previousState;								/**< Previous OTA Agent State */
-	OTA_ConnectionContext_t		connectionCtx;
-	const char * 				pIdentifier;
-	IotSemaphore_t	*			pHostUpdateComplete;
-	hostOtaPendUpdateCallback_t	pendingHostOtaUpdate;						/**< callback function, returns true if HostOta task is pending on an image update; false indicates task is otherwise busy */
-	const AltProcessor_Functions_t * hostPal;									/**< pointer to Host OTA PAL functions */
-	_otaNotifyCallback_t		notify;										/**< callback function: OTA Notification */
-	OTA_FileContext_t *			C;											/**< Save file context pointer */
-	uint32_t					fileBlocks;									/**< Total number of blocks associated with current file */
-	uint32_t					completeBlocks;								/**< Number of blocks that have been completed */
-//	uint32_t					lastPrecentComplete;						/**< Last percent complete of update */
-	TimerHandle_t				xTimer;										/**< Timer used to detect no update job */
-	QueueHandle_t				hostQueue;									/**< Queue to communicate with Host OTA module */
+	TaskHandle_t						taskHandle;									/**< handle for OTA Update Task */
+	_otaTaskState_t						taskState;
+	bool								bConnected;
+	OTA_State_t							eState;										/** Current OTA Agent State */
+	OTA_State_t							previousState;								/**< Previous OTA Agent State */
+	OTA_ConnectionContext_t				connectionCtx;
+	const char * 						pIdentifier;
+	IotSemaphore_t	*					pHostUpdateComplete;
+	hostOtaPendUpdateCallback_t			pendDownloadCb;								/**< callback function, returns true if HostOta task is pending on an image update; false indicates task is otherwise busy */
+	hostOtaImageUnavailableCallback_t	imageUnavailableCb;							/**< Image Unavailable callback function */
+	hostImageTransferPendingCallback_t	transferPendingCb;							/**< Image Transfer pending callback function */
+	const AltProcessor_Functions_t * 	hostPal;									/**< pointer to Host OTA PAL functions */
+	_otaNotifyCallback_t				notify;										/**< callback function: OTA Notification */
+	OTA_FileContext_t *					C;											/**< Save file context pointer */
+	uint32_t							fileBlocks;									/**< Total number of blocks associated with current file */
+	uint32_t							completeBlocks;								/**< Number of blocks that have been completed */
+	TimerHandle_t						xTimer;										/**< Timer used to detect no update job */
+	QueueHandle_t						hostQueue;									/**< Queue to communicate with Host OTA module */
 } otaData_t;
 
 static otaData_t otaData =
 {
 	.taskState = eOtaTaskInit,
 	.pHostUpdateComplete = NULL,
-	.pendingHostOtaUpdate = NULL,
+	.pendDownloadCb = NULL,
+	.imageUnavailableCb = NULL,
+	.transferPendingCb = NULL
 };
 
 const static hostota_QueueItem_t _hostOta_checking= { .message = eChecking };
@@ -704,10 +707,10 @@ static void _OTAUpdateTask( void *arg )
 
 			case eOtaTaskInit:
 				/* If a callback function for pendingHostOtaUpdate has been registered */
-				if( NULL != otaData.pendingHostOtaUpdate )
+				if( NULL != otaData.pendDownloadCb )
 				{
 					/* Delay starting OTA Update task if Host Ota Update task is busy (e.g. transfer is in process) */
-					if( otaData.pendingHostOtaUpdate() == false )
+					if( otaData.pendDownloadCb() == false )
 					{
 						vTaskDelay( 1000 / portTICK_PERIOD_MS );
 						break;
@@ -997,12 +1000,26 @@ void vTimerCallback( TimerHandle_t xTimer )
 	{
 		IotLogInfo( "OTA Timer expired - No Update available" );
 		_otaNotificationUpdate( eNotifyOtaNoUpdateAvailable );
-		/* If processing Host Image  - FIXME do we need this conditional? */
-//		if( otaData.C->ulServerFileID == 1 )
-//		{
-			_sendToHostQueue( &_hostOta_noImageAvailable );							// Queue message to host_ota module
-//		}
-		/* TODO - If Host Transfer is not pending, send SHCI event to abort any task that is waiting for an update */
+		_sendToHostQueue( &_hostOta_noImageAvailable );							// Queue message to host_ota module
+
+		/*
+		 * There is a window after the PIC Image download completes, before the
+		 * image is programmed into the PIC's flash, during which the timer
+		 * will expire, where an ImageUnavailable event to the PIC is not
+		 * desired - There actually is an update available!
+		 *
+		 * If Host Transfer is not pending, send SHCI event to abort any task that is waiting for an update
+		 */
+		if( NULL != otaData.transferPendingCb )									// If transfer pending callback function is present
+		{
+			if( !otaData.transferPendingCb() )									// If transfer is not pending
+			{
+				if( NULL != otaData.imageUnavailableCb )					// If a callback function is present
+				{
+					otaData.imageUnavailableCb();							// Call it - this will post event to PIC processor
+				}
+			}
+		}
 	}
 }
 
@@ -1057,14 +1074,20 @@ int OTAUpdate_init( 	const char * pIdentifier,
 	/* save the Notification callback function */
 	otaData.notify = notifyCb;
 
-	/* Save the callback function for pendingHostOtaUpdate */
-	otaData.pendingHostOtaUpdate = pHostInterface->function;
+	/* Save the callback function for pendingDownload */
+	otaData.pendDownloadCb = pHostInterface->pendDownloadCb;
 
 	/* Save the Alternate Processor PAL function table */
 	otaData.hostPal = pHostInterface->pal_functions;
 
 	/* Save the Host Queue */
 	otaData.hostQueue = pHostInterface->queue;
+
+	/* Save the callback function for ImageUnavailable */
+	otaData.imageUnavailableCb = pHostInterface->imageUnavailableCb;
+
+	/* Ave the Transfer Pending callback function */
+	otaData.transferPendingCb = pHostInterface->transferPendingCb;
 
 	/* Create a Timer - 5 seconds was too short */
 	otaData.xTimer = xTimerCreate( "OtaTimer", ( 10000 / portTICK_PERIOD_MS ), pdFALSE, ( void * )0, vTimerCallback );
