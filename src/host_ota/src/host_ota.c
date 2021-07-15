@@ -592,6 +592,10 @@ typedef struct
 	_otaOpcode_t		command;					/**< OpCode: "b" */
 	uint8_t				data[ 5 ];					/**< Data: "ootme" */
 	uint8_t				image;						/**< Image Flag: 0 = Factory, 1 = OTA */
+	uint16_t			fwVersion;					/**< Firmware Version - as found at absolute address on the image */
+	uint16_t			fwBuild;					/**< Firmware Build - as found at absolute address on the image */
+	uint16_t			fwCRC;						/**< Firmware CRC - from DFM location */
+	uint16_t			calcCRC;					/**< Calculated CRC */
 	uint16_t			crc;						/**< command CRC */
 }  __attribute__ ((packed)) _bootme_t;
 
@@ -677,6 +681,7 @@ typedef struct
 	bool				bUpdateAvailable;			/**< A validate PIC image is available */
 	QueueHandle_t		queue;						/**< queue for ota_update module to communicate */
 	hostOta_status_t	reportedStatus;				/**< OTA Status reported by ota_update module via queue */
+	hostOta_status_t	bootmeStatus;				/**< OTA Status reported to PIC via Bootme Response */
 
 } host_ota_t;
 
@@ -914,38 +919,6 @@ static esp_err_t onStatus_FlashWriteAck( const void * pData )
 	return( err );
 }
 
-/**
- * @brief	Process	OTA Status: BOOTME
- */
-static esp_err_t onStatus_Bootme( const void * pData )
-{
-	esp_err_t	err = ESP_OK;
-	const _bootme_t *pBoot = pData;
-
-	/* Set bBootme flag and bFactoryImage, if image value is zero */
-	_hostota.bBootme = true;
-	_hostota.bFactoryImage = ( pBoot->image == 0 ) ? true : false;
-
-	IotLogInfo( "Bootme: %s", _hostota.bFactoryImage ? "Factory" : "OTA" );
-
-	return( err );
-}
-
-/**
- * @brief	Calculate CRC Status
- */
-static esp_err_t onStatus_CalcCrcAck( const void * pData )
-{
-	esp_err_t	err = ESP_OK;
-	const _blCalcCrcStatus_t *pCrc = pData;
-
-	IotLogInfo( "CalcCRC Ack: %04X vs. %04X", pCrc->value, _hostota.crc16_ccitt );
-
-	/* Save calculated CRC */
-	_hostota.calc_crc = pCrc->value;
-
-	return( err );
-}
 
 /**
  * @brief	Get Boot Status
@@ -984,6 +957,75 @@ static hostOta_status_t getBootStatus( void )
 	{
 		return eChecking;
 	}
+}
+
+
+/**
+ * @brief	Process	OTA Status: BOOTME
+ *
+ * BOOTME message has details of the current PIC firmware
+ */
+static esp_err_t onStatus_Bootme( const void * pData )
+{
+	esp_err_t	err = ESP_OK;
+	const _bootme_t *pBoot = pData;
+
+	/* Set bBootme flag and bFactoryImage, if image value is zero */
+	_hostota.bBootme = true;
+	_hostota.bFactoryImage = ( pBoot->image == 0 ) ? true : false;
+
+	/* set the default bootme status */
+	_hostota.bootmeStatus = getBootStatus();
+
+	IotLogInfo( "Bootme: %s", _hostota.bFactoryImage ? "Factory" : "OTA" );
+
+	IotLogInfo( " Version: %04X (%d)", pBoot->fwVersion, pBoot->fwBuild );
+	IotLogInfo( " CRC: %04X, calc: %04X", pBoot->fwCRC, pBoot->calcCRC );
+	IotLogInfo( "Compare with CRC: %04X, Version: %04X", _hostota.crc16_ccitt, ( uint16_t ) ( _hostota.Version_PIC * 100 ) );
+
+	/* If CRCs match, PIC Image is valid */
+	if( pBoot->fwCRC == pBoot->calcCRC )
+	{
+		_hostota.currentVersion_PIC =  ( ( ( double ) pBoot->fwVersion ) / 100 );				// Set current PIC Version
+		IotLogInfo( "Setting currentVersion_PIC = %5.2f", _hostota.currentVersion_PIC );
+
+		/* If the Version of the downloaded image matches the bootme reported version */
+		if( _hostota.currentVersion_PIC ==  _hostota.Version_PIC )
+		{
+			/* AND the downloaded image CRC matches bootme reported CRC: No Update is available */
+			if( pBoot->fwCRC == _hostota.crc16_ccitt )
+			{
+				IotLogInfo( " Firmware reported by Bootme matches OTA image: No Update Available" );
+//				_hostota.bUpdateAvailable = false;
+//				_hostota.reportedStatus = eNoImageAvailable;
+				_hostota.bootmeStatus = eNoImageAvailable;							// override default status
+			}
+			/* Else the versions match but CRCs do not: allow update to continue */
+			else
+			{
+				_hostota.bootmeStatus = eImageAvailable;							// override default status
+			}
+		}
+	}
+
+
+	return( err );
+}
+
+/**
+ * @brief	Calculate CRC Status
+ */
+static esp_err_t onStatus_CalcCrcAck( const void * pData )
+{
+	esp_err_t	err = ESP_OK;
+	const _blCalcCrcStatus_t *pCrc = pData;
+
+	IotLogInfo( "CalcCRC Ack: %04X vs. %04X", pCrc->value, _hostota.crc16_ccitt );
+
+	/* Save calculated CRC */
+	_hostota.calc_crc = pCrc->value;
+
+	return( err );
 }
 
 /**
@@ -1106,7 +1148,8 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 	{
 		uint8_t	responseBuffer[ 5 ] = { eCommandComplete, eHostUpdateResponse,eCommandSucceeded, eBL_BOOTME };
 
-		responseBuffer[ 4 ] = ( uint8_t )getBootStatus();
+//		responseBuffer[ 4 ] = ( uint8_t )getBootStatus();
+		responseBuffer[ 4 ] = ( uint8_t )_hostota.bootmeStatus;
 		IotLogInfo( "BootmeResponse: %d", responseBuffer[ 4 ] );
 		shci_PostResponse(  responseBuffer, sizeof( responseBuffer ) );
 	}
@@ -2207,25 +2250,33 @@ static void _hostOtaTask(void *arg)
     		case eHostOtaInit:
     			/* default to no update available */
     			_hostota.bUpdateAvailable = false;
+    			_hostota.bBootme = false;
+    			_hostota.bFactoryImage = false;
+    			_hostota.currentVersion_PIC = -1;											// default current PIC version to invalid value
 
-    			/* If BootMe flag is set, read Meta-Data without delay */
-    			if( _hostota.bBootme )
-    			{
-    				IotLogInfo( "_hostOtaTask -> ReadMetaData" );
-    				_hostota.state = eHostOtaReadMetaData;
-    			}
-    			/* wait for an MQTT connection before starting the host ota update */
-    			else if( mqtt_IsConnected() )
-    			{
-    				IotLogInfo( "_hostOtaTask -> PendUpdate" );
-    				_hostota.state = eHostOtaPendUpdate;
-    			}
-    			else
-    			{
-					vTaskDelay( 1000 / portTICK_PERIOD_MS );
-    			}
+    			/* Try reading Meta-data */
+				IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+				_hostota.state = eHostOtaReadMetaData;
+
+//    			/* If BootMe flag is set, read Meta-Data without delay */
+//    			if( _hostota.bBootme )
+//    			{
+//    				IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+//    				_hostota.state = eHostOtaReadMetaData;
+//    			}
+//    			/* wait for an MQTT connection before starting the host ota update */
+//    			else if( mqtt_IsConnected() )
+//    			{
+//    				IotLogInfo( "_hostOtaTask -> PendUpdate" );
+//    				_hostota.state = eHostOtaPendUpdate;
+//    			}
+//    			else
+//    			{
+//					vTaskDelay( 1000 / portTICK_PERIOD_MS );
+//    			}
     			break;
 
+#ifdef	DEPRICATED
 			case eHostOtaIdle:
 
 				/* Get currently running MZ firmware version */
@@ -2249,11 +2300,12 @@ static void _hostOtaTask(void *arg)
 				IotLogInfo( "_hostOtaTask -> ParseJSON" );
 				_hostota.state = eHostOtaParseJSON;
 				break;
+#endif
 
 			case eHostOtaReadMetaData:
 				/* Get currently running PIC firmware version */
-				_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
-				IotLogInfo( "host ota: current PIC version = %5.2f", _hostota.currentVersion_PIC );
+//				_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
+//				IotLogInfo( "host ota: current PIC version = %5.2f", _hostota.currentVersion_PIC );
 
 				/* Read picFactory partition or pic_ota0 for the moment */
 				if( _hostota.bFactoryImage )
@@ -2429,23 +2481,31 @@ static void _hostOtaTask(void *arg)
 			case eHostOtaVersionCheck:
 
 				/* If Bootload is already active, it will be sending BootMe messages */
-				if( _hostota.bBootme )
+//				if( _hostota.bBootme )
+				if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
 				{
+					/* NOTE - if bBootme is cleared here, it will force a 2nd Bootme message before transfer starts */
 					IotLogInfo( "_hostOtaTask -> WaitBootme" );
 					_hostota.state = eHostOtaWaitBootme;
 				}
+				/*
+				 * If current PIC version is invalid, try to read from shadow - SHCI will update
+				 * Alternatively a Bootme message can update the current PIC version
+				 */
 				else if( 0 > _hostota.currentVersion_PIC )
 				{
 					vTaskDelay( 1000 / portTICK_PERIOD_MS );
 					_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
 				}
+				/* Downloaded version is greater than the current PIC version: Update Available */
 				else if( _hostota.Version_PIC > _hostota.currentVersion_PIC )
 				{
 					IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
     				IotLogInfo( "_hostOtaTask -> UpdateAvailable" );
- 					_hostota.state = eHostOtaUpdateAvailable;
- 					_hostota.bUpdateAvailable = true;					/* validated image is available */
+  					_hostota.bUpdateAvailable = true;					/* validated image is available */
+					_hostota.state = eHostOtaUpdateAvailable;
 				}
+				/* Downloaded version is less than or equal to the current PIC Version: No Update Available, wait on a download */
 				else
 				{
 					IotLogInfo( "Current Version: %5.2f, Downloaded Version: %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
@@ -2478,9 +2538,19 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			case eHostOtaWaitMQTT:
-				/* If MQTT connection is active, or retry count expires */
-				if( (mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
+				/* If PIC Bootloader is active and response is Image Available or No Image Available: Initiate transfer */
+				if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
 				{
+					IotLogInfo( "_hostOtaTask -> WaitBootme" );
+					_hostota.state = eHostOtaWaitBootme;
+				}
+				/* If MQTT connection is active, or retry count expires */
+				else if( (mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
+				{
+					/* Pend on an update from AWS */
+					hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
+					IotLogInfo( "Host OTA Update: pend on image download" );
+
     				IotLogInfo( "_hostOtaTask -> PendUpdate" );
 					_hostota.state = eHostOtaPendUpdate;				/* Pend on an update from AWS */
 				}
@@ -2499,6 +2569,7 @@ static void _hostOtaTask(void *arg)
 					}
 					else
 					{
+						/* TODO can this be reached? */
 						/* If downloaded Image version is not equal to current version: update failed */
 						hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );
 						setImageState( eOTA_PAL_ImageState_Invalid );
@@ -2507,17 +2578,38 @@ static void _hostOtaTask(void *arg)
 
 				}
 
-				/* Pend on an update from AWS */
-				hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
-				IotLogInfo( "Host OTA Update: pend on image download" );
-
-				/* wait for an update from AWS, if wait times out, check if a valid image is already present */
-				if( IotSemaphore_TimedWait( &_hostota.iotUpdateSemaphore, HOSTOTA_PEND_TIMEOUT_MS ) == false )
+				/* Monitor queue for download complete */
+				if( _hostota.reportedStatus == eDownloadComplete )
 				{
-					IotLogInfo( "Host OTA Update: time-out expired" );
+					IotLogInfo( "Download Complete" );
+					IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
 				}
-				IotLogInfo( "_hostOtaTask -> Idle" );
-				_hostota.state = eHostOtaIdle;							/* back to image verification */
+				/* If PIC Bootloader is active and response is Image Available or No Image Available: Initiate transfer */
+				else if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
+				{
+					IotLogInfo( "_hostOtaTask -> WaitBootme" );
+					_hostota.state = eHostOtaWaitBootme;
+				}
+				else
+				{
+					vTaskDelay( 1000 / portTICK_PERIOD_MS );
+				}
+//				/* wait for an update from AWS, if wait times out, check if a valid image is already present */
+//				if( IotSemaphore_TimedWait( &_hostota.iotUpdateSemaphore, HOSTOTA_PEND_TIMEOUT_MS ) == false )
+//				{
+//					IotLogInfo( "Host OTA Update: time-out expired" );
+//
+//					/* If PIC Bootloader is active and response is Image Available or No Image Available: Initiate transfer */
+//					if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
+//					{
+//						IotLogInfo( "_hostOtaTask -> WaitBootme" );
+//						_hostota.state = eHostOtaWaitBootme;
+//						break;
+//					}
+//				}
+//				IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+//				_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
 				break;
 
 			case eHostOtaUpdateAvailable:												/* Update image is available */
@@ -2532,10 +2624,11 @@ static void _hostOtaTask(void *arg)
 				/* Wait for host to reset and start sending BootMe messages */
 				if( _hostota.bBootme )
 				{
+					_hostota.bBootme = false;											/* Clear flag */
 					IotLogInfo(" Bootloader is active" );
     				IotLogInfo( "_hostOtaTask -> Transfer" );
 
-    				_hostota.pStep = &blSteps[ 0 ];											/* start image transfer with first step */
+    				_hostota.pStep = &blSteps[ 0 ];										/* start image transfer with first step */
 					_hostota.state = eHostOtaTransfer;
 					_hostota.bStartTransfer = true;
 				}

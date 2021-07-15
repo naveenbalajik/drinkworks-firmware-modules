@@ -21,6 +21,7 @@ typedef enum
 {
 	eChecking,														/**< Checking if a PIC Update is available */
 	eImageDownloading,												/**< A PIC Image is being downloaded */
+	eDownloadComplete,												/**< PIC Download complete (contents not validated) */
 	eImageAvailable,												/**< A PIC Update Image is available (Image transfer will start momentarily) */
 	eNoImageAvailable,												/**< No PIC Image is available */
 	eUnknown,														/**< Unknown status - default */
