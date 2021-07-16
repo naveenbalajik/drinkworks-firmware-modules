@@ -2494,6 +2494,7 @@ static void _hostOtaTask(void *arg)
 				 */
 				else if( 0 > _hostota.currentVersion_PIC )
 				{
+					IotLogInfo( "currentVersion = %5.2f", _hostota.currentVersion_PIC );
 					vTaskDelay( 1000 / portTICK_PERIOD_MS );
 					_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
 				}
