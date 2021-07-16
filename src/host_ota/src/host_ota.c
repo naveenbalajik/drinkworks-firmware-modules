@@ -51,6 +51,25 @@
 /* Debug Logging */
 #include "host_ota_logging.h"
 
+/**
+ * @brief	Compile-time flag to enable Factory Reset Test configuration
+ *
+ * Defining FACTORY_RESET_TEST disables the Bootme response
+ * Test Sequence:
+ * 		Build ESP image with FACTORY_RESET_TEST defined and Version set to a high value e.g. 9.001
+ * 		Create AWS Dynamic group, use shadow otaFlags to control membership: ModelB_Factory_Reset_Test
+ * 		Create AWS OTA job for new image, targeting new dynamic group: AFR_OTA-ModelB_FactoryResetTest_v9_009
+ * 		OTA to new Image: set OtaFlags:77
+ * 		New Image should boot and function normally, note firmware versions
+ * 		Reset OtaFlags:0
+ * 		Enter PIC Bootloader manually
+ * 		Bootloader to ESP should fail and cause ESP factory reset
+ * 		BLE + WiFi provisioning should be lost
+ * 		PIC should load either OTA or Factory image
+ *
+ */
+#undef	FACTORY_RESET_TEST
+
 #define SwapTwoBytes(data) \
 ( (((data) >> 8) & 0x00FF) | (((data) << 8) & 0xFF00) )
 
@@ -1146,12 +1165,14 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 	}
 	else if( pStatusEntry->opcode == eBL_BOOTME )				/* BootMe has expanded ACK */
 	{
+#ifndef	FACTORY_RESET_TEST
 		uint8_t	responseBuffer[ 5 ] = { eCommandComplete, eHostUpdateResponse,eCommandSucceeded, eBL_BOOTME };
 
 //		responseBuffer[ 4 ] = ( uint8_t )getBootStatus();
 		responseBuffer[ 4 ] = ( uint8_t )_hostota.bootmeStatus;
 		IotLogInfo( "BootmeResponse: %d", responseBuffer[ 4 ] );
 		shci_PostResponse(  responseBuffer, sizeof( responseBuffer ) );
+#endif
 	}
 	else
 	{
