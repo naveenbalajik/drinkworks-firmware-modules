@@ -4,7 +4,6 @@
  * Created on: May 4, 2020
  * 		Author: nick.weber
  */
-
 /* Standard includes. */
 #include <string.h>
 
@@ -21,78 +20,11 @@
 /* Debug Logging */
 #include "nvs_logging.h"
 
-#define NUM_NVS_ITEMS  			(sizeof(NVS_Items)/sizeof(NVS_Items[0]))
-
 /**
  * @brief ESP32 Partition where NVS Keys are stored
  */
 #define nvsKeys_PARTITION  "nvs_keys"
 
-/**
- * @brief List all NVS Partitions with labels and encrypted flags
- */
-static NVS_Partition_Details_t NVS_Partitions[] =
-{
-		[ NVS_PART_NVS ] =
-		{
-			.label = "nvs",
-			.encrypted = false,
-			.initialized = false,
-		},
-		[ NVS_PART_STORAGE ] =
-		{
-			.label = pkcs11configSTORAGE_PARTITION,
-			.encrypted = true,
-			.initialized = false,
-		},
-		[ NVS_PART_PDATA ] =
-		{
-			.label = "pdata",
-			.encrypted = false,
-			.initialized = false,
-		},
-		[ NVS_PART_XDATA ] =
-		{
-			.label = "xdata",
-			.encrypted = true,
-			.initialized = false,
-		},
-		[ NVS_PART_EDATA ] =
-		{
-			.label = "edata",
-			.encrypted = false,
-			.initialized = false,
-		}
-};
-
-#define NUM_PARTITIONS	( sizeof( NVS_Partitions ) / sizeof( NVS_Partition_Details_t ) )
-
-/**
-* @brief All NVS items are stored in this table. Each element in the array holds the partition, partitionNamespace, and nvsKey of that element in the NVS
-*
-* Item indexes should be unique. If they are not unique, then the NVS functions will use the first element in the array that matches the itemIndex
-*/
-static const NVS_Entry_Details_t NVS_Items[] =
-{
-	[ NVS_CLAIM_CERT ]        = {	.type = NVS_TYPE_BLOB, 	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ClaimCert" },
-	[ NVS_CLAIM_PRIVATE_KEY ] = {	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ClaimPKey" },
-	[ NVS_FINAL_CERT ]        = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "FinalCert" },
-	[ NVS_FINAL_PRIVATE_KEY ] = {	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "FinalPKey" },
-	[ NVS_THING_NAME ]        = { 	.type = NVS_TYPE_STR,	.partition = NVS_PART_STORAGE, 		.namespace = pkcs11configSTORAGE_NS, 	.nvsKey = "ThingName" },
-	[ NVS_SERIAL_NUM ]        = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "SerialNumber" },
-	[ NVS_FIFO_CONTROLS ]     = { 	.type = NVS_TYPE_U32,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoControls" },
-	[ NVS_FIFO_MAX ]          = { 	.type = NVS_TYPE_U16,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "FifoMax" },
-	[ NVS_EVENT_RECORD ]      = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "EventRecord" },
-	[ NVS_PROD_PUB_INDEX ]    = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "Prod",					.nvsKey = "LastPubIndex" },
-	[ NVS_PROD_REC_EVENT ]    = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "Prod",					.nvsKey = "LastRecEvent" },
-	[ NVS_DEV_PUB_INDEX ]     = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "Dev",						.nvsKey = "LastPubIndex" },
-	[ NVS_DEV_REC_EVENT ]     = { 	.type = NVS_TYPE_I32,	.partition = NVS_PART_PDATA,		.namespace = "Dev",						.nvsKey = "LastRecEvent" },
-	[ NVS_HOSTOTA_STATE ]     = {	.type = NVS_TYPE_U32,	.partition = NVS_PART_PDATA,		.namespace = "OTA",						.nvsKey = "HostOtaState" },
-	[ NVS_DATA_SHARE ]        = {	.type = NVS_TYPE_U8,	.partition = NVS_PART_PDATA,		.namespace = "Settings",				.nvsKey = "DataShare" },
-	[ NVS_PRODUCTION ]        = {	.type = NVS_TYPE_U8,	.partition = NVS_PART_PDATA,		.namespace = "Settings",				.nvsKey = "Production" },
-	/* Following entry is only needed if running the EventFifo Unit Test */
-	//	[ NVS_FIFO_TEST ]          = { 	.type = NVS_TYPE_BLOB,	.partition = NVS_PART_PDATA,		.namespace = "SysParam",				.nvsKey = "Fifotest" },			/**< For test purposes only */
-};
 
 #ifdef CONFIG_NVS_ENCRYPTION
 	/**
@@ -100,6 +32,11 @@ static const NVS_Entry_Details_t NVS_Items[] =
 	 */
 	static nvs_sec_cfg_t NVS_Keys;
 #endif
+
+/**
+ * @brief	NVS Item Abstraction Layer
+ */
+static const	 nvsItem_pal_t * _pal;
 
 /**
  * @brief Initialize NVS Partition using entry from Partition Table
@@ -157,14 +94,14 @@ static int32_t _getTablePointerFromNVSItem( NVS_Items_t nvsItem, const NVS_Entry
 {
 	esp_err_t err = ESP_OK;
 
-	if( nvsItem >= NUM_NVS_ITEMS )
+	if( nvsItem >= _pal->numItems )
 	{
 		err = ESP_FAIL;
 		IotLogError( "ERROR: NVS Item not in master NVS table" );
 	}
 	else
 	{
-		*pItem = &NVS_Items[ nvsItem ];
+		*pItem = &_pal->items[ nvsItem ];
 	}
 
 	return err;
@@ -190,12 +127,12 @@ static int32_t _getNVSnamespaceHandle( const NVS_Entry_Details_t *pItem, int32_t
 	const int part_idx = pItem->partition;
 
 	/* Check that partition is valid */
-	if( part_idx >= NVS_PART_END )
+	if( part_idx >= _pal->numPartitions )
 	{
 		IotLogError( "ERROR invalid Partition: %d", part_idx );
 		return ESP_FAIL;
 	}
-	pPartition = &NVS_Partitions[ part_idx ];
+	pPartition = &_pal->partitions[ part_idx ];
 
 //	IotLogInfo( "%s: part_idx = %d, label = %s", __func__, part_idx, pPartition->label );
 	/* Initialize (un-inited) partition, use Security Configuration if partition is encrypted */
@@ -220,8 +157,15 @@ static int32_t _getNVSnamespaceHandle( const NVS_Entry_Details_t *pItem, int32_t
 		IotLogError( "FAILED NVS OPEN. Namespace \"%s\" may not exist yet, err: 0x%04X", pItem->namespace, err );
 	}
 
+	IotLogInfo( "Namespace %s opened, handle = %p", pPartition->label, *handle );
 	return err;
 }
+
+/* ************************************************************************* */
+/* ************************************************************************* */
+/* **********        I N T E R F A C E   F U N C T I O N S        ********** */
+/* ************************************************************************* */
+/* ************************************************************************* */
 
 /**
  * @brief	Initialize the NVS module
@@ -236,9 +180,24 @@ static int32_t _getNVSnamespaceHandle( const NVS_Entry_Details_t *pItem, int32_t
  * 	- Error code from esp_partition_writ/erase APIs
  * 	- Error code from the underlying flash storage driver
  */
-int32_t NVS_Initialize( void )
+int32_t NVS_Initialize( const nvsItem_pal_t * pal  )
 {
 	esp_err_t err = ESP_OK;
+
+	/* Save abstraction layer pointer */
+	_pal = pal;
+
+	if( NULL == _pal )
+	{
+		IotLogError( "NVS Item Abstraction Layer is NULL!" );
+		err = ESP_FAIL;
+	}
+
+	if( err == ESP_OK )
+	{
+		IotLogInfo( "NVS Partition count =%d", _pal->numPartitions );
+		IotLogInfo( "NVS Item count =%d", _pal->numItems );
+	}
 
 #ifdef CONFIG_NVS_ENCRYPTION
 	const esp_partition_t * key_part =  esp_partition_find_first( ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS_KEYS, nvsKeys_PARTITION);
@@ -281,30 +240,31 @@ int32_t NVS_Initialize( void )
 #endif
 
 		/* Initialize each NVS partition */
-		for( int i = 0; ( i < NVS_PART_END ) && ( err == ESP_OK ); ++i )
+		for( int i = 0; ( i < _pal->numPartitions ) && ( err == ESP_OK ); ++i )
 		{
 		    /* Initialize NVS */
-			err = _init_partition( &NVS_Partitions[ i ] );
+			err = _init_partition( &_pal->partitions[ i ] );
 
 			IotLogInfo( "Free heap = %d", esp_get_free_heap_size() );
 
 			/* If init fails, try erasing and reinitializing */
 		    if( ( err == ESP_ERR_NVS_NO_FREE_PAGES ) || ( err == ESP_ERR_NVS_NEW_VERSION_FOUND ) )
 		    {
-		    	IotLogInfo(" Erase NVS Partition: %s",  NVS_Partitions[ i ].label );
-		        err = nvs_flash_erase_partition(  NVS_Partitions[ i ].label );
+		    	IotLogInfo(" Erase NVS Partition: %s",  _pal->partitions[ i ].label );
+		        err = nvs_flash_erase_partition(  _pal->partitions[ i ].label );
 
-		        if(err ==  ESP_OK){
-		        	NVS_Partitions[ i ].initialized = false;
+		        if( err ==  ESP_OK )
+		        {
+		        	_pal->partitions[ i ].initialized = false;
 		        }
 
-				err = _init_partition( &NVS_Partitions[ i ] );
+				err = _init_partition( &_pal->partitions[ i ] );
 		    }
 
 		    if( err == ESP_OK )
 		    {
-		    	NVS_Partitions[ i ].initialized = true;
-		    	IotLogInfo("Initialized NVS Partition: %s", NVS_Partitions[ i ].label );
+		    	_pal->partitions[ i ].initialized = true;
+		    	IotLogInfo("Initialized NVS Partition: %s", _pal->partitions[ i ].label );
 		    	IotLogInfo( "Free heap = %d", esp_get_free_heap_size() );
 		    }
 		}
@@ -485,7 +445,7 @@ int32_t NVS_pGet( const NVS_Entry_Details_t *pItem, void* pOutput, void* pSize )
 
 	if( err != ESP_OK )
 	{
-		IotLogError( "ERROR getting NVS Item: type= %d, err = %d", pItem->type, err );
+		IotLogError( "ERROR getting NVS Item: namespace = %s, key = %s, type= %d, err = %d", pItem->namespace, pItem->nvsKey, pItem->type, err );
 	}
 
 	nvs_close( handle);
@@ -530,7 +490,7 @@ int32_t NVS_Get( NVS_Items_t nvsItem, void* pOutput, void* pSize )
  *
  * @return 	ESP_OK if successful, -1 if failed
  */
-int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, void* pInput, void* pSize )
+int32_t NVS_pSet( const NVS_Entry_Details_t * pItem, const void * pInput, size_t * pSize )
 {
 	esp_err_t err;
 	nvs_handle handle;
@@ -714,7 +674,7 @@ int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, void* pInput, void* pSize )
 					err = ESP_FAIL;
 					break;
 				}
-				IotLogDebug( "NVS_Set, Blob, pSize = %d", *(size_t *)pSize);
+				IotLogDebug( "NVS_Set, Blob, pSize = %d", *pSize);
 
 				err = NVS_pGet_Size_Of( pItem, &currentSize );
 
@@ -728,9 +688,9 @@ int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, void* pInput, void* pSize )
 					err = NVS_pGet( pItem, currentVal, &currentSize );
 				}
 
-				if( err != ESP_OK || memcmp( pInput, currentVal, *(size_t*)pSize ) != 0 )
+				if( err != ESP_OK || memcmp( pInput, currentVal, *pSize ) != 0 )
 				{
-					err = nvs_set_blob( handle, pItem->nvsKey, pInput, *(size_t*)pSize );
+					err = nvs_set_blob( handle, pItem->nvsKey, pInput, *pSize );
 				}
 				else
 				{
@@ -780,7 +740,7 @@ int32_t NVS_pSet( const NVS_Entry_Details_t *pItem, void* pInput, void* pSize )
  *
  * @return 	ESP_OK if successful, -1 if failed
  */
-int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, void* pSize )
+int32_t NVS_Set( NVS_Items_t nvsItem, void* pInput, size_t * pSize )
 {
 	esp_err_t err;
 	const NVS_Entry_Details_t *pItem;

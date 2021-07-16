@@ -27,11 +27,12 @@
 #include	"nvs_utility.h"
 #include	"shadow.h"
 #include	"shadow_updates.h"
+#include	"pressure.h"
+#include	"temperature.h"
+#include	"byte_array.h"
 
 /* Debug Logging */
 #include "event_record_logging.h"
-
-extern int getUTC( char * buf, size_t size);
 
 
 #define	ISO8601_BUFF_SIZE	21				/**< Buffer size to hold ISO 8601 Date/Time string, including null-terminator */
@@ -47,44 +48,6 @@ typedef struct
 	uint32_t			index;				/**< Event Record Index */
 } __attribute__((packed)) _eventRecordWriteIndex_t;
 
-/**
- * @brief	Enumerated Dispense Record Status
- */
-enum RecordStatus
-{
-	eNoError =								0x00,
-	eUnknown_Error =						0x01,
-	eTop_of_Tank_Error =					0x02,
-	eCarbonator_Fill_Timeout_Error =		0x03,
-	eOver_Pressure_Error =					0x04,
-	eCarbonation_Timeout_Error =			0x05,
-	eError_Recovery_Brew =					0x06,
-	eHandle_Lift_Error =					0x07,
-	ePuncture_Mechanism_Error =				0x08,
-	eCarbonation_Mechanism_Error =			0x09,
-	eCleaning_Cycle_Completed =				0x80,
-	eRinsing_Cycle_Completed =				0x81,
-	eCO2_Module_Attached =					0x82,
-	eFirmware_Update_Passed =				0x83,
-	eFirmware_Update_Failed =				0x84,
-	eDrain_Cycle_Complete =					0x85,
-	eFreezeEventUpdate =					0x86,
-	eCritical_Error_OverTemp =				0x87,
-	eCritical_Error_PuncMechFail =			0x88,
-	eCritical_Error_TrickleFillTmout =		0x89,
-	eCritical_Error_ClnRinCWTFillTmout =	0x8A,
-	eCritical_Error_ExtendedOPError = 		0x8B,
-	eCritical_Error_BadMemClear = 			0x8C,
-	eBLE_ModuleReset = 						0xE0,		/**< Module reset detected by comparing Firmware Version Characteristic */
-	eBLE_IdleStatus =						0xE1,		/**< Module reporting Idle Status, unexpectedly */
-	eBLE_StandbyStatus =					0xE2,		/**< Module reporting Standby Status, unexpectedly */
-	eBLE_ConnectedStatus =					0xE3,		/**< Module reporting Connected Status, unexpectedly */
-	eBLE_HealthTimeout =					0xE4,		/**< Module did not respond to a health check within timeout period */
-	eBLE_ErrorState =						0xE5,		/**< Resetting from Error State, entered from CONFIG or SETUP */
-	eBLE_MultiConnectStat =					0xE6,		/**< Multiple Connected Status messages received when in WaitForConnection state */
-	eBLE_MaxCriticalTimeout =				0xE7,		/**< Consecutive timeouts of critical response commands exceeds threshold */
-	eUnknownStatus =						0xFF
-};
 typedef	uint8_t	_recordStatus_t;
 
 /*
@@ -109,6 +72,7 @@ const static _recordStatusEntry_t recordStatusTable[] =
 		{ eHandle_Lift_Error,					"Error: Handle Lift" },
 		{ ePuncture_Mechanism_Error,			"Error: Puncture Mechanism" },
 		{ eCarbonation_Mechanism_Error,			"Error: Carbonation Mechanism" },
+		{ eWaitForWater_Timeout_Error,			"Error: Wait for Water Timeout" },
 		{ eCleaning_Cycle_Completed,			"Cleaning Cycle Completed" },
 		{ eRinsing_Cycle_Completed,				"Rinsing Cycle Completed" },
 		{ eCO2_Module_Attached,					"CO2 Cylinder Attached" },
@@ -130,7 +94,7 @@ const static _recordStatusEntry_t recordStatusTable[] =
 		{ eBLE_ErrorState,						"BLE: ErrorState" },
 		{ eBLE_MultiConnectStat,				"BLE: MultiConnectStat" },
 		{ eBLE_MaxCriticalTimeout,				"BLE: MaxCriticalTimeout" },
-		{ eUnknownStatus,						"Unknown Status" }
+		{ eStatusUnknown,						"Unknown Status" }
 };
 
 typedef enum
@@ -171,7 +135,7 @@ typedef struct
 #define	FREEZE_ENTRY_MIN_SIZE		( DISPENSE_RECORD_MAX_SIZE - 2 )			// Minimum size for a FreezeEvents entry
 #define	FIRMWARE_ENTRY_MIN_SIZE		( DISPENSE_RECORD_MAX_SIZE - 6 )			// Minimum size for a Firmware entry
 
-#define	EVENT_RECORD_STACK_SIZE    ( 3076 )
+#define	EVENT_RECORD_STACK_SIZE    ( 3072 )
 
 #define	EVENT_RECORD_TASK_PRIORITY	( 5 )
 
@@ -180,7 +144,6 @@ static const char recordFooter[] = "]}}";
 #define	footerSize	( sizeof( recordFooter ) )
 #define	MAX_EVENT_RECORD_SIZE	512			//256
 #define	MAX_RECORDS_PER_MESSAGE	10
-static char rawBuffer[64];						//57 is good for 28 bytes
 
 /**
  * @brief	Event Record control structure
@@ -194,6 +157,7 @@ typedef struct
 	{
 		int32_t			lastReceivedIndex;										/**< Record Index received in last Event Record, -1 if no record received, 0 is a valid index */
 		int32_t			nextRequestIndex;										/**< Record Index to be used for next request */
+		int32_t			lastRecordedIndex;										/**< Last Recorded Event Record Index */
 	} nvs;																		/**< Control items to be stored in NVS, as a blob */
 
 	bool				updateNvs;												/**< true: nvs items need to be saved in NVS */
@@ -207,7 +171,7 @@ typedef struct
 	bool				shadowUpdateComplete;									/**< Flag set to true when Shadow Update completes */
 	bool				shadowUpdateSuccess;									/**< Flag set to true when Shadow Update is successful */
 	int32_t				highestReadIndex;										/**< Highest Record Index value read from FIFO */
-	int32_t				lastPublishedIndex;										/**< Last/Highest Record Index successfully published, stored in NVS */
+	int32_t				lastPublishedIndex;										/**< Last/Highest Record Index successfully published to AWS, stored in NVS */
 } event_records_t;
 
 
@@ -218,6 +182,7 @@ static event_records_t _evtrec =
 	.lastRequestIndex = -1,
 	.publishState = ePublishRead,
 	.highestReadIndex = -1,
+//	.lastRecordedIndex = -1,
 };
 
 /**
@@ -234,59 +199,7 @@ const char EventRecordPublishTopicPoduction[] = "$aws/rules/Homebar_event_record
  */
 const char shadowLastPublishedIndex[] = "LastPublishedIndex";
 
-/**
- * @brief	Format Byte Array as a hex string
- *
- *	A static format buffer is used, and the array formated.
- *
- *	@param[in]	pData	Pointer to byte array
- *	@param[in]	size	Size of byte array to be printed
- */
-const char* pszNibbleToHex = {"0123456789ABCDEF"};
-
-static char * formatHexByteArray(const uint8_t *pData, size_t size )
-{
-	int		i;
-	char	*ptr;
-	uint8_t	nibble;
-
-	/* use static buffer */
-	ptr = &rawBuffer[0];
-
-	/* format each byte */
-	for (i = 0; i < size; ++i)
-	{
-		nibble = *pData >> 4;							// High Nibble
-		*ptr++ = pszNibbleToHex[ nibble ];
-		nibble = *pData & 0x0f;							// Low Nibble
-		*ptr++ = pszNibbleToHex[ nibble ];
-		pData++;
-	}
-	*ptr = '\0';										// terminate
-
-	return rawBuffer;
-}
-
-/**
- * @brief	Look-up text for status value
- *
- * @param[in]	Status value
- * @return		Pointer to textual string
- */
-static const char * statusText( uint8_t status)
-{
-	int i;
-
-	for( i = 0; 1 ; ++i )
-	{
-		/* terminate search on match or reaching end of list */
-		if( ( eUnknownStatus == status ) || ( recordStatusTable[ i ].status == status ) )
-		{
-			break;
-		}
-	}
-	return( recordStatusTable[ i ].text );
-}
+#ifdef	MODEL_A
 
 /**
  * @brief	Format Date/Time of Dispense Record using ISO 8601 standard
@@ -328,64 +241,6 @@ static char * formatDateTime( _dispenseRecord_t *p )
 	return buffer;
 }
 
-/**
- * @brief	convertTemperature
- *
- * Convert ADC Temperature value to Celcius
- * Equations for Calculating Temperature in °C from A/D value(ADC = x):
- * 		<= 17°C:	°C = 0.000002383038x^2 + 0.012865539727x - 33.744428921424
- * 		>  17°C:	°C = 0.00000000000467700355x^4 - 0.00000004668271047472x^3 + 0.000180445916138172x^2 - 0.294237511718683x + 167.820530124722
- *
- * @param[in]	adc		Temperature value in ADC count
- * @return		Temperature in degrees Celcius
- */
-static double convertTemperature( uint16_t adc)
-{
-	const double a1 = -33.744428921424;
-	const double b1 = 0.012865539727;
-	const double c1 = 0.000002383038;
-
-	const double a2 = 167.820530124722;
-	const double b2 = -0.294237511718683;
-	const double c2 = 0.000180445916138172;
-	const double d2 = -0.0000000466827104747;
-	const double e2 = 0.00000000000467700355;
-
-	double celcius;
-
-	if (adc < 1059) celcius = -20.0;                                    // Min permitted
-	else if (adc > 3693) celcius = 63.0;                                // Max permitted
-	else if (adc <= 2642)                                               // <= 17°C
-	{
-		celcius = (c1 * adc * adc) + (b1 * adc) + a1;
-	}
-	else                                                                //  >  17°C
-	{
-		celcius = (e2 * adc * adc * adc * adc) + (d2 * adc * adc * adc) + (c2 * adc * adc) + (b2 * adc) + a2;
-	}
-	return celcius;
-}
-
-
-/**
- * @brief	convertPressure
- *
- * Convert ADC to Pressure value in PSI
- *
- * @param[in]	ADC		Pressure reading in ADC count
- * @return		Pressure in PSI
- */
-static double convertPressure( uint16_t ADC)
-{
-	double PeakPressure = 0;
-
-    if (ADC != 0)
-    {
-        PeakPressure = (((double)(ADC)) * 0.04328896) - 15.95;    // convert from ADC to PSI
-    }
-
-    return PeakPressure;
-}
 
 /**
  * @brief Format Event Record Data as JSON
@@ -510,7 +365,7 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 
 		/* Unknown Status */
 		default:
-			pDispenseRecord->Status = eUnknownStatus;
+			pDispenseRecord->Status = eStatusUnknown;
 			/* fall through */
 
 	}
@@ -668,6 +523,7 @@ static void fetchRecords( void )
 		}
 	}
 }
+#endif
 
 /**
  * @brief	Read one or more FIFO records, format as a single JSON Object.
@@ -867,6 +723,7 @@ static void publishRecords( const char *topic )
 				nRecords = fifo_size( _evtrec.fifoHandle );
 				if( 0 < nRecords )
 				{
+					IotLogInfo( "Event Record FIFO has %d records", nRecords );
 					/* Limit number of records per message */
 					nRecords = ( MAX_RECORDS_PER_MESSAGE < nRecords ) ? MAX_RECORDS_PER_MESSAGE : nRecords;
 
@@ -890,6 +747,7 @@ static void publishRecords( const char *topic )
 
 						vPortFree( jsonBuffer );					/* free buffer after if is processed */
 
+						IotLogInfo( "publishState -> WaitComplete" );
 						_evtrec.publishState = ePublishWaitComplete;
 					}
 				}
@@ -917,12 +775,14 @@ static void publishRecords( const char *topic )
 					IotLogInfo( "Update Last Published Index: %d", _evtrec.lastPublishedIndex );
 					shadowUpdates_publishedIndex( _evtrec.lastPublishedIndex, &vEventRecordShadowUpdateComplete );
 
+					IotLogInfo( "publishState -> WaitShadowUpdate" );
 					_evtrec.publishState = ePublishWaitShadowUpdate;
 				}
 				else
 				{
 					IotLogError(" Error publishing Event Record(s) - Abort FIFO read" );
 					fifo_commitRead( _evtrec.fifoHandle, false );
+					IotLogInfo( "publishState -> Read" );
 					_evtrec.publishState = ePublishRead;
 				}
 			}
@@ -939,11 +799,13 @@ static void publishRecords( const char *topic )
 				{
 					IotLogError( "Shadow Update: fail");
 				}
+				IotLogInfo( "publishState -> Read" );
 				_evtrec.publishState = ePublishRead;
 			}
 			break;
 
 		default:
+			IotLogInfo( "publishState -> Read" );
 			_evtrec.publishState = ePublishRead;
 			break;
 	}
@@ -980,10 +842,10 @@ static void _eventRecordsTask(void *arg)
     	/* Only process records if user has opted in to Data Sharing */
     	if( shadowUpdates_getDataShare() )
     	{
-
+#ifdef	MODEL_A
 			/* fetch Dispense Records from Host, put to FIFO*/
 			fetchRecords();
-
+#endif
 			/* get Event Records from FIFO, push to AWS */
 			if( shadowUpdates_getProductionRecordTopic() )
 			{
@@ -1015,6 +877,24 @@ static void _eventRecordsTask(void *arg)
 }
 
 
+/**
+ * @brief	Get the next (free) Event Record index
+ */
+static uint32_t	_getNextIndex( void )
+{
+	size_t size = sizeof( struct event_record_nvs_s );
+
+	/* Increment the last recorded Event Record Index */
+	_evtrec.nvs.lastRecordedIndex++;
+
+	/* Save in NVS */
+//	NVS_Set( NVS_LAST_EVT_RECORD, &_evtrec.lastRecordedIndex, NULL );
+	NVS_Set( _evtrec.key, &_evtrec.nvs, &size );				// Update NVS
+
+	return( _evtrec.nvs.lastRecordedIndex );
+}
+
+
 
 /* ************************************************************************* */
 /* ************************************************************************* */
@@ -1035,31 +915,39 @@ int32_t eventRecords_init( fifo_handle_t fifo, NVS_Items_t nvsKey )
 
 	/*
 	 * Restore Event Record access variables from NVS Storage
+	 * Member items may be model specific.
 	 */
-	if( ESP_OK == err)
+	if( ESP_OK == err )
 	{
 		size = sizeof( struct event_record_nvs_s );
 		err = NVS_Get( _evtrec.key, &_evtrec.nvs, &size );
-		if( err != ESP_OK )
+
+		/* Set member itens to defaults if error reading NVS, or size does not match */
+		if( ( err != ESP_OK ) || ( size != sizeof( struct event_record_nvs_s ) ) )
 		{
 			_evtrec.nvs.lastReceivedIndex = -1;
 			_evtrec.nvs.nextRequestIndex = 0;
+			_evtrec.nvs.lastRecordedIndex = -1;												// default to -1, if NVS item does not exist
 			size = sizeof( struct event_record_nvs_s );
 			err = NVS_Set( _evtrec.key, &_evtrec.nvs, &size );				// Update NVS
 		}
 	}
+
 
 	IotLogInfo( "Initializing Event Records:" );
 	IotLogInfo( "  Handle = %p", ( (uint32_t *) _evtrec.fifoHandle ) );
 	IotLogInfo( "  lastReportedIndex = %d", _evtrec.lastReportedIndex );
 	IotLogInfo( "  lastReceivedIndex = %d", _evtrec.nvs.lastReceivedIndex );
 	IotLogInfo( "  nextRequestIndex = %d",  _evtrec.nvs.nextRequestIndex );
+	IotLogInfo( "  lastRecordedIndex = %d", _evtrec.nvs.lastRecordedIndex );
 
+#ifdef	MODEL_A
 	/* Register commands */
 	shci_RegisterCommand( eEventRecordData, &vUpdateEventRecordData );
 
 	/* Register callback for Dispense Record Count update */
 	bleInterface_registerUpdateCB( eDispRecCountIndex, &vRecordCountUpdate );
+#endif
 
 	/* Create Task on new thread */
     xTaskCreate( _eventRecordsTask, "event_record", EVENT_RECORD_STACK_SIZE, NULL, EVENT_RECORD_TASK_PRIORITY, &_evtrec.taskHandle );
@@ -1100,3 +988,64 @@ void eventRecords_onChangedTopic( int32_t lastRecordedEvent )
 	_evtrec.lastRequestIndex = lastRecordedEvent;
 
 }
+
+/**
+ * @brief	Look-up text for status value
+ *
+ * @param[in]	Status value
+ * @return		Pointer to textual string
+ */
+const char * eventRecords_statusText( uint8_t status)
+{
+	int i;
+
+	for( i = 0; 1 ; ++i )
+	{
+		/* terminate search on match or reaching end of list */
+		if( ( eStatusUnknown == status ) || ( recordStatusTable[ i ].status == status ) )
+		{
+			break;
+		}
+	}
+	return( recordStatusTable[ i ].text );
+}
+
+/**
+ * @brief	Save Formatted Event Record in FIFO
+ *
+ * Index and DateStamp are pre-pended before the record is saved.
+ */
+void eventRecords_saveRecord( char * pInput )
+{
+	char * pCommon = NULL;
+	char * pJSON = NULL;
+	char utc[ 28 ] = { 0 };
+	int32_t	lenCommon = 0;
+
+	/* Get Current Time, UTC, formatted per ISO 8601 */
+	getUTC( utc, sizeof( utc ) );
+
+	/* format the common elements */
+	lenCommon = mjson_printf( &mjson_print_dynamic_buf, &pCommon,
+			"{%Q:%d, %Q:%Q}",
+			"Index",           _getNextIndex(),
+			"DateTime",        utc
+			);
+
+	/* Merge the common and special buffers */
+	mjson_merge( pCommon, lenCommon, pInput, strlen( pInput ), mjson_print_dynamic_buf, &pJSON );
+
+	/* Free format buffers */
+	free( pCommon );
+	free( pInput );
+
+	IotLogInfo( "eventRecords_saveRecord: %s", pJSON );
+
+	/* Save record in FIFO */
+	fifo_put( _evtrec.fifoHandle, pJSON, strlen( pJSON ) );
+
+	printf( pJSON );
+
+	free( pJSON );						/* free mjson format buffer */
+}
+

@@ -67,7 +67,7 @@ static _shciCommand_t IncommingCommand;
 static MessageBufferHandle_t   _shciMessageBuffer;
 static TaskHandle_t _shciTaskHandle;
 static QueueHandle_t hci_handle;
-static uint8_t TxEventBuf[ 256 ];
+static uint8_t TxEventBuf[ 300 ];
 static bool _shciUseCRC;
 static portMUX_TYPE shci_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -103,7 +103,7 @@ static void _shciSendResponse( _shciResponse_t * pResponse );
 /**
  * @brief	Initialize selected GPIO pins as outputs, for debug and timing analysis
  *
- * This function is only implemented is DEBUG_USING_GPIO is defined
+ * This function is only implemented if DEBUG_USING_GPIO is defined
  */
 #ifdef	DEBUG_USING_GPIO
 void debug_gpio_init( void )
@@ -160,7 +160,6 @@ static bool _shciDispatchCommand( uint8_t opCode, uint8_t *pdata, uint16_t nByte
 static _shciRxStateType_t _shciProcessInput( _shciCommand_t *ic )
 {
 	int len;
-
 	_shciRxStateType_t nextState = _rxState;	// default to maintaining current state
 	do
 	{
@@ -264,6 +263,11 @@ static _shciRxStateType_t _shciProcessInput( _shciCommand_t *ic )
 /**
  * @brief Send Response Packet to Host
  *
+ *	Response buffer is packetized with either Checksum:
+ *		<SYNC-A><LEN-H><LEN-L><BUFFER><CHECKSUM>
+ *	Or CRC:
+ *		<SYNC-B><LEN-H><LEN-L><BUFFER><CRC-H><CRC-L>
+ *
  * @param[in] pResponse  Pointer to Response Data Structure
  */
 static void _shciSendResponse( _shciResponse_t * pResponse )
@@ -306,6 +310,7 @@ static void _shciSendResponse( _shciResponse_t * pResponse )
 		TxEventBuf[ i++ ] = ( uint8_t )( 0 - chksum );									/* Add checksum */
 	}
 
+	IotLogInfo( "_shciSendResponse: %d bytes", i );
 	uart_write_bytes( _shciUartNum, (const char *) TxEventBuf, i );						/* transmit Response packet */
 }
 
@@ -480,7 +485,7 @@ void shci_deinit( void)
  * @param[in] command  	SHCI command
  * @param[in] handler	Callback function
  */
-void shci_RegisterCommand( uint8_t command, _shciCommandCallback_t handler )
+void shci_RegisterCommand( const uint8_t command, const _shciCommandCallback_t handler )
 {
 	shciCommandTable[ command ] = handler;
 }
@@ -492,7 +497,7 @@ void shci_RegisterCommand( uint8_t command, _shciCommandCallback_t handler )
  *
  * @param[in] command  	SHCI command
  */
-void shci_UnregisterCommand( uint8_t command )
+void shci_UnregisterCommand( const uint8_t command )
 {
 	shciCommandTable[ command ] = NULL;
 }

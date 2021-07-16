@@ -68,7 +68,7 @@ static char * _formatSysParmUpdate( void )
 	free( bufferB );
 	bufferB = NULL;
 
-    /* Iterate through Shadow Item List */
+    /* Iterate through System Parameter List */
     for( pItem = sysParamData.config->pList; pItem->key != NULL; ++pItem )
     {
 /* For any item that needs updating */
@@ -89,6 +89,7 @@ static char * _formatSysParmUpdate( void )
     		/* TODO: clearing flags would be better after an MQTT acceptance */
 //    		pItem->bUpdate = false;
 //     	}
+    	vTaskDelay( 10 / portTICK_PERIOD_MS );					// Yield CPU to other task - causing task_wdt exceptions?
     }
 
 	return bufferA;

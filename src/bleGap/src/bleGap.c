@@ -27,7 +27,7 @@ char	completeDeviceName[24] = "Drinkworks";
 
 static const BTUuid_t _dwAdvUUID =
 {
-    .uu.uu128 = DW_SERVICE_UUID,
+    .uu.uu128 = DW_MODB_SERVICE_UUID,
     .ucType   = eBTuuidType128
 };
 
@@ -90,7 +90,28 @@ static IotBleAdvertisementParams_t _dwAdvParams =
     .pUUID2            = NULL
 };
 
-static void _storeSerialNumber( const char *pSerialNumber, uint16_t size );
+/**
+ * @brief Store Serial Number in NV Storage
+ *
+ * Serial Number is stored using enumerated NV_Items_t <i>NVS_SERIAL_NUM</i>.
+ * Value is only stored if not already present in NV memory
+ * Input serial number is an un-terminated 12 byte array.  The value saved as a Blob.
+ *
+ * @param[in] pSerialNumber pointer to serial number array.
+ * @param[in] size			size of serial number
+ */
+static void _storeSerialNumber( const char *pSerialNumber, uint16_t size )
+{
+    esp_err_t xRet;
+    size_t	sSize = ( size_t )size;
+
+	xRet = NVS_Set( NVS_SERIAL_NUM, (void *)pSerialNumber, &sSize );
+
+	if( xRet == ESP_OK )
+	{
+		IotLogInfo("storedSerialNumber(%.*s) - set OK", size, pSerialNumber );
+	}
+}
 
 /**
  * @brief Set Custom Advertising Data callback
@@ -126,7 +147,7 @@ void IotBle_SetCustomAdvCb( IotBleAdvertisementParams_t * pAdvParams, IotBleAdve
  * @param[in]	pSerialNumber	Pointer to serial number array, 12-byte length, unterminated
  * @param[in]	size			Number of bytes in serial number array
  */
-void bleGap_setSerialNumberAndDeviceName( uint8_t *pSerialNumber, uint16_t size )
+void bleGap_setSerialNumberAndDeviceName( const uint8_t *pSerialNumber, const uint16_t size )
 {
 	_storeSerialNumber( ( char * )pSerialNumber, size );							// store Serial Number in NV storage
 
@@ -138,25 +159,21 @@ void bleGap_setSerialNumberAndDeviceName( uint8_t *pSerialNumber, uint16_t size 
 }
 
 /**
- * @brief Store Serial Number in NV Storage
- *
- * Serial Number is stored using enumerated NV_Items_t <i>NVS_SERIAL_NUM</i>.
- * Value is only stored if not already present in NV memory
- * Input serial number is an un-terminated 12 byte array.  The value saved as a Blob.
- *
- * @param[in] pSerialNumber pointer to serial number array.
- * @param[in] size			size of serial number
+ * @brief	Restore Serial Number and Device Name using saved NVS value
  */
-static void _storeSerialNumber( const char *pSerialNumber, uint16_t size )
+uint8_t * bleGap_restoreSerialNumberAndDeviceName( void )
 {
-    esp_err_t xRet;
+    size_t size = sizeof( _serialNumber );
 
-	xRet = NVS_Set( NVS_SERIAL_NUM, (void *)pSerialNumber, &size );
-
-	if( xRet == ESP_OK )
+    /* Retrieve serial number from NVS */
+	if( ESP_OK == NVS_Get( NVS_SERIAL_NUM, _serialNumber, &size ) )
 	{
-		IotLogInfo("storedSerialNumber(%.*s) - set OK", size, pSerialNumber );
+		completeDeviceName[10] = ' ';
+		memcpy( &completeDeviceName[11], _serialNumber, sizeof( _serialNumber ) );
+		completeDeviceName[23] = '\0';
+		IotLogInfo( "bleGap_restoreSerialNumberAndDeviceName: %s", completeDeviceName );
 	}
+	return( &_serialNumber );
 }
 
 /**

@@ -79,6 +79,7 @@ int16_t hostOta_WriteBlock( OTA_FileContext_t * const C,
                            uint8_t * const pacData,
                            uint32_t iBlockSize );
 
+bool hostOta_isImageValid( void );
 
 
 #ifdef __cplusplus

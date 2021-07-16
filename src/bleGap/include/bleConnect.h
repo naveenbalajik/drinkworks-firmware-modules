@@ -17,8 +17,13 @@ typedef struct
 	bool		inUse;									/**< true if entry is in use, false is available for storing values */
 } _connectionMap_t;
 
+/**
+ * @brief Callback called on a BLE Pairing State Change
+ */
+typedef void (* blePairingCallback_t)( const BTBondState_t bondState );
 
-void bleConnect_init( void );
+
+void bleConnect_init( blePairingCallback_t handler );
 void bleConnect_BleConnected( uint16_t connectionID, BTBdaddr_t * remoteAddress );
 void bleConnect_BleDisconnected( void );
 void bleConnect_PairingStateChangedCb( BTStatus_t xStatus,

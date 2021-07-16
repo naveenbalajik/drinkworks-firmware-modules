@@ -87,7 +87,7 @@ void _storeInNvs( _shadowItem_t * pItem )
 	switch( pItem->jItem.jType )
 	{
 		case JSON_STRING:
-			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.string, 0 );
+			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.string, NULL );
 			break;
 
 		case JSON_NUMBER:
@@ -95,20 +95,20 @@ void _storeInNvs( _shadowItem_t * pItem )
 			break;
 
 		case JSON_INTEGER:
-			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integer, 0 );
+			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integer, NULL );
 			break;
 
 		case JSON_INT32:
-			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integer32, 0 );
+			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integer32, NULL );
 			break;
 
 		case JSON_UINT32:
-			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integerU32, 0 );
+			NVS_Set( pItem->nvsItem, pItem->jItem.jValue.integerU32, NULL );
 			break;
 
 		case JSON_BOOL:
 			bValue = ( *pItem->jItem.jValue.truefalse ? 1 : 0 );
-			NVS_Set( pItem->nvsItem, &bValue, 0 );
+			NVS_Set( pItem->nvsItem, &bValue, NULL );
 			break;
 
 		case JSON_NONE:
@@ -472,6 +472,7 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 		}
 
     }
+
     if( deltaFound )
     {
     	updateDocument = _formatShadowUpdate();
@@ -482,6 +483,10 @@ static void _shadowDeltaCallback( void * pCallbackContext,
 			_updateReportedShadow( updateDocument, strlen( updateDocument), NULL );
 			free( updateDocument );
     	}
+    }
+    else
+    {
+    	IotLogInfo( "Not found: %.*s", pCallbackParam->u.callback.documentLength, pCallbackParam->u.callback.pDocument );
     }
     /* Post to the delta semaphore to unblock the thread sending Shadow updates. */
 //    IotSemaphore_Post( pDeltaSemaphore );
@@ -651,6 +656,9 @@ static void _shadowUpdatedCallback( void * pCallbackContext,
 					pShadowItem->handler( pShadowItem );
 				}
 			}
+
+			/* Allow other tasks to run - prevent task_wdt events when processing large delta documents */
+			vTaskDelay( 10 / portTICK_PERIOD_MS );
 		}
 	}
 }

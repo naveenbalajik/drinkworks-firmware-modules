@@ -9,6 +9,12 @@
 #define _OTA_UPDATE_H_
 
 #include "aws_iot_ota_agent.h"
+#include <freertos/queue.h>
+
+/**
+ * @brief	OTA Notification Callback type
+ */
+typedef void (* _otaNotifyCallback_t)( char *pJson );
 
 /*--------------- Secondary Processor OTA callbacks --------------------------*/
 
@@ -149,7 +155,8 @@ typedef OTA_JobParseErr_t (* pxOTACustomJobCallback_t)( const char * pcJSON,
 /*--------------------------- OTA structs ----------------------------*/
 /**
  * @ingroup ota_datatypes_structs
- * @brief OTA PAL Alternate Processor function table */
+ * @brief OTA PAL Alternate Processor function table
+ */
 typedef struct
 {
     pxAltOTAPALAbort_t xAbort;                                 /* OTA Abort callback pointer */
@@ -166,8 +173,38 @@ typedef struct
 
 /**
  * @brief Type definition of function to call to get Host Ota Update module's status
+ *
+ * @return true = _hostOtaTask is waiting for an update image to be download from AWS; false = not waiting
  */
-typedef bool (* hostOtaPendUpdateCallback_t)( void );
+typedef bool ( * hostOtaPendUpdateCallback_t )( void );
+
+/**
+ * @brief	Image Unavailable callback function
+ *
+ * This function is called when it is detected that an update image is unavailable.
+ * The host_ota module sends an event to inform the PIC.
+ */
+typedef void ( * hostOtaImageUnavailableCallback_t )( void );
+
+/**
+ * @brief	Host Image Transfer Pending callback function
+ *
+ * @return	true = Host image transfer is pending; false = Host image is not pending
+ */
+typedef bool ( * hostImageTransferPendingCallback_t )( void );
+
+/**
+ * @brief	All Interface items for Host Ota module
+ */
+typedef struct
+{
+	const AltProcessor_Functions_t * 	pal_functions;
+	IotSemaphore_t * 					pSemaphore;
+	hostOtaPendUpdateCallback_t 		pendDownloadCb;							/**< OTA Update Pending callback function */
+	hostOtaImageUnavailableCallback_t	imageUnavailableCb;					/**< Image Unavailable callback function */
+	hostImageTransferPendingCallback_t	transferPendingCb;					/**< Image Transfer pending callback function */
+	QueueHandle_t						queue;
+} hostOta_Interface_t;
 
 /**
  * @brief
@@ -175,9 +212,15 @@ typedef bool (* hostOtaPendUpdateCallback_t)( void );
 int OTAUpdate_init( 	const char * pIdentifier,
                             void * pNetworkCredentialInfo,
                             const IotNetworkInterface_t * pNetworkInterface,
-							IotSemaphore_t *pSemaphore,
-							hostOtaPendUpdateCallback_t function,
-							const AltProcessor_Functions_t * altProcessorFunctions );
+							_otaNotifyCallback_t notifyCb,
+							hostOta_Interface_t * pHostInterface );
+//int OTAUpdate_init( 	const char * pIdentifier,
+//                            void * pNetworkCredentialInfo,
+//                            const IotNetworkInterface_t * pNetworkInterface,
+//							_otaNotifyCallback_t notifyCb,
+//							IotSemaphore_t *pSemaphore,
+//							hostOtaPendUpdateCallback_t function,
+//							const AltProcessor_Functions_t * altProcessorFunctions );
 
 
 #endif /* _OTA_UPDATE_H_ */
