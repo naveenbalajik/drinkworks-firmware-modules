@@ -2228,17 +2228,17 @@ static void _hostOtaTask(void *arg)
 	_hostota.queue = xQueueCreate( 5, sizeof( hostota_QueueItem_t ) );
 
 	/* Create semaphore to wait for Image Download from AWS IoT */
-	if( IotSemaphore_Create( &_hostota.iotUpdateSemaphore, 0, 1 ) == false )
-	{
-		IotLogError("Failed to create semaphore");
-	}
-	else
-	{
-		IotLogInfo( "iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
-	}
+//	if( IotSemaphore_Create( &_hostota.iotUpdateSemaphore, 0, 1 ) == false )
+//	{
+//		IotLogError("Failed to create semaphore");
+//	}
+//	else
+//	{
+//		IotLogInfo( "iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
+//	}
 
 	/* Fill out dynamic elements of hostOtaInterface */
-	hostOtaInterface.pSemaphore = &_hostota.iotUpdateSemaphore;
+//	hostOtaInterface.pSemaphore = &_hostota.iotUpdateSemaphore;
 	hostOtaInterface.queue = _hostota.queue;
 
 	/* Attempt to retrieve image state from NVS */
@@ -2335,7 +2335,7 @@ static void _hostOtaTask(void *arg)
 				}
 				else
 				{
-					_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_ota0" );
+					_hostota.partition = ( esp_partition_t * )esp_partition_find_first( ESP_PARTITION_TYPE_DATA, 0x57, "pic_ota0" );
 				}
 
 				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
@@ -2503,7 +2503,9 @@ static void _hostOtaTask(void *arg)
 
 				/* If Bootload is already active, it will be sending BootMe messages */
 //				if( _hostota.bBootme )
-				if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
+				if( ( _hostota.bootmeStatus == eImageAvailable ) ||
+					( _hostota.bootmeStatus == eNoImageAvailable ) ||
+					( _hostota.bFactoryImage ) )
 				{
 					/* NOTE - if bBootme is cleared here, it will force a 2nd Bootme message before transfer starts */
 					IotLogInfo( "_hostOtaTask -> WaitBootme" );
@@ -2566,8 +2568,14 @@ static void _hostOtaTask(void *arg)
 					IotLogInfo( "_hostOtaTask -> WaitBootme" );
 					_hostota.state = eHostOtaWaitBootme;
 				}
+				/* If bootme Factory Image */
+				else if( _hostota.bFactoryImage )
+				{
+					IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
+				}
 				/* If MQTT connection is active, or retry count expires */
-				else if( (mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
+				else if( ( mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
 				{
 					/* Pend on an update from AWS */
 					hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
@@ -2604,6 +2612,13 @@ static void _hostOtaTask(void *arg)
 				if( _hostota.reportedStatus == eDownloadComplete )
 				{
 					IotLogInfo( "Download Complete" );
+					IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
+				}
+				/* Factory Bootme received*/
+				else if( _hostota.bFactoryImage )
+				{
+					IotLogInfo( "Load Factory Image" );
 					IotLogInfo( "_hostOtaTask -> ReadMetaData" );
 					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
 				}
@@ -2751,11 +2766,11 @@ int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb )
  *
  * @return	Pointer to iotUpdateSemaphore
  */
-IotSemaphore_t * hostOta_getSemaphore( void )
-{
-	IotLogInfo( "hostOta_getSemaphore: iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
-	return &_hostota.iotUpdateSemaphore;
-}
+//IotSemaphore_t * hostOta_getSemaphore( void )
+//{
+//	IotLogInfo( "hostOta_getSemaphore: iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
+//	return &_hostota.iotUpdateSemaphore;
+//}
 
 OTA_PAL_ImageState_t hostOta_getImageState( void )
 {

@@ -199,7 +199,7 @@ typedef bool ( * hostImageTransferPendingCallback_t )( void );
 typedef struct
 {
 	const AltProcessor_Functions_t * 	pal_functions;
-	IotSemaphore_t * 					pSemaphore;
+//	IotSemaphore_t * 					pSemaphore;
 	hostOtaPendUpdateCallback_t 		pendDownloadCb;							/**< OTA Update Pending callback function */
 	hostOtaImageUnavailableCallback_t	imageUnavailableCb;					/**< Image Unavailable callback function */
 	hostImageTransferPendingCallback_t	transferPendingCb;					/**< Image Transfer pending callback function */
