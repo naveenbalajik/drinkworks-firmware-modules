@@ -82,7 +82,7 @@ enum ShciOpcode
 	eCaptureArm =											0xB6,		/**< Command: */
 	eCaptureRead =											0xB7,		/**< Command: */
 	eCaptureComplete = 										0xB8,		/**< Event: */
-	eDispenseComplete = 									0xB9,		/**< Event: */
+	eRecordStatusEvent = 									0xB9,		/**< Event: Record Status Event (aka DispenseRecord) */
 	eWifiConnectAP = 										0xBA,		/**< Command: */
 	eEventRecordWriteIndex = 								0xBB,		/**< Event: Update Event Record index (Model-A) */
 	eEventRecordData =										0xBC,		/**< Command: Send Event Record data (Model-A) */

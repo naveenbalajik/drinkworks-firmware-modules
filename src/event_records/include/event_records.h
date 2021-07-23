@@ -40,6 +40,7 @@ enum RecordStatus
 	eCritical_Error_ClnRinCWTFillTmout =	0x8A,
 	eCritical_Error_ExtendedOPError = 		0x8B,
 	eCritical_Error_BadMemClear = 			0x8C,
+	eCritical_Error_OPRecoveryError =		0x8D,		/**< Critical Error: Over-pressure Recovery Error */
 	eBLE_ModuleReset = 						0xE0,		/**< Module reset detected by comparing Firmware Version Characteristic */
 	eBLE_IdleStatus =						0xE1,		/**< Module reporting Idle Status, unexpectedly */
 	eBLE_StandbyStatus =					0xE2,		/**< Module reporting Standby Status, unexpectedly */
