@@ -86,6 +86,7 @@ const static _recordStatusEntry_t recordStatusTable[] =
 		{ eCritical_Error_ClnRinCWTFillTmout,	"Critical Error: ClnRinCWTFillTmout" },
 		{ eCritical_Error_ExtendedOPError,		"Critical Error: ExtendedOPError" },
 		{ eCritical_Error_BadMemClear,			"Critical Error: BadMemClear" },
+		{ eCritical_Error_OPRecoveryError,		"Critical Error: OverPressure Recovery" },
 		{ eBLE_ModuleReset,						"BLE: ModuleReset" },
 		{ eBLE_IdleStatus,						"BLE: IdleStatus" },
 		{ eBLE_StandbyStatus,					"BLE: StandbyStatus" },
@@ -1002,7 +1003,7 @@ const char * eventRecords_statusText( uint8_t status)
 	for( i = 0; 1 ; ++i )
 	{
 		/* terminate search on match or reaching end of list */
-		if( ( eStatusUnknown == status ) || ( recordStatusTable[ i ].status == status ) )
+		if( ( eStatusUnknown == recordStatusTable[ i ].status ) || ( status == recordStatusTable[ i ].status ) )
 		{
 			break;
 		}
