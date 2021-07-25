@@ -67,6 +67,10 @@ typedef enum
 	eEventSubject_Clean_RinseEmptyAWT,
 	eEventSubject_Clean_RinseEmptyCarb,
 	eEventSubject_Clean_Complete,
+	eEventSubject_Critical_PuncMechError,
+	eEventSubject_Critical_ExtendedOPError,
+	eEventSubject_Critical_ClearMemError,
+	eEventSubject_Critical_OPRecoveryError,
 	eEventSubject_EndOfList,
 	eEventSubject_None
 } _eventSubject_t;
