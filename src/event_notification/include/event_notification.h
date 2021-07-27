@@ -79,9 +79,10 @@ typedef enum
  * @brief Initialize Event Notification module
  *
  * @param[in] thingName		Pointer to ThingName string
+ * @param[in] serialNumber	Pointer to SerialNumber string, optional
  * @param[in] initExtend	Extended Initialization function, optional
  */
-void eventNotification_Init( const char *thingName, _initializeCallback_t initExtend );
+void eventNotification_Init( const char *thingName, const char *serialNumber, _initializeCallback_t initExtend );
 
 /**
  * @brief	Send a pre-formatted JSON message to the Thing's Event Topic

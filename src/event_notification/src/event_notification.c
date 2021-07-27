@@ -6,11 +6,17 @@
 #include <string.h>
 #include "event_notification.h"
 #include "mqtt.h"
+#include "mjson.h"
 
 /**
  * @brief Max topic name length
  */
 #define	MAX_TOPIC_LEN	128
+
+/**
+ * @brief Serial Number Buffer Length
+ */
+#define	SER_NUM_BUF_LEN	13
 
 
 /**
@@ -30,7 +36,7 @@ static const char * _subjectString[] =
 	[ eEventSubject_HandleRaised ]				= "HandleRaised",
 	[ eEventSubject_ImageCaptureComplete ]		= "CaptureComplete",
 	[ eEventSubject_FillStart ]					= "FillStart",
-	[ eEventSubject_CarbonationStart]			= "CabonationStart",
+	[ eEventSubject_CarbonationStart]			= "CarbonationStart",
 	[ eEventSubject_PourStart ]					= "PourStart",
 	[ eEventSubject_OtaUpdate ]					= "OTAupdate",
 	[ eEventSubject_PicUpdate ]					= "PICupdate",
@@ -77,8 +83,9 @@ static const char * _subjectString[] =
  */
 typedef struct
 {
-	char 	topicName[ MAX_TOPIC_LEN ];					/**< Event Notification topic name */
+	char 	topicName[ MAX_TOPIC_LEN ];						/**< Event Notification topic name */
 	size_t	topicSize;										/**< Event Notification topic name length */
+	char	serialNumber[ SER_NUM_BUF_LEN ];				/**< Serial Number */
 } _eventNofify_t;
 
 /**
@@ -112,9 +119,10 @@ static void _sendToEventTopic( char *pJSON )
  * @brief Initialize Event Notification module
  *
  * @param[in] thingName		Pointer to ThingName string
+ * @param[in] serialNumber	Pointer to SerialNumber string, optional
  * @param[in] initExtend	Extended Initialization function, optional
  */
-void eventNotification_Init( const char *thingName, _initializeCallback_t initExtend )
+void eventNotification_Init( const char *thingName, const char *serialNumber, _initializeCallback_t initExtend )
 {
 	if( NULL != thingName )
 	{
@@ -132,6 +140,10 @@ void eventNotification_Init( const char *thingName, _initializeCallback_t initEx
 			}
 		}
 	}
+	if( NULL != serialNumber )
+	{
+		strncpy( eventNotify.serialNumber, serialNumber, SER_NUM_BUF_LEN );
+	}
 }
 
 /**
@@ -140,12 +152,43 @@ void eventNotification_Init( const char *thingName, _initializeCallback_t initEx
  * JSON message must be in the appropriate format, namely:
  *	"{ event: {	param1: value, param2: value, ... }	}"
  *
+ *	If a serial number was provided at module initialization, notification includes the serial number.
+ *
+ *	Caller must free buffer after function returns
+ *
  * @param[in] eventOutputJSON	pointer to JSON message buffer
  */
 void eventNotification_SendEvent( char *pJson )
 {
-	/* TODO - valid JSON format validation */
-	_sendToEventTopic( pJson );
+	if( NULL != pJson )
+	{
+		/* Prepend serial number to message */
+		if( NULL != eventNotify.serialNumber )
+		{
+			char * pHeader = NULL;
+			char * pCombined = NULL;
+			int32_t	lenHeader= 0;
+
+			/* Format header */
+			lenHeader = mjson_printf( &mjson_print_dynamic_buf, &pHeader,
+					"{%Q:%Q}",
+					"serialNumber", eventNotify.serialNumber );
+
+			/* Merge the head and input buffers */
+			mjson_merge( pHeader, lenHeader, pJson, strlen( pJson), mjson_print_dynamic_buf, &pCombined );
+
+			vPortFree( pHeader );								// Free Header buffer
+
+			_sendToEventTopic( pCombined );						// Send notification
+
+			vPortFree( pCombined );								// Free combined buffer
+		}
+		else
+		{
+			/* TODO - valid JSON format validation */
+			_sendToEventTopic( pJson );
+		}
+	}
 }
 
 /**
