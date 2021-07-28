@@ -2160,6 +2160,10 @@ static void _hostOtaTask(void *arg)
 	esp_err_t	err = ESP_OK;
 	hostota_QueueItem_t	currentMessage;
 
+	esp_partition_type_t partitionType;
+	esp_partition_subtype_t partitionSubtype;
+	const char * partitionLabel;
+
 	/* Create a queue to allow ota_upate module to communicate */
 	_hostota.queue = xQueueCreate( 5, sizeof( hostota_QueueItem_t ) );
 
@@ -2237,17 +2241,29 @@ static void _hostOtaTask(void *arg)
 				IotLogInfo( "host ota: current PIC version = %5.2f", _hostota.currentVersion_PIC );
 
 				/* hardwire partition for initial development */
-				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_ota0" );
-				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
+				partitionType = ESP_PARTITION_TYPE_DATA;
+				partitionSubtype = 0x57;
+				partitionLabel = "pic_ota0";
 
-				/*
-				 *	Read the first 512 bytes from the Flash partition
-				 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
-				 */
-				esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
+				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( partitionType, partitionSubtype, partitionLabel );
+				if( NULL == _hostota.partition )
+				{
+					IotLogError( "Cannot find partition: %02X/%02X %s", partitionType, partitionSubtype, partitionLabel );
+					_hostota.state = eHostOtaError;
+				}
+				else
+				{
+					IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
 
-				IotLogInfo( "_hostOtaTask -> ParseJSON" );
-				_hostota.state = eHostOtaParseJSON;
+					/*
+					 *	Read the first 512 bytes from the Flash partition
+					 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
+					 */
+					esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
+
+					IotLogInfo( "_hostOtaTask -> ParseJSON" );
+					_hostota.state = eHostOtaParseJSON;
+				}
 				break;
 
 			case eHostOtaReadMetaData:
@@ -2258,23 +2274,37 @@ static void _hostOtaTask(void *arg)
 				/* Read picFactory partition or pic_ota0 for the moment */
 				if( _hostota.bFactoryImage )
 				{
-					_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x56, "picFactory" );
+					partitionType = 0x44;
+					partitionSubtype = 0x56;
+					partitionLabel = "picFactory";
 				}
 				else
 				{
-					_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_ota0" );
+					partitionType = ESP_PARTITION_TYPE_DATA;
+					partitionSubtype = 0x57;
+					partitionLabel = "pic_ota0";
 				}
 
-				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
+				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( partitionType, partitionSubtype, partitionLabel );
 
-				/*
-				 *	Read the first 512 bytes from the Flash partition
-				 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
-				 */
-				esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
+				if( NULL == _hostota.partition )
+				{
+					IotLogError( "Cannot find partition: %02X/%02X %s", partitionType, partitionSubtype, partitionLabel );
+					_hostota.state = eHostOtaError;
+				}
+				else
+				{
+					IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
 
-				IotLogInfo( "_hostOtaTask -> ParseJSON" );
-				_hostota.state = eHostOtaParseJSON;
+					/*
+					 *	Read the first 512 bytes from the Flash partition
+					 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
+					 */
+					esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
+
+					IotLogInfo( "_hostOtaTask -> ParseJSON" );
+					_hostota.state = eHostOtaParseJSON;
+				}
 				break;
 
 			case eHostOtaParseJSON:

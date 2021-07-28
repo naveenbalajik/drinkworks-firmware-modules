@@ -417,7 +417,7 @@ OTA_Err_t prvPAL_CloseFile_override( OTA_FileContext_t * const C )
  */
 static OTA_Err_t prvPAL_CreateFileForRx_override( OTA_FileContext_t * const C )
 {
-	esp_partition_type_descriptor_t partitionDescriptor = { .type = 0x44, .subtype = 0x57 };
+	esp_partition_type_descriptor_t partitionDescriptor = { .type = ESP_PARTITION_TYPE_DATA, .subtype = 0x57 };
 
     DEFINE_OTA_METHOD_NAME( "prvPAL_CreateFileForRx_override" );
 
