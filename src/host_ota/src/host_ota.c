@@ -2253,7 +2253,7 @@ static void _hostOtaTask(void *arg)
 				}
 				else
 				{
-					IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
+					IotLogInfo("host ota: partition address = %08X, length = %08X, encrypted: %d", _hostota.partition->address, _hostota.partition->size, _hostota.partition->encrypted );
 
 					/*
 					 *	Read the first 512 bytes from the Flash partition
@@ -2294,7 +2294,7 @@ static void _hostOtaTask(void *arg)
 				}
 				else
 				{
-					IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
+					IotLogInfo("host ota: partition address = %08X, length = %08X, encrypted: %d", _hostota.partition->address, _hostota.partition->size, _hostota.partition->encrypted );
 
 					/*
 					 *	Read the first 512 bytes from the Flash partition
