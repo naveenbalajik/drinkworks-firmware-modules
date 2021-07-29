@@ -2230,6 +2230,7 @@ static void _hostOtaTask(void *arg)
     			}
     			break;
 
+#ifdef	DEPRICATED
 			case eHostOtaIdle:
 
 				/* Get currently running MZ firmware version */
@@ -2265,6 +2266,7 @@ static void _hostOtaTask(void *arg)
 					_hostota.state = eHostOtaParseJSON;
 				}
 				break;
+#endif
 
 			case eHostOtaReadMetaData:
 				/* Get currently running PIC firmware version */
@@ -2537,6 +2539,24 @@ static void _hostOtaTask(void *arg)
 
 				}
 
+				/* Monitor queue for download complete */
+				if( _hostota.reportedStatus == eDownloadComplete )
+				{
+					IotLogInfo( "Download Complete" );
+					IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
+				}
+				/* If PIC Bootloader is active and response is Image Available or No Image Available: Initiate transfer */
+//				else if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
+//				{
+//					IotLogInfo( "_hostOtaTask -> WaitBootme" );
+//					_hostota.state = eHostOtaWaitBootme;
+//				}
+				else
+				{
+					vTaskDelay( 1000 / portTICK_PERIOD_MS );
+				}
+#ifdef	DEPRICATED
 				/* Pend on an update from AWS */
 				hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
 				IotLogInfo( "Host OTA Update: pend on image download" );
@@ -2548,6 +2568,7 @@ static void _hostOtaTask(void *arg)
 				}
 				IotLogInfo( "_hostOtaTask -> Idle" );
 				_hostota.state = eHostOtaIdle;							/* back to image verification */
+#endif
 				break;
 
 			case eHostOtaUpdateAvailable:												/* Update image is available */
@@ -2605,7 +2626,8 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			default:
-				_hostota.state = eHostOtaIdle;
+//				_hostota.state = eHostOtaIdle;
+				_hostota.state = eHostOtaInit;
 				break;
 
     	}
