@@ -66,8 +66,6 @@ typedef void (* _hostOtaNotifyCallback_t)( char *pJson );
 
 int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb );
 
-IotSemaphore_t *hostOta_getSemaphore( void );
-
 OTA_PAL_ImageState_t hostOta_getImageState( void );
 
 OTA_Err_t hostOta_setImageState( OTA_ImageState_t eState );

@@ -664,7 +664,6 @@ typedef struct
 	uint32_t			startAddress;
 	uint16_t			uid;
 	bool				bStartTransfer;
-	IotSemaphore_t		iotUpdateSemaphore;
 	OTA_PAL_ImageState_t	imageState;
 	double				percentComplete;
 	int					lastPercentComplete;
@@ -2178,18 +2177,7 @@ static void _hostOtaTask(void *arg)
 	/* Create a queue to allow ota_upate module to communicate */
 	_hostota.queue = xQueueCreate( 5, sizeof( hostota_QueueItem_t ) );
 
-	/* Create semaphore to wait for Image Download from AWS IoT */
-	if( IotSemaphore_Create( &_hostota.iotUpdateSemaphore, 0, 1 ) == false )
-	{
-		IotLogError("Failed to create semaphore");
-	}
-	else
-	{
-		IotLogInfo( "iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
-	}
-
 	/* Fill out dynamic elements of hostOtaInterface */
-	hostOtaInterface.pSemaphore = &_hostota.iotUpdateSemaphore;
 	hostOtaInterface.queue = _hostota.queue;
 
 	/* Attempt to retrieve image state from NVS */
@@ -2567,19 +2555,6 @@ static void _hostOtaTask(void *arg)
 				{
 					vTaskDelay( 1000 / portTICK_PERIOD_MS );
 				}
-#ifdef	DEPRICATED
-				/* Pend on an update from AWS */
-				hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
-				IotLogInfo( "Host OTA Update: pend on image download" );
-
-				/* wait for an update from AWS, if wait times out, check if a valid image is already present */
-				if( IotSemaphore_TimedWait( &_hostota.iotUpdateSemaphore, HOSTOTA_PEND_TIMEOUT_MS ) == false )
-				{
-					IotLogInfo( "Host OTA Update: time-out expired" );
-				}
-				IotLogInfo( "_hostOtaTask -> Idle" );
-				_hostota.state = eHostOtaIdle;							/* back to image verification */
-#endif
 				break;
 
 			case eHostOtaUpdateAvailable:												/* Update image is available */
@@ -2645,8 +2620,6 @@ static void _hostOtaTask(void *arg)
     	vTaskDelay( 10 / portTICK_PERIOD_MS );
     }
 
-	IotSemaphore_Destroy( &_hostota.iotUpdateSemaphore );
-
 }
 
 
@@ -2692,17 +2665,6 @@ int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb )
     IotLogInfo( "\n\n*** Host OTA Task Bypassed ***\n\n" );
 #endif
     return	ESP_OK;
-}
-
-/**
- * @brief	Getter for iotUpdateSemaphore
- *
- * @return	Pointer to iotUpdateSemaphore
- */
-IotSemaphore_t * hostOta_getSemaphore( void )
-{
-	IotLogInfo( "hostOta_getSemaphore: iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
-	return &_hostota.iotUpdateSemaphore;
 }
 
 OTA_PAL_ImageState_t hostOta_getImageState( void )
