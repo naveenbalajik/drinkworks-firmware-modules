@@ -592,6 +592,10 @@ typedef struct
 	_otaOpcode_t		command;					/**< OpCode: "b" */
 	uint8_t				data[ 5 ];					/**< Data: "ootme" */
 	uint8_t				image;						/**< Image Flag: 0 = Factory, 1 = OTA */
+	uint16_t			fwVersion;					/**< Firmware Version - as found at absolute address on the image */
+	uint16_t			fwBuild;					/**< Firmware Build - as found at absolute address on the image */
+	uint16_t			fwCRC;						/**< Firmware CRC - from DFM location */
+	uint16_t			calcCRC;					/**< Calculated CRC */
 	uint16_t			crc;						/**< command CRC */
 }  __attribute__ ((packed)) _bootme_t;
 
@@ -917,6 +921,8 @@ static esp_err_t onStatus_FlashWriteAck( const void * pData )
 
 /**
  * @brief	Process	OTA Status: BOOTME
+ *
+ * BOOTME message has details of the current PIC firmware
  */
 static esp_err_t onStatus_Bootme( const void * pData )
 {
@@ -928,6 +934,10 @@ static esp_err_t onStatus_Bootme( const void * pData )
 	_hostota.bFactoryImage = ( pBoot->image == 0 ) ? true : false;
 
 	IotLogInfo( "Bootme: %s", _hostota.bFactoryImage ? "Factory" : "OTA" );
+
+	IotLogInfo( " Version: %04X (%d)", pBoot->fwVersion, pBoot->fwBuild );
+	IotLogInfo( " CRC: %04X, calc: %04X", pBoot->fwCRC, pBoot->calcCRC );
+	IotLogInfo( "Compare with CRC: %04X, Version: %04X", _hostota.crc16_ccitt, ( uint16_t ) ( _hostota.Version_PIC * 100 ) );
 
 	return( err );
 }
