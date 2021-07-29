@@ -156,7 +156,6 @@ static otaData_t otaData =
 
 const static hostota_QueueItem_t _hostOta_checking= { .message = eChecking };
 const static hostota_QueueItem_t _hostOta_downloading = { .message = eImageDownloading };
-const static hostota_QueueItem_t _hostOta_downloadComplete = { .message = eDownloadComplete };
 const static hostota_QueueItem_t _hostOta_imageAvailable = { .message = eImageAvailable };
 const static hostota_QueueItem_t _hostOta_noImageAvailable = { .message = eNoImageAvailable };
 
@@ -944,11 +943,7 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
         /* Activate New image, this function will only return if processing an update for a secondary processor */
     	OTA_ActivateNewImage();
 
-       	IotLogInfo( "Secondary Processor Update, activated ... queue message" );
-    	_sendToHostQueue( &_hostOta_downloadComplete );						// queue message to Host_ota module
-
-#ifdef	DEPRICATED
-    	IotLogInfo( "Secondary Processor Update, activated ... post semaphore" );
+     	IotLogInfo( "Secondary Processor Update, activated ... post semaphore" );
 
     	if( otaData.pHostUpdateComplete != NULL )
     	{
@@ -958,7 +953,6 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
     	{
     		IotLogError( "pHostUpdateComplete semaphore is NULL" );
     	}
-#endif
 
         /* We should never get here as new image activation must reset the device.*/
 //        IotLogError( "New image activation failed.\r\n" );

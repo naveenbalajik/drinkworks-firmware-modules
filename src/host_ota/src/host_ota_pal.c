@@ -499,7 +499,6 @@ static OTA_Err_t _CheckFileSignature( OTA_FileContext_t * const C )
 		for( remaining = ota_ctx.data_write_len; remaining ; ( remaining -= size ), ( src_offset += size ) )
 		{
 			/* read a block of image */
-        	ESP_LOGI( TAG, "Read Partitition: %s: %08X", ota_ctx.update_partition->label, src_offset );	//`INW
 			size = ( FLASH_READ_BLOCK_SIZE < remaining ) ? FLASH_READ_BLOCK_SIZE : remaining;
 			esp_partition_read( ota_ctx.update_partition, src_offset, buf, size );
 			/* add to hash */
@@ -574,7 +573,6 @@ OTA_Err_t hostOta_CloseFile( OTA_FileContext_t * const C )
 
         if( result != kOTA_Err_None )
         {
-        	ESP_LOGI( TAG, "Erase Partitition: %s", ota_ctx.update_partition->label );	//`INW
             esp_partition_erase_range( ota_ctx.update_partition, 0, ota_ctx.update_partition->size );
         }
         else
