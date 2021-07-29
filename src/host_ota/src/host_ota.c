@@ -716,7 +716,6 @@ static host_ota_t _hostota =
 	.state = eHostOtaInit,													/**< Start in Init state */
 	.bBootme = false,
 	.queue = NULL,
-	.bFactoryImage = false,
 };
 
 /**
