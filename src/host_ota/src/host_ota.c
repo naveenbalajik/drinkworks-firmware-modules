@@ -1009,30 +1009,33 @@ static esp_err_t onStatus_Bootme( const void * pData )
 	/* OTA Image Request */
 	else
 	{
-		if( pBoot->fwCRC == pBoot->calcCRC )									// If CRCs match, PIC Image is valid
+		/* If OTA Image is validated */
+		if( _hostota.bOtaImageVerified )
 		{
-			_hostota.currentVersion_PIC =  ( ( ( double ) pBoot->fwVersion ) / 100 );				// Set current PIC Version
-			IotLogInfo( "Setting currentVersion_PIC = %5.2f", _hostota.currentVersion_PIC );
+			/* default to starting transfer */
+			_hostota.bStartTransfer = true;										// Set Start Transfer flag
+			_hostota.bootmeStatus = eImageAvailable;							// Set Boot Status
 
-			/* If the Version of the downloaded image matches the bootme reported version */
-			if( _hostota.currentVersion_PIC ==  _hostota.Version_PIC )
+			/* Look for special case - don't start transfer if determine no update is available */
+			if( pBoot->fwCRC == pBoot->calcCRC )									// If CRCs match, PIC Image is valid
 			{
-				/* AND the downloaded image CRC matches bootme reported CRC: No Update is available */
-				if( pBoot->fwCRC == _hostota.crc16_ccitt )
-				{
-					IotLogInfo( " Firmware reported by Bootme matches OTA image: No Update Available" );
-					_hostota.bootmeStatus = eNoImageAvailable;							// override default status
-				}
-				/* Else the versions match but CRCs do not: allow update to continue */
-				else
-				{
-					/* Set Start Transfer flag */
-					_hostota.bStartTransfer = true;
+				_hostota.currentVersion_PIC =  ( ( ( double ) pBoot->fwVersion ) / 100 );				// Set current PIC Version
+				IotLogInfo( "Setting currentVersion_PIC = %5.2f", _hostota.currentVersion_PIC );
 
-					_hostota.bootmeStatus = eImageAvailable;							// override default status
+				/* If the Version of the downloaded image matches the bootme reported version */
+				if( _hostota.currentVersion_PIC ==  _hostota.Version_PIC )
+				{
+					/* AND the downloaded image CRC matches bootme reported CRC: No Update is available */
+					if( pBoot->fwCRC == _hostota.crc16_ccitt )
+					{
+						IotLogInfo( " Firmware reported by Bootme matches OTA image: No Update Available" );
+						_hostota.bootmeStatus = eNoImageAvailable;				// override default status
+						_hostota.bStartTransfer = false;						// Clear Start Transfer flag
+					}
 				}
 			}
 		}
+		/* If OTA Image has not been validated, return status returned by getBootStatus() */
 	}
 
 	return( err );
