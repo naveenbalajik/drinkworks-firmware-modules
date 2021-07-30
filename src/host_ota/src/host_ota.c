@@ -983,6 +983,29 @@ static esp_err_t onStatus_Bootme( const void * pData )
 	IotLogInfo( " CRC: %04X, calc: %04X", pBoot->fwCRC, pBoot->calcCRC );
 	IotLogInfo( "Compare with CRC: %04X, Version: %04X", _hostota.crc16_ccitt, ( uint16_t ) ( _hostota.Version_PIC * 100 ) );
 
+	/* If CRCs match, PIC Image is valid */
+	if( pBoot->fwCRC == pBoot->calcCRC )
+	{
+		_hostota.currentVersion_PIC =  ( ( ( double ) pBoot->fwVersion ) / 100 );				// Set current PIC Version
+		IotLogInfo( "Setting currentVersion_PIC = %5.2f", _hostota.currentVersion_PIC );
+
+		/* If the Version of the downloaded image matches the bootme reported version */
+		if( _hostota.currentVersion_PIC ==  _hostota.Version_PIC )
+		{
+			/* AND the downloaded image CRC matches bootme reported CRC: No Update is available */
+			if( pBoot->fwCRC == _hostota.crc16_ccitt )
+			{
+				IotLogInfo( " Firmware reported by Bootme matches OTA image: No Update Available" );
+				_hostota.bootmeStatus = eNoImageAvailable;							// override default status
+			}
+			/* Else the versions match but CRCs do not: allow update to continue */
+			else
+			{
+				_hostota.bootmeStatus = eImageAvailable;							// override default status
+			}
+		}
+	}
+
 	return( err );
 }
 
@@ -1122,7 +1145,7 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 	{
 		uint8_t	responseBuffer[ 5 ] = { eCommandComplete, eHostUpdateResponse,eCommandSucceeded, eBL_BOOTME };
 
-		responseBuffer[ 4 ] = ( uint8_t )getBootStatus();
+		responseBuffer[ 4 ] = ( uint8_t )_hostota.bootmeStatus;
 		IotLogInfo( "BootmeResponse: %d", responseBuffer[ 4 ] );
 		shci_PostResponse(  responseBuffer, sizeof( responseBuffer ) );
 	}
@@ -2453,7 +2476,9 @@ static void _hostOtaTask(void *arg)
 			case eHostOtaVersionCheck:
 
 				/* If Bootload is already active, it will be sending BootMe messages */
-				if( _hostota.bBootme )
+				if( ( _hostota.bootmeStatus == eImageAvailable ) ||
+					( _hostota.bootmeStatus == eNoImageAvailable ) ||
+					( _hostota.bFactoryImage ) )
 				{
 					IotLogInfo( "_hostOtaTask -> WaitBootme" );
 					_hostota.state = eHostOtaWaitBootme;
@@ -2508,9 +2533,25 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			case eHostOtaWaitMQTT:
-				/* If MQTT connection is active, or retry count expires */
-				if( (mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
+				/* If PIC Bootloader is active and response is Image Available or No Image Available: Initiate transfer */
+				if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
 				{
+					IotLogInfo( "_hostOtaTask -> WaitBootme" );
+					_hostota.state = eHostOtaWaitBootme;
+				}
+				/* If bootme Factory Image */
+				else if( _hostota.bFactoryImage )
+				{
+					IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
+				}
+				/* If MQTT connection is active, or retry count expires */
+				else if( (mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
+				{
+					/* Pend on an update from AWS */
+					hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
+					IotLogInfo( "Host OTA Update: pend on image download" );
+
     				IotLogInfo( "_hostOtaTask -> PendUpdate" );
 					_hostota.state = eHostOtaPendUpdate;				/* Pend on an update from AWS */
 				}
@@ -2546,11 +2587,11 @@ static void _hostOtaTask(void *arg)
 					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
 				}
 				/* If PIC Bootloader is active and response is Image Available or No Image Available: Initiate transfer */
-//				else if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
-//				{
-//					IotLogInfo( "_hostOtaTask -> WaitBootme" );
-//					_hostota.state = eHostOtaWaitBootme;
-//				}
+				else if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
+				{
+					IotLogInfo( "_hostOtaTask -> WaitBootme" );
+					_hostota.state = eHostOtaWaitBootme;
+				}
 				else
 				{
 					vTaskDelay( 1000 / portTICK_PERIOD_MS );
