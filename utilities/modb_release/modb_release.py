@@ -43,7 +43,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 4:
         print("Usage: modb_release.py <version> <build> <PIC>\r\n")
         print(" where <version> = release version, e.g. 1.020\r\n")
-        print("       <build>   = build number, e.g. 135\n\r")
+        print("       <build>   = build number, e.g. 35\n\r")
         print("       <PIC>     = PIC Version, e.g. 1.01\n\r")
         sys.exit(0)
 
@@ -63,9 +63,8 @@ if __name__ == "__main__":
         "build\\bootloader\\bootloader.bin",
         "build\\partition_table\\partition-table.bin",
         "build\\ota_data_initial.bin",
-        "build\\flash_project_args",
         "releases\\common\\dw_MfgTest.bin",
-		"modules\\utilities\\modb_release\modb_release.py"
+		"modules\\utilities\\modb_program\modb_program.py"
     ]
     fileList = []
 	
@@ -89,14 +88,12 @@ if __name__ == "__main__":
 
     # locate PIC Image
     fullPicPath = os.path.realpath( cwd + picPath + "\\v" + picVersion + "\\")
-    print(fullPicPath)
     count = 0
     picFile = ""
 	
     for file in os.listdir(fullPicPath):
         if file.endswith(".aws"):
             picFile = file
-            print("found: " + file)
             count += 1
 	
     if count == 0:
@@ -105,7 +102,6 @@ if __name__ == "__main__":
     if count > 1:
         printf("More than one .aws file fount!")
         sys.exit(0)
-    print("found: " + picFile)
    
     # Process file list, make each entry a full path
     for file in files:
@@ -116,14 +112,45 @@ if __name__ == "__main__":
 	
     # Copy Build file to destination
     for file in fileList:
-        #source = fullBuildPath + "\\" + file
         print("Copy: " + file)
         shutil.copy( file, fullReleasePath )
 
 
 # Other files: MODBxxxx.aws (run utility)
 #              Readme.txt (release notes)
-#              flash_project_args (fixup)
+
+    #
+    # Construct a programming arguments file
+    #   PIC Factory Image is at fixed address (0x70000)
+    #   Manufacturing Test Image has fixed name and fixed address (0x800000)
+	#
+    pgmFile = fullReleasePath + "\\flash_project_args"
+    with open(pgmFile, "w") as argsFile:
+        #Copy, with edit, Bootloader args
+        bootloader = fullBuildPath + "\\build\\flash_bootloader_args"
+        with open(bootloader, "r") as bootloaderArgs:
+            for line in bootloaderArgs:
+                #Edit bootloader line
+                if "bootloader/bootloader" in line:
+                    line = line.replace("bootloader/bootloader", "bootloader")
+                # Replace flash_size detect with 16M
+                if "flash_size" in line:
+                    line = line.replace("detect", "16MB")
+                argsFile.write(line)
+        #Copy, with edit, Project args
+        project = fullBuildPath + "\\build\\flash_project_args"
+        with open(project, "r") as projectArgs:
+            for line in projectArgs:
+                #Edit partition-table line
+                if "partition_table/" in line:
+                    line = line.replace("partition_table/", "")
+                if line != "\n" and line != " \n":
+                    argsFile.write(line)
+                if "ota_data_initial" in line:
+                    #Add PIC Factory Image, after ota data initial
+                    argsFile.write("0x70000 " + picFile + "\n")
+        #Add Manufacturing Test Image
+        argsFile.write("0x800000 dw_MfgTest.bin\n")
 
     # Use 7-zip to create hash values for each file, except Readme.txt
     systemCommand = "\"c:\\Program Files\\7-Zip\\7z\" h -scrcsha256 " + fullReleasePath +"\\* -x!Readme.txt"
