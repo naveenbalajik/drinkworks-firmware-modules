@@ -5,6 +5,7 @@ import time
 import serial
 import shutil, os
 import datetime
+import argparse
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -40,29 +41,46 @@ def get_flash_arg(argFile):
 	
 if __name__ == "__main__":
 
-    if len(sys.argv) != 4:
-        print("Usage: modb_release.py <version> <build> <PIC>\r\n")
-        print(" where <version> = release version, e.g. 1.020\r\n")
-        print("       <build>   = build number, e.g. 35\n\r")
-        print("       <PIC>     = PIC Version, e.g. 1.01\n\r")
-        sys.exit(0)
+    # Set up the arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("version", help="set the ESP Version number")
+    parser.add_argument("build", help="set ESP Build number")
+    parser.add_argument("picVersion", help="PIC18 Firmware Version")
+    parser.add_argument("--source", help="Set the source build directory. Default is \'build\'")
+    #parser.add_argument("--fileName", help="Set fileName. Default is \'pic_ota0\'")
+    #parser.add_argument("--signerRoleArn", help="Set the role arn for the code signing. Default is \'profile_for_ESP32\'")
+    #parser.add_argument("--streamJobRoleArn", help="Set role arn for stream and job creation. Default is \'IoT_Update_Role\'")
+    args = parser.parse_args()
 
-    version = "v" + sys.argv[1]
-    buildNumber = sys.argv[2]
-    picVersion = sys.argv[3]
-	
-    picPath = "\\..\\..\\..\\..\\..\\Desktop\\FirmwareImages\BM1"
-    releasePath = "\\..\\..\\..\\releases\\"
-    buildPath = "\\..\\..\\.."
+    # Set default variables
+    version = args.version
+    buildNumber = args.build
+    picVersion = args.picVersion
+    sourceDir = "build"
+    internalRelease = False
+
+    # Overwrite values based on optional variables
+    if args.source:
+        sourceDir = args.source
+        internalRelease = True
+
+    # Project root take from CWD to the project root.  Everything else is relative to the project Root	
+    projectRoot = "\\..\\..\\.."
+    releaseDir = "\\releases\\"
+    picDir = "\\..\\..\\Desktop\\FirmwareImages\BM1"
 	
     SevenZip = "\"c:\\Program Files\\7-Zip\\7z\""
 	
     # Release file list, from build directory
-    files = [
-        "build\\dw_ModelB.bin",
-        "build\\bootloader\\bootloader.bin",
-        "build\\partition_table\\partition-table.bin",
-        "build\\ota_data_initial.bin",
+    buildFiles = [
+        "dw_ModelB.bin",
+        "bootloader\\bootloader.bin",
+        "partition_table\\partition-table.bin",
+        "ota_data_initial.bin"
+    ]
+
+    # Other release files
+    otherFiles = [
         "releases\\common\\dw_MfgTest.bin",
 		"modules\\utilities\\modb_program\modb_program.py"
     ]
@@ -70,9 +88,11 @@ if __name__ == "__main__":
 	
     cwd = os.getcwd()
 	
-    fullReleasePath = os.path.realpath( cwd + releasePath + version)
-    fullBuildPath = os.path.realpath( cwd + buildPath)
-
+    fullProjectRoot = os.path.realpath( cwd + projectRoot)
+    fullReleasePath = fullProjectRoot + releaseDir + "v" + version
+    fullLogPath = fullProjectRoot + releaseDir
+    fullBuildPath = fullProjectRoot + "\\" + sourceDir
+	
     print("Releasing version: " + version)
     print( "Release path: " + fullReleasePath)
     print( "Build path: " + fullBuildPath)
@@ -86,8 +106,11 @@ if __name__ == "__main__":
         print("create folder: " + fullReleasePath)
         os.mkdir(fullReleasePath)
 
+    # Path for Application Image
+    applicationImagePath = fullReleasePath + "\\dw_ModelB_v" + version + "b" + buildNumber + ".bin"
+
     # locate PIC Image
-    fullPicPath = os.path.realpath( cwd + picPath + "\\v" + picVersion + "\\")
+    fullPicPath = os.path.realpath( fullProjectRoot + picDir + "\\v" + picVersion + "\\")
     count = 0
     picFile = ""
 	
@@ -103,19 +126,36 @@ if __name__ == "__main__":
         printf("More than one .aws file fount!")
         sys.exit(0)
    
-    # Process file list, make each entry a full path
-    for file in files:
-         fileList.append(fullBuildPath + "\\" + file)
+    # Process the build files
+    for file in buildFiles:
+        fileList.append( fullBuildPath + "\\" + file)
 
-    #Add PIC file to list
+    # Process other file list, make each entry a full path
+    for file in otherFiles:
+         fileList.append(fullProjectRoot + "\\" + file)
+
+    # Add PIC file to list
     fileList.append(fullPicPath + "\\" + picFile)
 	
     # Copy Build file to destination
     for file in fileList:
         print("Copy: " + file)
         shutil.copy( file, fullReleasePath )
-
-
+		# Copy application image to new file
+        if "dw_ModelB.bin" in file:
+            shutil.copy(file, applicationImagePath)
+			
+	# Pad Application Image file with 0xff to be 16-byte aligned
+    fileSize = os.path.getsize( applicationImagePath )
+    padSize = 16 - (fileSize%16)
+    padBuffer = bytearray(padSize)
+    i = 0
+    while i < padSize:
+        padBuffer[i] = 255
+        i += 1
+    with open(applicationImagePath, "ab") as imageFile:
+        imageFile.write(padBuffer)
+	
 # Other files: MODBxxxx.aws (run utility)
 #              Readme.txt (release notes)
 
@@ -127,7 +167,7 @@ if __name__ == "__main__":
     pgmFile = fullReleasePath + "\\flash_project_args"
     with open(pgmFile, "w") as argsFile:
         #Copy, with edit, Bootloader args
-        bootloader = fullBuildPath + "\\build\\flash_bootloader_args"
+        bootloader = fullBuildPath + "\\flash_bootloader_args"
         with open(bootloader, "r") as bootloaderArgs:
             for line in bootloaderArgs:
                 #Edit bootloader line
@@ -138,7 +178,7 @@ if __name__ == "__main__":
                     line = line.replace("detect", "16MB")
                 argsFile.write(line)
         #Copy, with edit, Project args
-        project = fullBuildPath + "\\build\\flash_project_args"
+        project = fullBuildPath + "\\flash_project_args"
         with open(project, "r") as projectArgs:
             for line in projectArgs:
                 #Edit partition-table line
@@ -152,16 +192,48 @@ if __name__ == "__main__":
         #Add Manufacturing Test Image
         argsFile.write("0x800000 dw_MfgTest.bin\n")
 
+    # Time/Date stamp the release
+    from datetime import datetime
+    now = datetime.now()
+    dateTimeFormat = now.strftime("%m/%d/%Y %H:%M:%S")
+
+    # Append record to the log file
+    logFile = fullLogPath + "\\release.log"
+    startOfNote = False
+    logLines = []
+	# Read in existing file
+    with open(logFile, "r") as log:
+        logLines = log.readlines()
+		
+    for line in logLines:
+        if not line.startswith( "#"):
+            if line.strip():
+                startOfNote = True
+            elif startOfNote:
+                if version in line:
+                    print("Log already has not for version: " + version)
+                    sys.exit(0)
+    
+    #construct new release note
+    newNote = "v" + version + " b" + buildNumber + " " + dateTimeFormat
+    if internalRelease:
+        newNote += " (internal)\n"
+    else:
+        newNote += "\n"
+    logLines.append("\n")
+    logLines.append(newNote)
+
+    #write out ammended log file
+    with open(logFile, "w") as log:
+        log.writelines(logLines)
+
     # Use 7-zip to create hash values for each file, except Readme.txt
-    systemCommand = "\"c:\\Program Files\\7-Zip\\7z\" h -scrcsha256 " + fullReleasePath +"\\* -x!Readme.txt"
+    systemCommand = SevenZip + " h -scrcsha256 " + fullReleasePath +"\\* -x!Readme.txt"
     hashOutput = os.popen( systemCommand ).read()
 
     # create ReadMe.txt file
     readmeFile = fullReleasePath + "\\Readme.txt"
     separator = "\n========================================================================\n"
-    from datetime import datetime
-    now = datetime.now()
-    dateTimeFormat = now.strftime("%m/%d/%Y %H:%M:%S")
 	
     with open(readmeFile, "w") as readme:
         readme.write("Drinkworks Model-B Appliance\n")
@@ -170,9 +242,18 @@ if __name__ == "__main__":
         readme.write("Build: " + buildNumber + "\n")
         readme.write("Date: " + dateTimeFormat )
         readme.write(separator)
+        # Copy release notes from log file
+        for line in logLines:
+            if not line.startswith("#"):
+                if internalRelease:
+                    readme.write(line)
+                elif not "(internal)" in line:
+                    readme.write(line)
+        # Add Hash values
+        readme.write(separator)
         readme.write(hashOutput)
 
-    # Use 7-zip to package everything update
+     # Use 7-zip to package everything update
     archiveName = fullReleasePath + "\\ModelB_ESP_" + version + "b" + buildNumber + ".zip"
     print( archiveName )
     systemCommand = SevenZip + " a " + archiveName + " " + fullReleasePath + "\\*"
