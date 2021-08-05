@@ -42,14 +42,13 @@ def get_flash_arg(argFile):
 if __name__ == "__main__":
 
     # Set up the arguments
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Drinkworks Model-B ESP32 Firmware Release")
     parser.add_argument("version", help="set the ESP Version number")
     parser.add_argument("build", help="set ESP Build number")
     parser.add_argument("picVersion", help="PIC18 Firmware Version")
-    parser.add_argument("--source", help="Set the source build directory. Default is \'build\'")
-    #parser.add_argument("--fileName", help="Set fileName. Default is \'pic_ota0\'")
-    #parser.add_argument("--signerRoleArn", help="Set the role arn for the code signing. Default is \'profile_for_ESP32\'")
-    #parser.add_argument("--streamJobRoleArn", help="Set role arn for stream and job creation. Default is \'IoT_Update_Role\'")
+    parser.add_argument('--source', '-s', help="set the source build directory. Default is \'build\'")
+    parser.add_argument('--clear', '-c', action='store_true', help="Clear the release directory")
+    parser.add_argument('--message', '-m', nargs='*', help="set Release Note Message. Quote each line separately")
     args = parser.parse_args()
 
     # Set default variables
@@ -58,12 +57,14 @@ if __name__ == "__main__":
     picVersion = args.picVersion
     sourceDir = "build"
     internalRelease = False
+	
 
     # Overwrite values based on optional variables
     if args.source:
         sourceDir = args.source
         internalRelease = True
-
+    clearRelease = args.clear
+	
     # Project root take from CWD to the project root.  Everything else is relative to the project Root	
     projectRoot = "\\..\\..\\.."
     releaseDir = "\\releases\\"
@@ -92,7 +93,19 @@ if __name__ == "__main__":
     fullReleasePath = fullProjectRoot + releaseDir + "v" + version
     fullLogPath = fullProjectRoot + releaseDir
     fullBuildPath = fullProjectRoot + "\\" + sourceDir
-	
+
+    # Clear Release Directory?
+    if clearRelease:
+        if os.path.isdir(fullReleasePath):
+            if not os.listdir(fullReleasePath):
+                print("folder " + fullReleasePath + " is already empty")
+            else:
+                print("Clear folder: " + fullReleasePath)
+                shutil.rmtree(fullReleasePath)
+        else:
+            print("Folder: " + fullReleasePath + " does not exist")
+        sys.exit(0)
+		
     print("Releasing version: " + version)
     print( "Release path: " + fullReleasePath)
     print( "Build path: " + fullBuildPath)
@@ -214,7 +227,7 @@ if __name__ == "__main__":
                     print("Log already has not for version: " + version)
                     sys.exit(0)
     
-    #construct new release note
+    # Construct new release note
     newNote = "v" + version + " b" + buildNumber + " " + dateTimeFormat
     if internalRelease:
         newNote += " (internal)\n"
@@ -222,8 +235,12 @@ if __name__ == "__main__":
         newNote += "\n"
     logLines.append("\n")
     logLines.append(newNote)
-
-    #write out ammended log file
+    logLines.append("  PIC firmware: " + picFile + "\n")
+    # if a message was specified, split on new-line characters, append each line
+    if args.message:
+        for line in args.message:
+            logLines.append("  " + line + "\n")
+    # Write out ammended log file
     with open(logFile, "w") as log:
         log.writelines(logLines)
 
@@ -233,12 +250,13 @@ if __name__ == "__main__":
 
     # create ReadMe.txt file
     readmeFile = fullReleasePath + "\\Readme.txt"
-    separator = "\n========================================================================\n"
-	
+    separator = "\n\n============================================================================================\n"
+    skipNote = False
+
     with open(readmeFile, "w") as readme:
         readme.write("Drinkworks Model-B Appliance\n")
         readme.write("ESP32 Firmware\n")
-        readme.write("Version: " + sys.argv[1] + "\n")
+        readme.write("Version: " + version + "\n")
         readme.write("Build: " + buildNumber + "\n")
         readme.write("Date: " + dateTimeFormat )
         readme.write(separator)
@@ -247,7 +265,14 @@ if __name__ == "__main__":
             if not line.startswith("#"):
                 if internalRelease:
                     readme.write(line)
-                elif not "(internal)" in line:
+                elif not line.strip():
+                    if not skipNote:
+                        readme.write(line)
+                    startOfNote = True
+                    skipNote = False
+                elif "(internal)" in line:
+                    skipNote = True
+                elif not skipNote:
                     readme.write(line)
         # Add Hash values
         readme.write(separator)
