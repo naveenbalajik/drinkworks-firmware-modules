@@ -84,6 +84,7 @@ if __name__ == "__main__":
     otherFiles = [
         "releases\\common\\dw_MfgTest.bin",
 		"modules\\utilities\\modb_program\modb_program.py"
+		"modules\\docs\\Model-B ESP32 Firmware Programing.pdf"
     ]
     fileList = []
 	
