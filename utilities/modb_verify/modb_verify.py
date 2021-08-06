@@ -9,6 +9,9 @@ import argparse
 import string
 import glob
 
+# Update this version number with subsequent releases
+utilityVersion = "1.0"
+
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
     endOfKeyLoc = keyLoc + len(key)
@@ -63,13 +66,15 @@ def get_flash_arg(argFile):
 # Read out a partition and look for (and print) strings
 def check_partition( port, name, address, length, minMatch):
     outName = name + ".out"
-    print("Checking: " + name + ", address: " + f'{address:08X}' + ", length: " + f'{length:08X}' + ", minMatch: " + f'{minMatch:d}')
+    print("\nChecking: " + name + ", address: " + f'{address:08X}' + ", length: " + f'{length:08X}')
     # Read out partition
     command = "esptool.py --port " + port + " --baud 460800 read_flash " + str(address) + " " + str(length) + " " + outName
     output = str(subprocess.check_output(command, shell=True, timeout=60), 'utf-8')
 	# Look for strings
-    print( "Found strings of at least " + str(minMatch) + " bytes:")
-    for s in strings(outName,minMatch):
+    patternList = list(strings(outName,minMatch))
+    n = len(patternList)
+    print( "  Found " + str(n) + " strings of at least " + str(minMatch) + " bytes:")
+    for s in patternList:
         print("    " + s)
 
 #
@@ -80,7 +85,7 @@ def check_partition( port, name, address, length, minMatch):
 if __name__ == "__main__":
 
     # Set up the arguments
-    parser = argparse.ArgumentParser(description="Drinkworks Model-B ESP32 Firmware Verifier", allow_abbrev=True)
+    parser = argparse.ArgumentParser(description=("Drinkworks Model-B ESP32 Firmware Verifier, v" + utilityVersion), allow_abbrev=True)
     parser.add_argument("port", help="set ESP Programming Port, e.g. COM17")
     args = parser.parse_args()
 
@@ -88,7 +93,7 @@ if __name__ == "__main__":
     tempFiles = glob.glob('*.out')
     for f in tempFiles:
         try:
-            print("Deleting: " + f)
+            print("  Deleting: " + f)
             os.remove(f)
         except OSError as e:
             print("error: %s: %s" % (f, e.strerror))
@@ -100,21 +105,17 @@ if __name__ == "__main__":
     flashKeyString = "Flash encryption key"
     flashKeyVal = get_val_from_key(flashKeyString, output)
     if checkForAllQuestionMarks(flashKeyVal):
-        print(flashKeyString + ": secure")
+        print("  " + flashKeyString + ": SECURE")
     else:
-        print(flashKeyString + ": NOT SECURE")
-        print("Aborting...")
-        sys.exit(0)
+        print("  " + flashKeyString + ": NOT SECURE !!!")
 	
     # Check if block 2 is secure
     secureBootKeyString = "Secure boot key"
     secureBootKeyVal = get_val_from_key(secureBootKeyString, output)
     if checkForAllQuestionMarks(secureBootKeyVal):
-        print(secureBootKeyString + ": secure")
+        print("  " + secureBootKeyString + ": SECURE")
     else:
-        print(secureBootKeyString + ": NOT SECURE")
-        print("Aborting...")
-        sys.exit(0)
+        print("  " + secureBootKeyString + ": NOT SECURE")
 
     
     check_partition( args.port, "Bootloader", 0x1000, 0xD000, 8)         # Check Bootloader is encrypted
