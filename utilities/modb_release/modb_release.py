@@ -6,6 +6,7 @@ import serial
 import shutil, os
 import datetime
 import argparse
+import filecmp
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -38,6 +39,59 @@ def get_flash_arg(argFile):
     with file:
         data = file.read().replace('\n', ' ')
     return data
+
+#
+# If Update is True compare source and destination files.  If they do not match
+# only copy source to desitination after user confirmation.
+#
+# If destination is a directory the filename is extracted from the source.
+# If destination is a file, then that path is uses, unmodified
+# If destination is a file, but file is not present, source is copied
+def compare_copy_file(source, destination, update):
+    copyFile = False
+    fileName = os.path.basename(source)
+    if update:
+        if os.path.isfile(destination):
+            target = destination
+        else:
+            target = destination + "\\" + fileName
+        if os.path.exists(target):
+            result = filecmp.cmp(source, target, shallow=False)
+            if not result:
+                print( f'Compare {source} with {target}')
+                print( f'{source} has changed')
+                response = input("Over-write? (Y/N): ")
+                if ('Y' or 'y') in response:
+                    copyFile = True
+        else:
+            copyFile = True
+    else:
+        copyFile = True
+		
+    if copyFile:
+        print("Copy: " + source)
+        shutil.copy( source, destination )
+    else:
+        print("Skipping: " + source)
+
+#
+# Pad source file with 0xff bytes to be aligned on padBoundary, save as destination file
+#
+def pad_file( source, destination, padBoundary):
+    # calculate pad buffer
+    fileSize = os.path.getsize( source )
+    padSize = padBoundary - (fileSize%padBoundary)
+    padBuffer = bytearray(padSize)
+    #print(f'Padding with {padSize:d} bytes')
+    i = 0
+    while i < padSize:
+        padBuffer[i] = 255
+        i += 1
+    # Make copy of source file
+    shutil.copy( source, destination )
+	# Pad Destination file
+    with open(destination, "ab") as file:
+        file.write(padBuffer)
 	
 if __name__ == "__main__":
 
@@ -49,6 +103,7 @@ if __name__ == "__main__":
     parser.add_argument('--source', '-s', help="set the source build directory. Default is \'build\'")
     parser.add_argument('--clear', '-c', action='store_true', help="Clear the release directory")
     parser.add_argument('--message', '-m', nargs='*', help="set Release Note Message. Quote each line separately")
+    parser.add_argument('--update', '-u', action='store_true', help="Update an existing release")
     args = parser.parse_args()
 
     # Set default variables
@@ -83,7 +138,7 @@ if __name__ == "__main__":
     # Other release files
     otherFiles = [
         "releases\\common\\dw_MfgTest.bin",
-		"modules\\utilities\\modb_program\modb_program.py"
+		"modules\\utilities\\modb_program\modb_program.py",
 		"modules\\docs\\Model-B ESP32 Firmware Programing.pdf"
     ]
     fileList = []
@@ -113,12 +168,15 @@ if __name__ == "__main__":
     if os.path.isdir(fullReleasePath):
         if not os.listdir(fullReleasePath):
             print("folder " + fullReleasePath + " is empty")
-        else:
+        elif not args.update:                        # exit if update argument not set
             print("folder: " + fullReleasePath + " already exits and is not empty!")
             sys.exit()
     else:
         print("create folder: " + fullReleasePath)
         os.mkdir(fullReleasePath)
+
+    # Path for temporary padded Image
+    tempImagePath = fullReleasePath + "\\temp.bin"
 
     # Path for Application Image
     applicationImagePath = fullReleasePath + "\\dw_ModelB_v" + version + "b" + buildNumber + ".bin"
@@ -151,24 +209,18 @@ if __name__ == "__main__":
     # Add PIC file to list
     fileList.append(fullPicPath + "\\" + picFile)
 	
-    # Copy Build file to destination
+    # Copy Build files to destination
     for file in fileList:
-        print("Copy: " + file)
-        shutil.copy( file, fullReleasePath )
+        compare_copy_file( file, fullReleasePath, args.update)
 		# Copy application image to new file
+        # If appliaction image file
         if "dw_ModelB.bin" in file:
-            shutil.copy(file, applicationImagePath)
-			
-	# Pad Application Image file with 0xff to be 16-byte aligned
-    fileSize = os.path.getsize( applicationImagePath )
-    padSize = 16 - (fileSize%16)
-    padBuffer = bytearray(padSize)
-    i = 0
-    while i < padSize:
-        padBuffer[i] = 255
-        i += 1
-    with open(applicationImagePath, "ab") as imageFile:
-        imageFile.write(padBuffer)
+            # Create a temporary padded image file
+            pad_file( file, tempImagePath, 16)
+            # Copy to file with version/build in name
+            compare_copy_file( tempImagePath, applicationImagePath, args.update)
+            # Delete temp file
+            os.remove(tempImagePath)
 	
 # Other files: MODBxxxx.aws (run utility)
 #              Readme.txt (release notes)
@@ -206,6 +258,12 @@ if __name__ == "__main__":
         #Add Manufacturing Test Image
         argsFile.write("0x800000 dw_MfgTest.bin\n")
 
+    #
+    # Update release.log file
+    #
+	
+    versionBuild = "v" + version + " b" + buildNumber
+	
     # Time/Date stamp the release
     from datetime import datetime
     now = datetime.now()
@@ -215,21 +273,28 @@ if __name__ == "__main__":
     logFile = fullLogPath + "\\release.log"
     startOfNote = False
     logLines = []
+	
 	# Read in existing file
     with open(logFile, "r") as log:
         logLines = log.readlines()
-		
-    for line in logLines:
-        if not line.startswith( "#"):
-            if line.strip():
+	
+    # Look for note(s) for existing vesrion/build, tag as "deleted"
+    n = 0
+    while n < len(logLines):
+        if not logLines[n].startswith( "#"):
+            if logLines[n].isspace():
                 startOfNote = True
             elif startOfNote:
-                if version in line:
-                    print("Log already has not for version: " + version)
-                    sys.exit(0)
+                startOfNote = False
+                if (versionBuild in logLines[n]) and not ("(deleted)" in logLines[n]):
+                    print("Log already has note for version: " + versionBuild + " - tag as deleted")
+                    logLines[n] = logLines[n].replace("\n", " (deleted)\n")
+            else:
+                startOfNote = False
+        n += 1
     
     # Construct new release note
-    newNote = "v" + version + " b" + buildNumber + " " + dateTimeFormat
+    newNote = versionBuild + " " + dateTimeFormat
     if internalRelease:
         newNote += " (internal)\n"
     else:
@@ -237,7 +302,8 @@ if __name__ == "__main__":
     logLines.append("\n")
     logLines.append(newNote)
     logLines.append("  PIC firmware: " + picFile + "\n")
-    # if a message was specified, split on new-line characters, append each line
+	
+    # if a message was specified, it can be multi-line, append each line
     if args.message:
         for line in args.message:
             logLines.append("  " + line + "\n")
@@ -245,8 +311,8 @@ if __name__ == "__main__":
     with open(logFile, "w") as log:
         log.writelines(logLines)
 
-    # Use 7-zip to create hash values for each file, except Readme.txt
-    systemCommand = SevenZip + " h -scrcsha256 " + fullReleasePath +"\\* -x!Readme.txt"
+    # Use 7-zip to create hash values for each file, except Readme.txt and previous ZIP file
+    systemCommand = SevenZip + " h -scrcsha256 " + fullReleasePath +"\\* -x!Readme.txt -x!*.zip"
     hashOutput = os.popen( systemCommand ).read()
 
     # create ReadMe.txt file
@@ -261,28 +327,38 @@ if __name__ == "__main__":
         readme.write("Build: " + buildNumber + "\n")
         readme.write("Date: " + dateTimeFormat )
         readme.write(separator)
+		
         # Copy release notes from log file
+        #   Always skip lines starting with '#'
+        #   Always skip deleted notes
+        #   skip internal notes for external release
         for line in logLines:
             if not line.startswith("#"):
-                if internalRelease:
-                    readme.write(line)
-                elif not line.strip():
+                if line.isspace():
+                    startOfNote = True
+                else:
+                    if startOfNote:
+                        if "(deleted)" in line:
+                            skipNote = True
+                        elif "(internal)" in line and not internalRelease:
+                            skipNote = True
+                        else:
+                            skipNote = False
+                            readme.write("\n")
+                        startOfNote = False
+						
+                    # Unless skipping this note, write line to Readme file
                     if not skipNote:
                         readme.write(line)
-                    startOfNote = True
-                    skipNote = False
-                elif "(internal)" in line:
-                    skipNote = True
-                elif not skipNote:
-                    readme.write(line)
+                   
         # Add Hash values
         readme.write(separator)
         readme.write(hashOutput)
 
-     # Use 7-zip to package everything update
+     # Use 7-zip to package everything update, exclude preious ZIP file (if present)
     archiveName = fullReleasePath + "\\ModelB_ESP_" + version + "b" + buildNumber + ".zip"
     print( archiveName )
-    systemCommand = SevenZip + " a " + archiveName + " " + fullReleasePath + "\\*"
+    systemCommand = SevenZip + " a -x!*.zip " + archiveName + " " + fullReleasePath + "\\*"
     os.system(systemCommand)
 	
     print("Exiting Program")
