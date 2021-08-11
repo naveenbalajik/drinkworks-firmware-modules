@@ -1,3 +1,24 @@
+#
+# @file modb_release.py
+#
+# Script to generate an ESP32 firmware release package for Drinkworks Model-B Appliance
+#
+# Companion Utility: hex2aws.py
+#    The hex2aws utility takes a PIC18F firmware *.hex file and processes it to generate the *.aws
+#    file, suitable for uploading to AWS.
+#
+#    Example metadata:
+#    {
+#      "HexFileName": "MODB_v1.01_b145.hex",
+#      "SHA256": "ggfNPlwbGb7jbjjYFfG4IIEUoKdfMPg0CHzIoVD4p08=",
+#      "CRC16_CCITT": 65182,
+#      "LoadAddress": 4096,
+#      "ImageSize": 126976,
+#      "TimeStamp": "2021-07-30T07:45:01.0354828-04:00",
+#      "Version_PIC": 1.01,
+#      "PaddingBoundary": 512
+#     }
+#
 import sys
 import subprocess
 import os
@@ -7,6 +28,9 @@ import shutil, os
 import datetime
 import argparse
 import filecmp
+
+# Update this version number with subsequent releases
+utilityVersion = "1.1"
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -95,37 +119,11 @@ def pad_file( source, destination, padBoundary):
 	
 if __name__ == "__main__":
 
-    # Set up the arguments
-    parser = argparse.ArgumentParser(description="Drinkworks Model-B ESP32 Firmware Release")
-    parser.add_argument("version", help="set the ESP Version number")
-    parser.add_argument("build", help="set ESP Build number")
-    parser.add_argument("picVersion", help="PIC18 Firmware Version")
-    parser.add_argument('--source', '-s', help="set the source build directory. Default is \'build\'")
-    parser.add_argument('--clear', '-c', action='store_true', help="Clear the release directory")
-    parser.add_argument('--message', '-m', nargs='*', help="set Release Note Message. Quote each line separately")
-    parser.add_argument('--update', '-u', action='store_true', help="Update an existing release")
-    args = parser.parse_args()
-
-    # Set default variables
-    version = args.version
-    buildNumber = args.build
-    picVersion = args.picVersion
-    sourceDir = "build"
-    internalRelease = False
-	
-
-    # Overwrite values based on optional variables
-    if args.source:
-        sourceDir = args.source
-        internalRelease = True
-    clearRelease = args.clear
-	
-    # Project root take from CWD to the project root.  Everything else is relative to the project Root	
-    projectRoot = "\\..\\..\\.."
+    # Some default paths, may be overiden with script arguments
+    defaultPicDir = r'c:\Users\ian.whitehead\Desktop\ModelB_DispenseEngine\Releases'
+    defaultSevenZip = r'C:\Program Files\7-Zip\7z.exe'
+    defaultRootDir = r'c:\Users\ian.whitehead\GitHub\dw_ModelB'
     releaseDir = "\\releases\\"
-    picDir = "\\..\\..\\Desktop\\FirmwareImages\BM1"
-	
-    SevenZip = "\"c:\\Program Files\\7-Zip\\7z\""
 	
     # Release file list, from build directory
     buildFiles = [
@@ -141,17 +139,47 @@ if __name__ == "__main__":
 		"modules\\utilities\\modb_program\modb_program.py",
 		"modules\\docs\\Model-B ESP32 Firmware Programing.pdf"
     ]
+	
+    # Set up the arguments
+    parser = argparse.ArgumentParser(description= f'Drinkworks Model-B ESP32 Firmware Release Utility, v{utilityVersion}')
+    parser.add_argument("version", help="set the ESP Version number")
+    parser.add_argument("build", help="set ESP Build number")
+    parser.add_argument("picVersion", help="PIC18 Firmware Version, e.g. \'1.01\'", type=float)
+    parser.add_argument('--source', '-s', help="set the source build directory. Default is \'build\'", default="build")
+    parser.add_argument('--clear', '-c', action='store_true', help="Clear the release directory")
+    parser.add_argument('--message', '-m', nargs='*', help="set Release Note Message. Quote each line separately")
+    parser.add_argument('--update', '-u', action='store_true', help="Update an existing release")
+    parser.add_argument('--internal', '-i', action='store_true', help="Internal release")
+    parser.add_argument('--picDir', '-p', help="set PIC18F release directory", default=defaultPicDir)
+    parser.add_argument('--rootDir', '-r', help="set ESP32 Project roor directory", default=defaultRootDir)
+    parser.add_argument('--picBuild', '-b', help="set PIC18F Firmware Build Number. e.g. \'145\'", default=0, type=int)
+    parser.add_argument('--zip', '-z', help="set 7-zip path", default=defaultSevenZip)
+	
+    args = parser.parse_args()
+
+    # Validate Project root directory
+    if not os.path.isdir(args.rootDir):
+        print( f'Invalid location for Project Root: {args.rootDir}')
+        sys.exit(-1)
+	
+    # Validate Project release directory
+    releasePath = args.rootDir + releaseDir
+    if not os.path.isdir(releasePath):
+        print( f'Invalid location for Project Release: {releasePath}')
+        sys.exit(-1)
+	
+	# Validate 7-Zip location
+    if not os.path.isfile(args.zip):
+        print( f'Invalid location for 7-zip: {args.zip}')
+        sys.exit(-1)
+		
     fileList = []
 	
-    cwd = os.getcwd()
-	
-    fullProjectRoot = os.path.realpath( cwd + projectRoot)
-    fullReleasePath = fullProjectRoot + releaseDir + "v" + version
-    fullLogPath = fullProjectRoot + releaseDir
-    fullBuildPath = fullProjectRoot + "\\" + sourceDir
+    fullReleasePath = releasePath + "v" + args.version
+    fullBuildPath = args.rootDir + "\\" + args.source
 
     # Clear Release Directory?
-    if clearRelease:
+    if args.clear:
         if os.path.isdir(fullReleasePath):
             if not os.listdir(fullReleasePath):
                 print("folder " + fullReleasePath + " is already empty")
@@ -162,7 +190,7 @@ if __name__ == "__main__":
             print("Folder: " + fullReleasePath + " does not exist")
         sys.exit(0)
 		
-    print("Releasing version: " + version)
+    print("Releasing version: " + args.version)
     print( "Release path: " + fullReleasePath)
     print( "Build path: " + fullBuildPath)
     if os.path.isdir(fullReleasePath):
@@ -179,41 +207,47 @@ if __name__ == "__main__":
     tempImagePath = fullReleasePath + "\\temp.bin"
 
     # Path for Application Image
-    applicationImagePath = fullReleasePath + "\\dw_ModelB_v" + version + "b" + buildNumber + ".bin"
+    applicationImagePath = fullReleasePath + "\\dw_ModelB_v" + args.version + "b" + args.build + ".bin"
 
     # locate PIC Image
-    fullPicPath = os.path.realpath( fullProjectRoot + picDir + "\\v" + picVersion + "\\")
     count = 0
     picFile = ""
+    searchString = f'_v{args.picVersion:4.2f}_b'
+    if args.picBuild != 0:
+        searchString += f'{args.picBuild:d}'
+    print( f'Searching for file with: {searchString}')
 	
-    for file in os.listdir(fullPicPath):
-        if file.endswith(".aws"):
+    for file in os.listdir(args.picDir):
+        if file.endswith(".aws") and searchString in file:
             picFile = file
+            picFilePath = args.picDir + "\\" + picFile
             count += 1
 	
     if count == 0:
         print("PIC Image file not found")
         sys.exit(0)
     if count > 1:
-        printf("More than one .aws file fount!")
+        printf("More than one .aws file found!")
         sys.exit(0)
    
+    print( f'Found aws file: {picFilePath}')
+	
     # Process the build files
     for file in buildFiles:
         fileList.append( fullBuildPath + "\\" + file)
 
     # Process other file list, make each entry a full path
     for file in otherFiles:
-         fileList.append(fullProjectRoot + "\\" + file)
+         fileList.append( args.rootDir + "\\" + file)
 
     # Add PIC file to list
-    fileList.append(fullPicPath + "\\" + picFile)
+    fileList.append(picFilePath)
 	
     # Copy Build files to destination
     for file in fileList:
         compare_copy_file( file, fullReleasePath, args.update)
 		# Copy application image to new file
-        # If appliaction image file
+        # If application image file
         if "dw_ModelB.bin" in file:
             # Create a temporary padded image file
             pad_file( file, tempImagePath, 16)
@@ -222,9 +256,6 @@ if __name__ == "__main__":
             # Delete temp file
             os.remove(tempImagePath)
 	
-# Other files: MODBxxxx.aws (run utility)
-#              Readme.txt (release notes)
-
     #
     # Construct a programming arguments file
     #   PIC Factory Image is at fixed address (0x70000)
@@ -262,7 +293,7 @@ if __name__ == "__main__":
     # Update release.log file
     #
 	
-    versionBuild = "v" + version + " b" + buildNumber
+    versionBuild = "v" + args.version + " b" + args.build
 	
     # Time/Date stamp the release
     from datetime import datetime
@@ -270,7 +301,7 @@ if __name__ == "__main__":
     dateTimeFormat = now.strftime("%m/%d/%Y %H:%M:%S")
 
     # Append record to the log file
-    logFile = fullLogPath + "\\release.log"
+    logFile = releasePath + "\\release.log"
     startOfNote = False
     logLines = []
 	
@@ -295,7 +326,7 @@ if __name__ == "__main__":
     
     # Construct new release note
     newNote = versionBuild + " " + dateTimeFormat
-    if internalRelease:
+    if args.internal:
         newNote += " (internal)\n"
     else:
         newNote += "\n"
@@ -312,7 +343,7 @@ if __name__ == "__main__":
         log.writelines(logLines)
 
     # Use 7-zip to create hash values for each file, except Readme.txt and previous ZIP file
-    systemCommand = SevenZip + " h -scrcsha256 " + fullReleasePath +"\\* -x!Readme.txt -x!*.zip"
+    systemCommand = f'"{args.zip}" h -scrcsha256 {fullReleasePath}\\* -x!Readme.txt -x!*.zip'
     hashOutput = os.popen( systemCommand ).read()
 
     # create ReadMe.txt file
@@ -323,8 +354,8 @@ if __name__ == "__main__":
     with open(readmeFile, "w") as readme:
         readme.write("Drinkworks Model-B Appliance\n")
         readme.write("ESP32 Firmware\n")
-        readme.write("Version: " + version + "\n")
-        readme.write("Build: " + buildNumber + "\n")
+        readme.write("Version: " + args.version + "\n")
+        readme.write("Build: " + args.build + "\n")
         readme.write("Date: " + dateTimeFormat )
         readme.write(separator)
 		
@@ -340,7 +371,7 @@ if __name__ == "__main__":
                     if startOfNote:
                         if "(deleted)" in line:
                             skipNote = True
-                        elif "(internal)" in line and not internalRelease:
+                        elif "(internal)" in line and not args.internal:
                             skipNote = True
                         else:
                             skipNote = False
@@ -356,9 +387,9 @@ if __name__ == "__main__":
         readme.write(hashOutput)
 
      # Use 7-zip to package everything update, exclude preious ZIP file (if present)
-    archiveName = fullReleasePath + "\\ModelB_ESP_" + version + "b" + buildNumber + ".zip"
+    archiveName = fullReleasePath + "\\ModelB_ESP_" + "v" + args.version + "b" + args.build + ".zip"
     print( archiveName )
-    systemCommand = SevenZip + " a -x!*.zip " + archiveName + " " + fullReleasePath + "\\*"
+    systemCommand = f'"{args.zip}" a -x!*.zip {archiveName} {fullReleasePath}\\*'
     os.system(systemCommand)
 	
     print("Exiting Program")
