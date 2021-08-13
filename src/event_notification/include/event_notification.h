@@ -67,6 +67,10 @@ typedef enum
 	eEventSubject_Clean_RinseEmptyAWT,
 	eEventSubject_Clean_RinseEmptyCarb,
 	eEventSubject_Clean_Complete,
+	eEventSubject_Critical_PuncMechError,
+	eEventSubject_Critical_ExtendedOPError,
+	eEventSubject_Critical_ClearMemError,
+	eEventSubject_Critical_OPRecoveryError,
 	eEventSubject_EndOfList,
 	eEventSubject_None
 } _eventSubject_t;
@@ -75,9 +79,10 @@ typedef enum
  * @brief Initialize Event Notification module
  *
  * @param[in] thingName		Pointer to ThingName string
+ * @param[in] serialNumber	Pointer to SerialNumber string, optional
  * @param[in] initExtend	Extended Initialization function, optional
  */
-void eventNotification_Init( const char *thingName, _initializeCallback_t initExtend );
+void eventNotification_Init( const char *thingName, const char *serialNumber, _initializeCallback_t initExtend );
 
 /**
  * @brief	Send a pre-formatted JSON message to the Thing's Event Topic

@@ -199,7 +199,6 @@ typedef bool ( * hostImageTransferPendingCallback_t )( void );
 typedef struct
 {
 	const AltProcessor_Functions_t * 	pal_functions;
-	IotSemaphore_t * 					pSemaphore;
 	hostOtaPendUpdateCallback_t 		pendDownloadCb;							/**< OTA Update Pending callback function */
 	hostOtaImageUnavailableCallback_t	imageUnavailableCb;					/**< Image Unavailable callback function */
 	hostImageTransferPendingCallback_t	transferPendingCb;					/**< Image Transfer pending callback function */
@@ -214,13 +213,6 @@ int OTAUpdate_init( 	const char * pIdentifier,
                             const IotNetworkInterface_t * pNetworkInterface,
 							_otaNotifyCallback_t notifyCb,
 							hostOta_Interface_t * pHostInterface );
-//int OTAUpdate_init( 	const char * pIdentifier,
-//                            void * pNetworkCredentialInfo,
-//                            const IotNetworkInterface_t * pNetworkInterface,
-//							_otaNotifyCallback_t notifyCb,
-//							IotSemaphore_t *pSemaphore,
-//							hostOtaPendUpdateCallback_t function,
-//							const AltProcessor_Functions_t * altProcessorFunctions );
 
 
 #endif /* _OTA_UPDATE_H_ */

@@ -21,6 +21,7 @@ typedef enum
 {
 	eChecking,														/**< Checking if a PIC Update is available */
 	eImageDownloading,												/**< A PIC Image is being downloaded */
+	eDownloadComplete,												/**< PIC Download complete (contents not validated) */
 	eImageAvailable,												/**< A PIC Update Image is available (Image transfer will start momentarily) */
 	eNoImageAvailable,												/**< No PIC Image is available */
 	eUnknown,														/**< Unknown status - default */
@@ -64,8 +65,6 @@ typedef struct
 typedef void (* _hostOtaNotifyCallback_t)( char *pJson );
 
 int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb );
-
-IotSemaphore_t *hostOta_getSemaphore( void );
 
 OTA_PAL_ImageState_t hostOta_getImageState( void );
 

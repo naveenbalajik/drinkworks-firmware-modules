@@ -592,6 +592,10 @@ typedef struct
 	_otaOpcode_t		command;					/**< OpCode: "b" */
 	uint8_t				data[ 5 ];					/**< Data: "ootme" */
 	uint8_t				image;						/**< Image Flag: 0 = Factory, 1 = OTA */
+	uint16_t			fwVersion;					/**< Firmware Version - as found at absolute address on the image */
+	uint16_t			fwBuild;					/**< Firmware Build - as found at absolute address on the image */
+	uint16_t			fwCRC;						/**< Firmware CRC - from DFM location */
+	uint16_t			calcCRC;					/**< Calculated CRC */
 	uint16_t			crc;						/**< command CRC */
 }  __attribute__ ((packed)) _bootme_t;
 
@@ -659,8 +663,7 @@ typedef struct
 	uint32_t			targetAddress;
 	uint32_t			startAddress;
 	uint16_t			uid;
-	bool				bStartTransfer;
-	IotSemaphore_t		iotUpdateSemaphore;
+//	bool				bStartTransfer;
 	OTA_PAL_ImageState_t	imageState;
 	double				percentComplete;
 	int					lastPercentComplete;
@@ -670,13 +673,19 @@ typedef struct
 	size_t				bytesRemaining;				/**< Number of bytes remaining to be transfered */
 	size_t				transferSize;				/**< Size, in bytes, of the current transfer block */
 	const _blStep_t			*pStep;						/**< Pointer to current ImageTransfer step */
-	bool				bBootme;					/**< true if BootMe message received */
+	bool				bStartTransfer;				/**< set true to start the transfer */
 	bool				bFactoryImage;				/**< true if BootMe is requesting the factory image */
+	bool				bChangeImage;				/**< true if BootMe is requesting image that is not currently verified */
+	bool				bOtaImageVerified;			/**< true if Image in PIC OTA partition is verified */
+	bool				bFactoryImageVerified;		/**< true if Image in PIC Factory partition is verified */
 	uint16_t			calc_crc;					/**< CRC value calculated by host */
 	_xferStatus_t		xferStatus;
 	bool				bUpdateAvailable;			/**< A validate PIC image is available */
 	QueueHandle_t		queue;						/**< queue for ota_update module to communicate */
 	hostOta_status_t	reportedStatus;				/**< OTA Status reported by ota_update module via queue */
+	hostOta_status_t	bootmeStatus;				/**< OTA Status reported to PIC via Bootme Response */
+	TimerHandle_t		xfrTimer;					/**< Timer use to detect timeouts in transfer */
+	bool				bXferTimeout;				/**< true if transfer timer expired */
 
 } host_ota_t;
 
@@ -714,8 +723,9 @@ static bool _transferPending( void );
 static host_ota_t _hostota =
 {
 	.state = eHostOtaInit,													/**< Start in Init state */
-	.bBootme = false,
+	.bStartTransfer = false,
 	.queue = NULL,
+	.bFactoryImage = false,
 };
 
 /**
@@ -914,38 +924,6 @@ static esp_err_t onStatus_FlashWriteAck( const void * pData )
 	return( err );
 }
 
-/**
- * @brief	Process	OTA Status: BOOTME
- */
-static esp_err_t onStatus_Bootme( const void * pData )
-{
-	esp_err_t	err = ESP_OK;
-	const _bootme_t *pBoot = pData;
-
-	/* Set bBootme flag and bFactoryImage, if image value is zero */
-	_hostota.bBootme = true;
-	_hostota.bFactoryImage = ( pBoot->image == 0 ) ? true : false;
-
-	IotLogInfo( "Bootme: %s", _hostota.bFactoryImage ? "Factory" : "OTA" );
-
-	return( err );
-}
-
-/**
- * @brief	Calculate CRC Status
- */
-static esp_err_t onStatus_CalcCrcAck( const void * pData )
-{
-	esp_err_t	err = ESP_OK;
-	const _blCalcCrcStatus_t *pCrc = pData;
-
-	IotLogInfo( "CalcCRC Ack: %04X vs. %04X", pCrc->value, _hostota.crc16_ccitt );
-
-	/* Save calculated CRC */
-	_hostota.calc_crc = pCrc->value;
-
-	return( err );
-}
 
 /**
  * @brief	Get Boot Status
@@ -984,6 +962,99 @@ static hostOta_status_t getBootStatus( void )
 	{
 		return eChecking;
 	}
+}
+
+
+/**
+ * @brief	Process	OTA Status: BOOTME
+ *
+ * BOOTME message has details of the current PIC firmware
+ */
+static esp_err_t onStatus_Bootme( const void * pData )
+{
+	esp_err_t	err = ESP_OK;
+	const _bootme_t *pBoot = pData;
+
+	/* Set bFactoryImage flag if image value is zero */
+	_hostota.bFactoryImage = ( pBoot->image == 0 ) ? true : false;
+
+	/*
+	 * Set the default bootme status - this is normally that status to use in the response
+	 *
+	 * If a factory Image is being requested, need to check that image is valid
+	 * If currently load PIC image is valid (CRC's match) and the version and CRC match the verified image, then no image is available
+	 */
+	_hostota.bootmeStatus = getBootStatus();
+
+	IotLogInfo( "Bootme: %s", _hostota.bFactoryImage ? "Factory" : "OTA" );
+
+	IotLogInfo( " Version: %04X (%d)", pBoot->fwVersion, pBoot->fwBuild );
+	IotLogInfo( " CRC: %04X, calc: %04X", pBoot->fwCRC, pBoot->calcCRC );
+	IotLogInfo( "Compare with CRC: %04X, Version: %04X", _hostota.crc16_ccitt, ( uint16_t ) ( _hostota.Version_PIC * 100 ) );
+
+	/* If Requesting Factory Image  */
+	if( _hostota.bFactoryImage )
+	{
+		if( _hostota.bFactoryImageVerified )									// If Image has been verified, start transfer
+		{
+			_hostota.bStartTransfer = true;										// Set Start Transfer flag
+			_hostota.bootmeStatus = eImageAvailable;							// override default status
+		}
+		else 																	// Factory Image has not been verified, change images
+		{
+			IotLogInfo( "Change Images" );
+			_hostota.bChangeImage = true;
+		}
+	}
+	/* OTA Image Request */
+	else
+	{
+		/* If OTA Image is validated */
+		if( _hostota.bOtaImageVerified )
+		{
+			/* default to starting transfer */
+			_hostota.bStartTransfer = true;										// Set Start Transfer flag
+			_hostota.bootmeStatus = eImageAvailable;							// Set Boot Status
+
+			/* Look for special case - don't start transfer if determine no update is available */
+			if( pBoot->fwCRC == pBoot->calcCRC )									// If CRCs match, PIC Image is valid
+			{
+				_hostota.currentVersion_PIC =  ( ( ( double ) pBoot->fwVersion ) / 100 );				// Set current PIC Version
+				IotLogInfo( "Setting currentVersion_PIC = %5.2f", _hostota.currentVersion_PIC );
+
+				/* If the Version of the downloaded image matches the bootme reported version */
+				if( _hostota.currentVersion_PIC ==  _hostota.Version_PIC )
+				{
+					/* AND the downloaded image CRC matches bootme reported CRC: No Update is available */
+					if( pBoot->fwCRC == _hostota.crc16_ccitt )
+					{
+						IotLogInfo( " Firmware reported by Bootme matches OTA image: No Update Available" );
+						_hostota.bootmeStatus = eNoImageAvailable;				// override default status
+						_hostota.bStartTransfer = false;						// Clear Start Transfer flag
+					}
+				}
+			}
+		}
+		/* If OTA Image has not been validated, return status returned by getBootStatus() */
+	}
+
+	return( err );
+}
+
+/**
+ * @brief	Calculate CRC Status
+ */
+static esp_err_t onStatus_CalcCrcAck( const void * pData )
+{
+	esp_err_t	err = ESP_OK;
+	const _blCalcCrcStatus_t *pCrc = pData;
+
+	IotLogInfo( "CalcCRC Ack: %04X vs. %04X", pCrc->value, _hostota.crc16_ccitt );
+
+	/* Save calculated CRC */
+	_hostota.calc_crc = pCrc->value;
+
+	return( err );
 }
 
 /**
@@ -1106,7 +1177,7 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 	{
 		uint8_t	responseBuffer[ 5 ] = { eCommandComplete, eHostUpdateResponse,eCommandSucceeded, eBL_BOOTME };
 
-		responseBuffer[ 4 ] = ( uint8_t )getBootStatus();
+		responseBuffer[ 4 ] = ( uint8_t )_hostota.bootmeStatus;
 		IotLogInfo( "BootmeResponse: %d", responseBuffer[ 4 ] );
 		shci_PostResponse(  responseBuffer, sizeof( responseBuffer ) );
 	}
@@ -1116,6 +1187,9 @@ static void vOtaStatusUpdate( const uint8_t *pData, const uint16_t size )
 		shci_postCommandComplete( eHostUpdateResponse, eCommandSucceeded );
 #endif
 	}
+
+	/* Release CPU so HostOta Task can run */
+	vTaskDelay( 10 / portTICK_PERIOD_MS );
 }
 
 
@@ -1760,7 +1834,7 @@ static const _blStep_t	blSteps[] =
 			.command = &hostReset,
 			.opCode = eOTA_RESET_CMD,
 			.expectedStatus = eBL_RESET_ACK,
-			.onAcknowledge = &OnHostResetAck,
+			.onAcknowledge = NULL,
 			.stateAfterCommand = eXfer_response,
 			.nextStep = eStep_Complete
 	},
@@ -1811,6 +1885,13 @@ static void ImageTransfer( const _blStep_t *pStep )
 
 					/* Post SHCI Command to message queue */
 					shci_PostResponse( _hostota.pXferBuf, packedLength );
+
+					_hostota.bXferTimeout = false;							// Clear timeout flag
+					/* If timer was created */
+					if( NULL != _hostota.xfrTimer )
+					{
+						xTimerStart( _hostota.xfrTimer, 0 );				// Start timer
+					}
 				}
 
 				/* switch to linked next state */
@@ -1819,39 +1900,50 @@ static void ImageTransfer( const _blStep_t *pStep )
 			break;
 
 		case eXfer_response:
-			/* If Acknowledgement received */
-			if( _hostota.ackReceived )
+
+			/* Check for transfer timeout */
+			if( _hostota.bXferTimeout )
 			{
+				_hostota.bXferTimeout = false;												// Clear flag
+				IotLogInfo( "Transfer Timeout" );
+				_hostota.mzXfer_state = eXfer_command;										//  Return to command state, resend command
+			}
+
+			/* If no acknowledgment action */
+			else if( NULL == pStep->onAcknowledge )
+			{
+				_hostota.pStep = &blSteps[ pStep->nextStep ];								// go to next step, linked
+				_hostota.mzXfer_state = eXfer_command;										// return to command state
+			}
+
+			/* If Acknowledgment received */
+			else if( _hostota.ackReceived )
+			{
+				/* If timer was created */
+				if( NULL != _hostota.xfrTimer )
+				{
+					xTimerStop( _hostota.xfrTimer, 0 );										// Stop the timer on acknowledgment
+				}
+
 				/* default to no error */
 				_hostota.xferStatus = eXferStat_NoError;
 
 				/* process action */
-				if( NULL != pStep->onAcknowledge )
+				if( pStep->onAcknowledge( &_hostota ) )
 				{
-					if( pStep->onAcknowledge( &_hostota ) )
-					{
-						/* If this step is complete, go to next step, linked */
-						_hostota.pStep = &blSteps[ pStep->nextStep ];
-					}
-				}
-				else
-				{
-					/* No action, go to next step, linked */
-					_hostota.pStep = &blSteps[ pStep->nextStep ];
+					_hostota.pStep = &blSteps[ pStep->nextStep ];							// If this step is complete, go to next step, linked
 				}
 
 				/* onAcknowledge function can set xferStatus on error condition */
 				if( eXferStat_NoError == _hostota.xferStatus)
 				{
-					/* No Error - return to command state */
-					_hostota.mzXfer_state = eXfer_command;
+					_hostota.mzXfer_state = eXfer_command;									// No Error - return to command state
 				}
 				else
 				{
 					_hostota.mzXfer_state = eXfer_error;
 				}
 			}
-			/* TODO!! Handle timeouts and other errors */
 			break;
 
 		case eXfer_continue:
@@ -2160,21 +2252,14 @@ static void _hostOtaTask(void *arg)
 	esp_err_t	err = ESP_OK;
 	hostota_QueueItem_t	currentMessage;
 
+	esp_partition_type_t partitionType;
+	esp_partition_subtype_t partitionSubtype;
+	const char * partitionLabel;
+
 	/* Create a queue to allow ota_upate module to communicate */
 	_hostota.queue = xQueueCreate( 5, sizeof( hostota_QueueItem_t ) );
 
-	/* Create semaphore to wait for Image Download from AWS IoT */
-	if( IotSemaphore_Create( &_hostota.iotUpdateSemaphore, 0, 1 ) == false )
-	{
-		IotLogError("Failed to create semaphore");
-	}
-	else
-	{
-		IotLogInfo( "iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
-	}
-
 	/* Fill out dynamic elements of hostOtaInterface */
-	hostOtaInterface.pSemaphore = &_hostota.iotUpdateSemaphore;
 	hostOtaInterface.queue = _hostota.queue;
 
 	/* Attempt to retrieve image state from NVS */
@@ -2207,25 +2292,20 @@ static void _hostOtaTask(void *arg)
     		case eHostOtaInit:
     			/* default to no update available */
     			_hostota.bUpdateAvailable = false;
+    			_hostota.bStartTransfer = false;
+    			_hostota.bFactoryImage = false;
+    			_hostota.bChangeImage = false;
+    			_hostota.currentVersion_PIC = -1;											// default current PIC version to invalid value
+    			_hostota.bOtaImageVerified = false;
+    			_hostota.bFactoryImageVerified = false;
 
-    			/* If BootMe flag is set, read Meta-Data without delay */
-    			if( _hostota.bBootme )
-    			{
-    				IotLogInfo( "_hostOtaTask -> ReadMetaData" );
-    				_hostota.state = eHostOtaReadMetaData;
-    			}
-    			/* wait for an MQTT connection before starting the host ota update */
-    			else if( mqtt_IsConnected() )
-    			{
-    				IotLogInfo( "_hostOtaTask -> PendUpdate" );
-    				_hostota.state = eHostOtaPendUpdate;
-    			}
-    			else
-    			{
-					vTaskDelay( 1000 / portTICK_PERIOD_MS );
-    			}
+    			/* Try reading Meta-data */
+				IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+				_hostota.state = eHostOtaReadMetaData;
+
     			break;
 
+#ifdef	DEPRICATED
 			case eHostOtaIdle:
 
 				/* Get currently running MZ firmware version */
@@ -2237,44 +2317,67 @@ static void _hostOtaTask(void *arg)
 				IotLogInfo( "host ota: current PIC version = %5.2f", _hostota.currentVersion_PIC );
 
 				/* hardwire partition for initial development */
-				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_ota0" );
-				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
+				partitionType = ESP_PARTITION_TYPE_DATA;
+				partitionSubtype = 0x57;
+				partitionLabel = "pic_ota0";
 
-				/*
-				 *	Read the first 512 bytes from the Flash partition
-				 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
-				 */
-				esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
-
-				IotLogInfo( "_hostOtaTask -> ParseJSON" );
-				_hostota.state = eHostOtaParseJSON;
-				break;
-
-			case eHostOtaReadMetaData:
-				/* Get currently running PIC firmware version */
-				_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
-				IotLogInfo( "host ota: current PIC version = %5.2f", _hostota.currentVersion_PIC );
-
-				/* Read picFactory partition or pic_ota0 for the moment */
-				if( _hostota.bFactoryImage )
+				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( partitionType, partitionSubtype, partitionLabel );
+				if( NULL == _hostota.partition )
 				{
-					_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x56, "picFactory" );
+					IotLogError( "Cannot find partition: %02X/%02X %s", partitionType, partitionSubtype, partitionLabel );
+					_hostota.state = eHostOtaError;
 				}
 				else
 				{
-					_hostota.partition = ( esp_partition_t * )esp_partition_find_first( 0x44, 0x57, "pic_ota0" );
+					IotLogInfo("host ota: partition address = %08X, length = %08X, encrypted: %d", _hostota.partition->address, _hostota.partition->size, _hostota.partition->encrypted );
+
+					/*
+					 *	Read the first 512 bytes from the Flash partition
+					 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
+					 */
+					esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
+
+					IotLogInfo( "_hostOtaTask -> ParseJSON" );
+					_hostota.state = eHostOtaParseJSON;
+				}
+				break;
+#endif
+
+			case eHostOtaReadMetaData:
+				/* Read picFactory partition or pic_ota0 for the moment */
+				if( _hostota.bFactoryImage )
+				{
+					partitionType = 0x44;
+					partitionSubtype = 0x56;
+					partitionLabel = "picFactory";
+				}
+				else
+				{
+					partitionType = ESP_PARTITION_TYPE_DATA;
+					partitionSubtype = 0x57;
+					partitionLabel = "pic_ota0";
 				}
 
-				IotLogInfo("host ota: partition address = %08X, length = %08X", _hostota.partition->address, _hostota.partition->size );
+				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( partitionType, partitionSubtype, partitionLabel );
 
-				/*
-				 *	Read the first 512 bytes from the Flash partition
-				 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
-				 */
-				esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
+				if( NULL == _hostota.partition )
+				{
+					IotLogError( "Cannot find partition: %02X/%02X %s", partitionType, partitionSubtype, partitionLabel );
+					_hostota.state = eHostOtaError;
+				}
+				else
+				{
+					IotLogInfo("host ota: partition address = %08X, length = %08X, encrypted: %d", _hostota.partition->address, _hostota.partition->size, _hostota.partition->encrypted );
 
-				IotLogInfo( "_hostOtaTask -> ParseJSON" );
-				_hostota.state = eHostOtaParseJSON;
+					/*
+					 *	Read the first 512 bytes from the Flash partition
+					 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
+					 */
+					esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
+
+					IotLogInfo( "_hostOtaTask -> ParseJSON" );
+					_hostota.state = eHostOtaParseJSON;
+				}
 				break;
 
 			case eHostOtaParseJSON:
@@ -2414,6 +2517,17 @@ static void _hostOtaTask(void *arg)
 				{
 					IotLogInfo( "Image SHA256 Hash matches metadata SHA256" );
     				IotLogInfo( "_hostOtaTask -> VersionCheck" );
+
+    				/* Which Image was just verified ? */
+    				if( _hostota.bFactoryImage )
+    				{
+    					_hostota.bFactoryImageVerified = true;
+    				}
+    				else
+    				{
+    					_hostota.bOtaImageVerified = true;
+    				}
+
 					_hostota.state = eHostOtaVersionCheck;
 				}
 				else
@@ -2428,24 +2542,32 @@ static void _hostOtaTask(void *arg)
 
 			case eHostOtaVersionCheck:
 
-				/* If Bootload is already active, it will be sending BootMe messages */
-				if( _hostota.bBootme )
+				/* If Bootloader is already active, it will be sending BootMe messages */
+				if( ( _hostota.bootmeStatus == eImageAvailable ) ||
+					( _hostota.bootmeStatus == eNoImageAvailable ) ||
+					( _hostota.bFactoryImage ) )
 				{
 					IotLogInfo( "_hostOtaTask -> WaitBootme" );
 					_hostota.state = eHostOtaWaitBootme;
 				}
+				/*
+				 * If current PIC version is invalid, try to read from shadow - SHCI will update
+				 * Alternatively a Bootme message can update the current PIC version
+				 */
 				else if( 0 > _hostota.currentVersion_PIC )
 				{
 					vTaskDelay( 1000 / portTICK_PERIOD_MS );
 					_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
 				}
+				/* Downloaded version is greater than the current PIC version: Update Available */
 				else if( _hostota.Version_PIC > _hostota.currentVersion_PIC )
 				{
 					IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
     				IotLogInfo( "_hostOtaTask -> UpdateAvailable" );
- 					_hostota.state = eHostOtaUpdateAvailable;
  					_hostota.bUpdateAvailable = true;					/* validated image is available */
+ 					_hostota.state = eHostOtaUpdateAvailable;
 				}
+				/* Downloaded version is less than or equal to the current PIC Version: No Update Available, wait on a download */
 				else
 				{
 					IotLogInfo( "Current Version: %5.2f, Downloaded Version: %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
@@ -2478,9 +2600,25 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			case eHostOtaWaitMQTT:
-				/* If MQTT connection is active, or retry count expires */
-				if( (mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
+				/* If PIC Bootloader is active and response is Image Available or No Image Available: Initiate transfer */
+				if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
 				{
+					IotLogInfo( "_hostOtaTask -> WaitBootme" );
+					_hostota.state = eHostOtaWaitBootme;
+				}
+				/* If bootme Factory Image */
+				else if( _hostota.bFactoryImage )
+				{
+					IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
+				}
+				/* If MQTT connection is active, or retry count expires */
+				else if( (mqtt_IsConnected() == true ) || ( _hostota.waitMQTTretry-- == 0 ) )
+				{
+					/* Pend on an update from AWS */
+					hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
+					IotLogInfo( "Host OTA Update: pend on image download" );
+
     				IotLogInfo( "_hostOtaTask -> PendUpdate" );
 					_hostota.state = eHostOtaPendUpdate;				/* Pend on an update from AWS */
 				}
@@ -2499,6 +2637,7 @@ static void _hostOtaTask(void *arg)
 					}
 					else
 					{
+						/* TODO can this be reached? */
 						/* If downloaded Image version is not equal to current version: update failed */
 						hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );
 						setImageState( eOTA_PAL_ImageState_Invalid );
@@ -2507,17 +2646,30 @@ static void _hostOtaTask(void *arg)
 
 				}
 
-				/* Pend on an update from AWS */
-				hostOtaNotificationUpdate( eNotifyWaitForImage, 0 );
-				IotLogInfo( "Host OTA Update: pend on image download" );
-
-				/* wait for an update from AWS, if wait times out, check if a valid image is already present */
-				if( IotSemaphore_TimedWait( &_hostota.iotUpdateSemaphore, HOSTOTA_PEND_TIMEOUT_MS ) == false )
+				/* Monitor Change Image flag, will be set if a Factory Image is requested */
+				if( _hostota.bChangeImage )
 				{
-					IotLogInfo( "Host OTA Update: time-out expired" );
+					_hostota.bChangeImage = false;										/* clear flag */
+					IotLogInfo( "Change Image" );
+					_hostota.state = eHostOtaReadMetaData;
 				}
-				IotLogInfo( "_hostOtaTask -> Idle" );
-				_hostota.state = eHostOtaIdle;							/* back to image verification */
+				/* Monitor queue for download complete */
+				else if( _hostota.reportedStatus == eDownloadComplete )
+				{
+					IotLogInfo( "Download Complete" );
+					IotLogInfo( "_hostOtaTask -> ReadMetaData" );
+					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
+				}
+				/* If PIC Bootloader is active and response is Image Available or No Image Available: Initiate transfer */
+				else if( ( _hostota.bootmeStatus == eImageAvailable ) || ( _hostota.bootmeStatus == eNoImageAvailable ) )
+				{
+					IotLogInfo( "_hostOtaTask -> WaitBootme" );
+					_hostota.state = eHostOtaWaitBootme;
+				}
+				else
+				{
+					vTaskDelay( 1000 / portTICK_PERIOD_MS );
+				}
 				break;
 
 			case eHostOtaUpdateAvailable:												/* Update image is available */
@@ -2530,14 +2682,21 @@ static void _hostOtaTask(void *arg)
 
 			case eHostOtaWaitBootme:
 				/* Wait for host to reset and start sending BootMe messages */
-				if( _hostota.bBootme )
+				if( _hostota.bChangeImage )
 				{
+					_hostota.bChangeImage = false;										/* clear flag */
+					IotLogInfo( "Change Image" );
+					_hostota.state = eHostOtaReadMetaData;
+				}
+				else if( _hostota.bStartTransfer )
+				{
+					_hostota.bStartTransfer = false;											/* Clear flag */
 					IotLogInfo(" Bootloader is active" );
     				IotLogInfo( "_hostOtaTask -> Transfer" );
 
     				_hostota.pStep = &blSteps[ 0 ];											/* start image transfer with first step */
 					_hostota.state = eHostOtaTransfer;
-					_hostota.bStartTransfer = true;
+//					_hostota.bStartTransfer = true;
 				}
 				break;
 
@@ -2575,17 +2734,32 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			default:
-				_hostota.state = eHostOtaIdle;
+//				_hostota.state = eHostOtaIdle;
+				_hostota.state = eHostOtaInit;
 				break;
 
     	}
     	vTaskDelay( 10 / portTICK_PERIOD_MS );
     }
 
-	IotSemaphore_Destroy( &_hostota.iotUpdateSemaphore );
-
 }
 
+/**
+ * @brief	Transfer Timer Callback handler
+ *
+ * This callback is triggered when a transfer command does not receive a response within the timeout period
+ *
+ *	@param[in] xTimer	handle of timer that expired
+ */
+void vXfrTimerCallback( TimerHandle_t xTimer )
+{
+	if( xTimer != NULL )
+	{
+		IotLogInfo( "Xfr Timer expired" );
+		_hostota.bXferTimeout = true;								// set flag
+
+	}
+}
 
 
 /* ************************************************************************* */
@@ -2605,6 +2779,13 @@ int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb )
 	_hostota.notifyHandler = notifyCb;
 
 	_hostota.imageState = eOTA_PAL_ImageState_Unknown;
+
+	/* Create a timer to monitor the transfer - try 1 second*/
+	_hostota.xfrTimer = xTimerCreate( "XfrTimer", ( 1000 / portTICK_PERIOD_MS ), pdFALSE, ( void * )0, vXfrTimerCallback );
+	if( _hostota.xfrTimer == NULL )
+	{
+		IotLogError( "Could not create XfrTimer" );
+	}
 
 	/* Register callback for OTA Status update */
 #ifdef	LEGACY_BLE_INTERFACE
@@ -2629,17 +2810,6 @@ int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb )
     IotLogInfo( "\n\n*** Host OTA Task Bypassed ***\n\n" );
 #endif
     return	ESP_OK;
-}
-
-/**
- * @brief	Getter for iotUpdateSemaphore
- *
- * @return	Pointer to iotUpdateSemaphore
- */
-IotSemaphore_t * hostOta_getSemaphore( void )
-{
-	IotLogInfo( "hostOta_getSemaphore: iotUpdateSempahore = %p", &_hostota.iotUpdateSemaphore );
-	return &_hostota.iotUpdateSemaphore;
 }
 
 OTA_PAL_ImageState_t hostOta_getImageState( void )

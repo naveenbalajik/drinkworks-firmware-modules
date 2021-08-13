@@ -132,7 +132,6 @@ typedef	struct
 	OTA_State_t							previousState;								/**< Previous OTA Agent State */
 	OTA_ConnectionContext_t				connectionCtx;
 	const char * 						pIdentifier;
-	IotSemaphore_t	*					pHostUpdateComplete;
 	hostOtaPendUpdateCallback_t			pendDownloadCb;								/**< callback function, returns true if HostOta task is pending on an image update; false indicates task is otherwise busy */
 	hostOtaImageUnavailableCallback_t	imageUnavailableCb;							/**< Image Unavailable callback function */
 	hostImageTransferPendingCallback_t	transferPendingCb;							/**< Image Transfer pending callback function */
@@ -148,7 +147,6 @@ typedef	struct
 static otaData_t otaData =
 {
 	.taskState = eOtaTaskInit,
-	.pHostUpdateComplete = NULL,
 	.pendDownloadCb = NULL,
 	.imageUnavailableCb = NULL,
 	.transferPendingCb = NULL
@@ -156,6 +154,7 @@ static otaData_t otaData =
 
 const static hostota_QueueItem_t _hostOta_checking= { .message = eChecking };
 const static hostota_QueueItem_t _hostOta_downloading = { .message = eImageDownloading };
+const static hostota_QueueItem_t _hostOta_downloadComplete = { .message = eDownloadComplete };
 const static hostota_QueueItem_t _hostOta_imageAvailable = { .message = eImageAvailable };
 const static hostota_QueueItem_t _hostOta_noImageAvailable = { .message = eNoImageAvailable };
 
@@ -417,7 +416,7 @@ OTA_Err_t prvPAL_CloseFile_override( OTA_FileContext_t * const C )
  */
 static OTA_Err_t prvPAL_CreateFileForRx_override( OTA_FileContext_t * const C )
 {
-	esp_partition_type_descriptor_t partitionDescriptor = { .type = 0x44, .subtype = 0x57 };
+	esp_partition_type_descriptor_t partitionDescriptor = { .type = ESP_PARTITION_TYPE_DATA, .subtype = 0x57 };
 
     DEFINE_OTA_METHOD_NAME( "prvPAL_CreateFileForRx_override" );
 
@@ -611,7 +610,7 @@ int16_t prvPAL_WriteBlock_override( OTA_FileContext_t * const C,
  * @param[in] pMessage	Pointer to message to be sent to queue
  * @return	0 if message successfully added, -1 if an error occurred
  */
-static int32_t _sendToHostQueue( hostota_QueueItem_t *	pMessage )
+static int32_t _sendToHostQueue( const hostota_QueueItem_t *	pMessage )
 {
 	int32_t err = 0;
 	bool sentToQueue = false;
@@ -943,16 +942,8 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
         /* Activate New image, this function will only return if processing an update for a secondary processor */
     	OTA_ActivateNewImage();
 
-     	IotLogInfo( "Secondary Processor Update, activated ... post semaphore" );
-
-    	if( otaData.pHostUpdateComplete != NULL )
-    	{
-    		IotSemaphore_Post( otaData.pHostUpdateComplete );
-    	}
-    	else
-    	{
-    		IotLogError( "pHostUpdateComplete semaphore is NULL" );
-    	}
+       	IotLogInfo( "Secondary Processor Update, activated ... queue message" );
+    	_sendToHostQueue( &_hostOta_downloadComplete );						// queue message to Host_ota module
 
         /* We should never get here as new image activation must reset the device.*/
 //        IotLogError( "New image activation failed.\r\n" );
@@ -1032,27 +1023,20 @@ void vTimerCallback( TimerHandle_t xTimer )
 /**
  * @brief	Initialize the OTA Update Task
  *
- * @param[in] pMqttConnection			Pointer to the MQTT connection
  * @param[in] pIdentifier				NULL-terminated MQTT client identifier.
  * @param[in] pNetworkCredentialInfo	Passed to the OTA Agent
  * @param[in] pNetworkInterface			The network interface used by the OTA Agent
- * @param[in] pSemaphore				Update Complete Semaphore
+ * @param[in] notifyCb					Notification call-back routine
+ * @param[in] pHostInterface			Host Interface pointer
  *
  * @return `EXIT_SUCCESS` if the ota task is successfully created; `EXIT_FAILURE` otherwise.
  */
 
-//int OTAUpdate_init( 	const char * pIdentifier,
-//                            void * pNetworkCredentialInfo,
-//                            const IotNetworkInterface_t * pNetworkInterface,
-//							_otaNotifyCallback_t notifyCb,
-//							IotSemaphore_t *pSemaphore,
-//							hostOtaPendUpdateCallback_t function,
-//							const AltProcessor_Functions_t * altProcessorFunctions )
-int OTAUpdate_init( 	const char * pIdentifier,
-                            void * pNetworkCredentialInfo,
-                            const IotNetworkInterface_t * pNetworkInterface,
-							_otaNotifyCallback_t notifyCb,
-							hostOta_Interface_t * pHostInterface )
+int OTAUpdate_init( const char * pIdentifier,
+					void * pNetworkCredentialInfo,
+					const IotNetworkInterface_t * pNetworkInterface,
+					_otaNotifyCallback_t notifyCb,
+					hostOta_Interface_t * pHostInterface )
 {
     int xRet = EXIT_SUCCESS;
 
@@ -1061,10 +1045,6 @@ int OTAUpdate_init( 	const char * pIdentifier,
     	IotLogError( "There are no networks configured for the OTA Update Task." );
         xRet = EXIT_FAILURE;
     }
-
-    /* Save the Semaphore */
-    otaData.pHostUpdateComplete = pHostInterface->pSemaphore;
-	IotLogInfo( "OTAUpdate_startTask: pHostUpdateComplete = %p", otaData.pHostUpdateComplete );
 
 	/* Update the connection context shared with OTA Agent.*/
 	otaData.connectionCtx.pxNetworkInterface = ( void * ) pNetworkInterface;
