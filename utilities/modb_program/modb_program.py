@@ -71,10 +71,15 @@ if __name__ == "__main__":
     print("-----Programming Board-----")
     print("Erasing Flash...")
     systemCommand = "Esptool.py -p " + COMport + " -b 460800 erase_flash"
-    os.system(systemCommand)
-
+    output = str(subprocess.check_output(systemCommand, shell=True, timeout=10), 'utf-8')
+    print( output )
+	
+    # Verify that erase was succesful before continuing
+    if not "Chip erase completed successfully in" in output:
+        print( "Erase failed - aborting programming" )
+        sys.exit()
+	
     print("Programming Flash...")
-    #systemCommand = "Esptool.py -p " + COMport + " -b 460800 --after no_reset write_flash --flash_mode dio --flash_freq 40m 0x1000 bootloader.bin 0xE000 partition-table.bin 0x10000 ota_data_initial.bin 0x200000 dw_ModelA.bin 0x800000 dw_MfgTest.bin"
     systemCommand = "Esptool.py -p " + COMport + " -b 460800 --after no_reset write_flash " + flashArgsString
     print(systemCommand)
     os.system(systemCommand)
