@@ -235,7 +235,7 @@ static OTA_PAL_ImageState_t CurrentImageState = eOTA_PAL_ImageState_Valid;
  * 	- Update Validation
  * 	- Update Complete vN.NN
  */
-static void _otaNotificationUpdate( _otaNotification_t notify )
+static void _otaNotificationUpdate( _otaNotification_t notify, uint32_t *pFileId )
 {
 	char * jsonBuffer = NULL;
 	int	n = 0;
@@ -244,17 +244,22 @@ static void _otaNotificationUpdate( _otaNotification_t notify )
 	switch( notify )
 	{
 		case eNotifyOtaDownload:
-			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:{%Q:%d, %Q:%d}}}",
-					eventNotification_getSubject( eEventSubject_OtaUpdate ),
-					"State", otaNotificationMessage[ notify ],
-					"progress", "complete", otaData.completeBlocks, "total", otaData.fileBlocks);
+			if( pFileId == NULL )
+			{
+				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:{%Q:%d, %Q:%d}}}",
+						eventNotification_getSubject( eEventSubject_OtaUpdate ),
+						"State", otaNotificationMessage[ notify ],
+						"progress", "complete", otaData.completeBlocks, "total", otaData.fileBlocks );
+			}
+			else
+			{
+				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%Q, %Q:{%Q:%d, %Q:%d}}}",
+						eventNotification_getSubject( eEventSubject_OtaUpdate ),
+						"State", otaNotificationMessage[ notify ],
+						"Processor", (*pFileId == 0 ) ? "ESP" : "PIC",
+						"progress", "complete", otaData.completeBlocks, "total", otaData.fileBlocks );
+			}
 			break;
-//			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%Q, %Q:{%Q:%d, %Q:%d}}}",
-//					eventNotification_getSubject( eEventSubject_OtaUpdate ),
-//					"State", otaNotificationMessage[ notify ],
-//					"Processor", (otaData.C->ulServerFileID == 0 ) ? "ESP" : "PIC,"
-//					"progress", "complete", otaData.completeBlocks, "total", otaData.fileBlocks);
-//			break;
 
 		case eNotifyOtaWaitForImage:
 		case eNotifyOtaImageVerification:
@@ -262,8 +267,19 @@ static void _otaNotificationUpdate( _otaNotification_t notify )
 		case eNotifyOtaUpdateRejected:
 		case eNotifyOtaUpdateAborted:
 		case eNotifyOtaNoUpdateAvailable:
-			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q}}",
-					eventNotification_getSubject( eEventSubject_OtaUpdate ), "State", otaNotificationMessage[ notify ] );
+			if( pFileId == NULL )
+			{
+				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q}}",
+						eventNotification_getSubject( eEventSubject_OtaUpdate ),
+						"State", otaNotificationMessage[ notify ] );
+			}
+			else
+			{
+				n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%Q}}",
+						eventNotification_getSubject( eEventSubject_OtaUpdate ),
+						"State", otaNotificationMessage[ notify ],
+						"Processor", (*pFileId == 0 ) ? "ESP" : "PIC" );
+			}
 			break;
 
 		default:
@@ -518,34 +534,41 @@ static OTA_Err_t prvPAL_SetPlatformImageState_override( uint32_t ulServerFileID,
 
     if ( ulServerFileID == 0 )
     {
-    	if( otaData.C != NULL )
+    	OTA_State_t agentState = OTA_GetAgentState();
+
+		IotLogInfo( "%s: eState = %d", OTA_METHOD_NAME, eState );
+//    	printf( "*** AgentState = %d ***\n",  agentState );
+
+    	/* Only notify if OTA Agent is in Creating File state.  A bogus job will haveFileID of 0, but agentState will not be Creating File */
+    	if( agentState == eOTA_AgentState_CreatingFile )
     	{
-    		IotLogInfo( "%s: eState = %d, Version = %08X", OTA_METHOD_NAME, eState, otaData.C->ulUpdaterVersion );
+//    		IotLogInfo( "%s: eState = %d <<<<", OTA_METHOD_NAME, eState );
+
+        	/* Notify */
+        	switch( eState )
+        	{
+    			case eOTA_ImageState_Accepted:
+    				_otaNotificationUpdate( eNotifyOtaUpdateAccepted, &ulServerFileID );
+    				break;
+
+    			case eOTA_ImageState_Rejected:
+    				_otaNotificationUpdate( eNotifyOtaUpdateRejected, &ulServerFileID );
+    				break;
+
+    			case eOTA_ImageState_Aborted:
+    				_otaNotificationUpdate( eNotifyOtaUpdateAborted, &ulServerFileID );
+    				break;
+
+    			default:
+    				break;
+        	}
+
     	}
-    	else
-    	{
-    		IotLogInfo( "%s: eState = %d", OTA_METHOD_NAME, eState );
-    	}
+//    	else
+//    	{
+//    		IotLogInfo( "%s: eState = %d", OTA_METHOD_NAME, eState );
+//    	}
     	vTaskDelay( 100 / portTICK_PERIOD_MS );
-
-    	/* Notify */
-    	switch( eState )
-    	{
-			case eOTA_ImageState_Accepted:
-				_otaNotificationUpdate( eNotifyOtaUpdateAccepted );
-				break;
-
-			case eOTA_ImageState_Rejected:
-				_otaNotificationUpdate( eNotifyOtaUpdateRejected );
-				break;
-
-			case eOTA_ImageState_Aborted:
-				_otaNotificationUpdate( eNotifyOtaUpdateAborted );
-				break;
-
-			default:
-				break;
-    	}
 
         // Update self
         return prvPAL_SetPlatformImageState(eState);
@@ -779,7 +802,7 @@ static void _OTAUpdateTask( void *arg )
 					{
 						IotLogInfo( "OTA Agent State: %s -> %s", _pStateStr[ otaData.previousState ], _pStateStr[ otaData.eState ] );
 						otaData.fileBlocks = 0;												// Clear File Blocks on entry into WaitForJob
-						_otaNotificationUpdate( eNotifyOtaWaitForImage );
+						_otaNotificationUpdate( eNotifyOtaWaitForImage, NULL );
 						xTimerStart( otaData.xTimer, 0 );									// Start Timer
 					}
 					vTaskDelay( 10 / portTICK_PERIOD_MS );			// short delay to catch transitions
@@ -805,7 +828,7 @@ static void _OTAUpdateTask( void *arg )
 						{
 							otaData.completeBlocks = ( otaData.fileBlocks - otaData.C->ulBlocksRemaining );
 							IotLogInfo( "FileId: %u  Complete: %u/%u", otaData.C->ulServerFileID, otaData.completeBlocks, otaData.fileBlocks );
-							_otaNotificationUpdate( eNotifyOtaDownload );
+							_otaNotificationUpdate( eNotifyOtaDownload, &otaData.C->ulServerFileID );
 
 							/* If processing Host Image */
 							if( otaData.C->ulServerFileID == 1 )
@@ -932,7 +955,7 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
 
 		vTaskDelay( 100 / portTICK_PERIOD_MS );				// give other tasks a chance to reset the task watchdog timer, before activating image
 
-		_otaNotificationUpdate( eNotifyOtaImageVerification );
+		_otaNotificationUpdate( eNotifyOtaImageVerification, NULL );
 
 		vTaskDelay( 100 / portTICK_PERIOD_MS );				// give other tasks a chance to reset the task watchdog timer, before activating image
 
@@ -990,7 +1013,7 @@ void vTimerCallback( TimerHandle_t xTimer )
 	if( xTimer != NULL )
 	{
 		IotLogInfo( "OTA Timer expired - No Update available" );
-		_otaNotificationUpdate( eNotifyOtaNoUpdateAvailable );
+		_otaNotificationUpdate( eNotifyOtaNoUpdateAvailable, NULL );
 		_sendToHostQueue( &_hostOta_noImageAvailable );							// Queue message to host_ota module
 
 		/*
