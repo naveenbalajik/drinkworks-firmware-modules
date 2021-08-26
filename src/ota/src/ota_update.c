@@ -142,6 +142,7 @@ typedef	struct
 	uint32_t							completeBlocks;								/**< Number of blocks that have been completed */
 	TimerHandle_t						xTimer;										/**< Timer used to detect no update job */
 	QueueHandle_t						hostQueue;									/**< Queue to communicate with Host OTA module */
+	uint32_t							savedServerFileID;							/**< Temporarily save the ServerFileID */
 } otaData_t;
 
 static otaData_t otaData =
@@ -476,6 +477,8 @@ static OTA_PAL_ImageState_t prvPAL_GetPlatformImageState_override( uint32_t ulSe
 {
     DEFINE_OTA_METHOD_NAME( "prvPAL_GetPlatformImageState_override" );
 
+    otaData.savedServerFileID = ulServerFileID;							// Save the Server File ID
+
     if ( ulServerFileID == 0 )
     {
         // Update self
@@ -622,6 +625,21 @@ int16_t prvPAL_WriteBlock_override( OTA_FileContext_t * const C,
     }
 }
 
+void prvPAL_OTAComplete_override( OTA_JobEvent_t eEvent )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_OTAComplete_override" );
+
+    if( ( eEvent == eOTA_JobEvent_StartTest ) && ( otaData.savedServerFileID == 1 ) && ( otaData.hostPal->xComplete != NULL ) )
+	{
+    	otaData.savedServerFileID = 0xFFFFFFFF;
+    	otaData.hostPal->xComplete( eEvent );
+	}
+    else
+	{
+    	App_OTACompleteCallback( eEvent );
+	}
+}
+
 /* end of secondaryota_patch.txt */
 
 /**
@@ -691,11 +709,10 @@ static void _OTAUpdateTask( void *arg )
         .xResetDevice              = prvPAL_ResetDevice_override,
         .xSetPlatformImageState    = prvPAL_SetPlatformImageState_override,
         .xWriteBlock               = prvPAL_WriteBlock_override,
-        .xCompleteCallback         = App_OTACompleteCallback,
+        .xCompleteCallback         = prvPAL_OTAComplete_override,
         .xCustomJobCallback        = NULL	// otaDemoCustomJobCallback
     };
     bool	bNoUpdateAvailable = false;
-//    double percent;
 
 	IotLogInfo( "_OTAUpdateTask" );
 	otaData.previousState = OTA_GetAgentState();
@@ -705,24 +722,6 @@ static void _OTAUpdateTask( void *arg )
 	{
 		otaData.bConnected = mqtt_IsConnected();
 		otaData.eState = OTA_GetAgentState();
-
-		/* Look for state changes of OTA Agent */
-//		if( otaData.eState != otaData.previousState )
-//		{
-//			IotLogInfo( "OTA Agent State: %s -> %s", _pStateStr[ otaData.previousState ], _pStateStr[ otaData.eState ] );
-//			if( ( otaData.previousState == eOTA_AgentState_Ready ) && ( otaData.eState == eOTA_AgentState_WaitingForJob ) )
-//			{
-//				IotLogInfo( "No update available" );
-//				bNoUpdateAvailable = true;
-//			}
-//			else if( otaData.eState == eOTA_AgentState_WaitingForFileBlock )
-//			{
-//				otaData.lastPrecentComplete = 0;
-//				otaData.fileBlocks = otaData.C->ulBlocksRemaining;
-//				IotLogInfo( "Total File Blocks = %u", otaData.fileBlocks );
-//			}
-//			otaData.previousState = otaData.eState;
-//		}
 
 		switch( otaData.taskState )
 		{
@@ -836,14 +835,6 @@ static void _OTAUpdateTask( void *arg )
 								_sendToHostQueue( &_hostOta_downloading );						// queue message to Host_ota module
 							}
 						}
-//						percent = ( ( double )( otaData.fileBlocks - otaData.C->ulBlocksRemaining ) / otaData.fileBlocks ) * 100;
-//						/* If percentage has changed */
-//						if( otaData.lastPrecentComplete != ( uint32_t )percent )
-//						{
-//							/* Save and report new percentage */
-//							otaData.lastPrecentComplete = ( uint32_t ) percent;
-//							IotLogInfo( "FileId: %u  Remaining: %u/%u (%u)", otaData.C->ulServerFileID, otaData.C->ulBlocksRemaining, otaData.fileBlocks );
-//						}
 					}
 					vTaskDelay( 10 / portTICK_PERIOD_MS );			// short delay to catch transitions
 				}
@@ -855,13 +846,6 @@ static void _OTAUpdateTask( void *arg )
 					}
 					vTaskDelay( 10 / portTICK_PERIOD_MS );			// short delay to catch transitions
 				}
-//				{
-//					/* Periodically output statistics */
-//					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u", _pStateStr[ otaData.eState ],
-//								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
-//					/* Wait - one second ... this may cause state transitions to be missed */
-//					IotClock_SleepMs( OTA_TASK_DELAY_SECONDS * 1000 );
-//				}
 				break;
 
 

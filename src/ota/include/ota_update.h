@@ -167,7 +167,7 @@ typedef struct
     pxAltOTAPALResetDevice_t xResetDevice;                     /* OTA Reset Device callback pointer */
     pxAltOTAPALSetPlatformImageState_t xSetImageState;         /* OTA Set Platform Image State callback pointer */
     pxAltOTAPALWriteBlock_t xWriteBlock;                       /* OTA Write Block callback pointer */
-//    pxOTACompleteCallback_t xCompleteCallback;                      /* OTA Job Completed callback pointer */
+    pxOTACompleteCallback_t xComplete;							/* OTA Job Completed callback pointer */
 //    pxOTACustomJobCallback_t xCustomJobCallback;                    /* OTA Custom Job callback pointer */
 } AltProcessor_Functions_t;
 
