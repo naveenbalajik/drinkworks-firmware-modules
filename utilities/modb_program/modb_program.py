@@ -3,6 +3,10 @@ import subprocess
 import os
 import time
 import serial
+import argparse
+
+# Update this version number with subsequent releases
+utilityVersion = "1.2"
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -29,22 +33,47 @@ def get_flash_arg(argFile):
         file =open(argFile, 'r')
     except OSError:
         print("Could not open/read file: " + argFile)
-        sys.exit()
+        sys.exit(1)
 
     with file:
         data = file.read().replace('\n', ' ')
     return data
-	
+
+def check_serial_port(port):
+    try:
+        s = serial.Serial(port)
+        s.close()
+        return True
+    except (OSError, serial.SerialException):
+        return False
+
+#
+# Model-B Appliance ESP Programming Script
+#
+#	Exit codes:
+#		0 = Success
+#		1 = Could not open programming argument file
+#		2 = Command line usage error
+#		3 = Board already programmed (encryption/secure boot key present)
+#		4 = ESP Erase failure
+#       5 = Can't access COM port
+
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
-        print ("Usage: modb_program.py COMn\r\nwhere COMn = programming adapter port")
-        sys.exit(0)
+    # Set up the arguments
+    parser = argparse.ArgumentParser(description=("Drinkworks Model-B ESP32 Firmware Programming Script, v" + utilityVersion), allow_abbrev=True)
+    parser.add_argument("port", help="set ESP Programming Port, e.g. COM17")
+    parser.add_argument('--flashArgs', '-f', help="set flash programing arguments file. Default is \'flash_project_args\'", default="flash_project_args")
+    args = parser.parse_args()
 
-    COMport = sys.argv[1]
+    COMport = args.port
     print ("COM port: " + COMport)
 
-    flashArgsString = get_flash_arg( "flash_project_args")
+    if( not check_serial_port( args.port)):
+        print("Can't access port: " + args.port)
+        sys.exit(5)
+		
+    flashArgsString = get_flash_arg(args.flashArgs)
 
     print("Checking espfuse to see if board already programmed")
     systemCommand = "espefuse.py --port " + COMport + " summary"
@@ -63,7 +92,7 @@ if __name__ == "__main__":
     if checkForQuestionMarks(flashKeyVal) or checkForQuestionMarks(secureBootKeyVal) or checkForQuestionMarks(VB3Val):
         print("BOARD ALREADY PROGRAMMED")
         print("Aborting...")
-        sys.exit
+        sys.exit(3)
         quit()
     else:
         print("Board not encrypted. Proceed with programming.")
@@ -77,7 +106,7 @@ if __name__ == "__main__":
     # Verify that erase was succesful before continuing
     if not "Chip erase completed successfully in" in output:
         print( "Erase failed - aborting programming" )
-        sys.exit()
+        sys.exit(4)
 	
     print("Programming Flash...")
     systemCommand = "Esptool.py -p " + COMport + " -b 460800 --after no_reset write_flash " + flashArgsString
@@ -116,3 +145,5 @@ if __name__ == "__main__":
             break
 
     print("Exiting Program")
+    sys.exit(0)
+
