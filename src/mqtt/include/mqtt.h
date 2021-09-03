@@ -129,4 +129,7 @@ void mqtt_setConnectionParameters(	void * pNetworkServerInfo,
  */
 esp_err_t	mqtt_Init( _mqttConnectedCallback_t connectCallback, _mqttDisconnectedCallback_t diconnectCallback, const char *pLWAT );
 
+int32_t mqtt_subscribeTopic( const char * pTopic, void* callbackFunc, void* pCallbackParameter );
+
+
 #endif /* _MQTT_H_ */

@@ -76,6 +76,21 @@ typedef enum
 } _eventSubject_t;
 
 /**
+ * @brief	Changed Topic event handler
+ */
+typedef void (* _feedbackSubjectCallback_t)( const char * pData, const int len );
+
+/**
+ * @brief	Feedback Subject
+ */
+typedef struct
+{
+	const char * subject;
+	_feedbackSubjectCallback_t callback;
+} _feedbackSubject_t;
+
+
+/**
  * @brief Initialize Event Notification module
  *
  * @param[in] thingName		Pointer to ThingName string
@@ -96,5 +111,7 @@ void eventNotification_SendEvent( char *pJson );
  * @return		Event Subject string; NULL if subject is invalid
  */
 const char * eventNotification_getSubject( _eventSubject_t subject );
+
+void eventNotification_RegisterFeedbackSubjects( const _feedbackSubject_t * pSubjectTable, const uint32_t subjectCount );
 
 #endif /* _EVENT_NOTIFICATION_H_ */

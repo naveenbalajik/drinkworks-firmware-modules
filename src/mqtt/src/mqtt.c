@@ -97,6 +97,11 @@
  */
 #define MQTT_CONN_RETRY_MAX_INTERVAL_SECONDS     ( 360U )
 
+/**
+ * @brief The timeout for MQTT operations.
+ */
+#define MQTT_TIMEOUT_MS								( 15000 )
+
 /*
  * @brief	MQTT State Machine States
  */
@@ -377,6 +382,7 @@ static void mqtt_task( void *arg )
 	}
 }
 
+
 /* ************************************************************************* */
 /* ************************************************************************* */
 /* **********        I N T E R F A C E   F U N C T I O N S        ********** */
@@ -572,4 +578,75 @@ void	mqtt_Cleanup(void)
 {
 	IotMqtt_Cleanup();
 }
+
+/**
+ * @brief Subscribe to MQTT topic
+ *
+ * @param[in] pTopic	Topics to subscribe to. Must be null terminated string.
+ * @param[in] callbackFunc	Callback function when message received from topic
+ * @param[in] pCallbackParameter	parameter to pass to callback function
+ *
+ * @return 	subscriptionStatus of type IotMqttError_t
+ */
+int32_t mqtt_subscribeTopic(
+	const char * pTopic,
+	void* callbackFunc,
+	void* pCallbackParameter )
+{
+	IotMqttError_t subscriptionStatus = IOT_MQTT_STATUS_PENDING;
+	IotMqttSubscription_t pSubscription;
+	int i;
+
+	// Wait for an MQTT Connection to be established
+	IotLogInfo( "mqtt_subscribeTopic: wait for MQTT connection" );
+	while( mqttData.pMqttConnection == NULL )
+	{
+		vTaskDelay( 1000 / portTICK_PERIOD_MS );
+	}
+
+	if( mqttData.pMqttConnection != NULL )
+	{
+		/* Set up the subscription parameters */
+		pSubscription.qos = IOT_MQTT_QOS_1;
+		pSubscription.pTopicFilter = pTopic;
+		pSubscription.topicFilterLength = ( ( uint16_t )strlen( pTopic ) );
+		pSubscription.callback.function = callbackFunc;
+		pSubscription.callback.pCallbackContext = pCallbackParameter;
+printf("mqtt_subscribeTopic: before IotMqtt_TimedSubscribe\n" );
+		/* Subscribe to topic */
+		subscriptionStatus = IotMqtt_TimedSubscribe(  mqttData.pMqttConnection, &pSubscription, 1, 0, MQTT_TIMEOUT_MS );
+
+		/* Check the status of SUBSCRIBE. */
+		switch( subscriptionStatus )
+		{
+			case IOT_MQTT_SUCCESS:
+				IotLogInfo( "Topic subscription accepted" );
+				break;
+
+			case IOT_MQTT_SERVER_REFUSED:
+
+				/* Check that subscription was rejected */
+				if( IotMqtt_IsSubscribed(  mqttData.pMqttConnection, pSubscription.pTopicFilter, pSubscription.topicFilterLength, NULL ) == true )
+				{
+					IotLogError( "Topic filter %.*s was accepted", pSubscription.topicFilterLength,	pSubscription.pTopicFilter );
+				}
+				else
+				{
+					IotLogError( "Fail subscribe. Topic filter %.*s was rejected", pSubscription.topicFilterLength, pSubscription.pTopicFilter );
+				}
+				break;
+
+			default:
+				IotLogError( "Topic Subscribed Failure:%d", subscriptionStatus );
+				break;
+		}
+	}
+	else
+	{
+		printf( "pMqttConnection is NULL\n" );
+	}
+
+	return subscriptionStatus;
+}
+
 
