@@ -6,7 +6,7 @@ import serial
 import argparse
 
 # Update this version number with subsequent releases
-utilityVersion = "1.2"
+utilityVersion = "1.3"
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -93,14 +93,13 @@ if __name__ == "__main__":
         print("BOARD ALREADY PROGRAMMED")
         print("Aborting...")
         sys.exit(3)
-        quit()
     else:
         print("Board not encrypted. Proceed with programming.")
 
     print("-----Programming Board-----")
     print("Erasing Flash...")
     systemCommand = "Esptool.py -p " + COMport + " -b 460800 erase_flash"
-    output = str(subprocess.check_output(systemCommand, shell=True, timeout=10), 'utf-8')
+    output = str(subprocess.check_output(systemCommand, shell=True, timeout=100), 'utf-8')
     print( output )
 	
     # Verify that erase was succesful before continuing
