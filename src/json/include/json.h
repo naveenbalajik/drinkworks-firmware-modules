@@ -16,6 +16,7 @@ typedef enum
 	JSON_STRING,
 	JSON_NUMBER,
 	JSON_INTEGER,
+	JSON_UINT8,
 	JSON_UINT16,
 	JSON_INT32,
 	JSON_UINT32,
@@ -27,6 +28,7 @@ typedef union
 	char *string;
 	double *number;
 	int16_t *integer;
+	uint8_t	*integerU8;
 	uint16_t *integerU16;
 	int32_t *integer32;
 	uint32_t *integerU32;
