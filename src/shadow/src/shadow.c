@@ -977,12 +977,29 @@ void shadow_initItemList( _shadowItem_t *pShadowItemList )
 	IotLogInfo( "Initializing Shadow Item List" );
 	shadowData.itemList = pShadowItemList;
 	shadowData.numberOfItems = 0;
+
 	/* Iterate through Shadow Item List fetching values from NVS */
 	for( pShadowItem = shadowData.itemList; pShadowItem->jItem.key != NULL; ++pShadowItem )
 	{
 		++shadowData.numberOfItems;
 		if( pShadowItem->nvsItem != -1 )
 		{
+			/* For strings with associated NVS set default to a dynamically allocated "Uninitialized" string */
+			if( pShadowItem->jItem.jType == JSON_STRING )
+			{
+				const char uninit[] = "uninitialized";
+
+				/* Allocate space from new string */
+				pShadowItem->jItem.jValue.string = pvPortMalloc( sizeof( uninit ) );
+				if( pShadowItem->jItem.jValue.string == NULL )
+				{
+					IotLogError( "Cannot allocate shadow item buffer" );
+				}
+				else
+				{
+					strcpy( pShadowItem->jItem.jValue.string, uninit );				// copy "uninitialized" string
+				}
+			}
 			_fetchFromNvs( pShadowItem );
 			pShadowItem->jItem.bUpdate = true;
 			vTaskDelay( 10 / portTICK_PERIOD_MS );
