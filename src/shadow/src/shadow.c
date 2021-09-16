@@ -202,6 +202,8 @@ static bool _updateItem(  _shadowItem_t * pItem, const void * pValue )
 		case JSON_STRING:														// '\0' terminated string
 			size = strlen( ( char * ) pValue ) + 1;
 
+			IotLogInfo( "_updateItem, string: %s -> %s", pItem->jItem.jValue.string, pValue );
+
 			/* compare new to current value */
 			if( strcmp( pValue, pItem->jItem.jValue.string ) != 0 )
 			{
@@ -966,6 +968,28 @@ int shadow_init(void)
 }
 
 /**
+ * @brief	Initialize a Shadow String Item to "uninitialized"
+ *
+ * Allocate a dynamic buffer and copy constant string into it.
+ */
+static void _initString( char **pString )
+{
+	const char uninit[] = "uninitialized";
+
+	/* Allocate space from new string */
+	*pString = pvPortMalloc( sizeof( uninit ) );
+	if( pString == NULL )
+	{
+		IotLogError( "Cannot allocate shadow item buffer" );
+	}
+	else
+	{
+		strcpy( *pString, uninit );				// copy "uninitialized" string
+		printf( "_initString: %s\n", *pString );
+	}
+}
+
+/**
  * @brief	Initialize Shadow Item List
  *
  * @param[in]	pShadowItemList		Pointer to list of Shadow Items
@@ -987,6 +1011,7 @@ void shadow_initItemList( _shadowItem_t *pShadowItemList )
 			/* For strings with associated NVS set default to a dynamically allocated "Uninitialized" string */
 			if( pShadowItem->jItem.jType == JSON_STRING )
 			{
+//				_initString( pShadowItem->jItem.jValue.string );
 				const char uninit[] = "uninitialized";
 
 				/* Allocate space from new string */
@@ -1003,6 +1028,12 @@ void shadow_initItemList( _shadowItem_t *pShadowItemList )
 			_fetchFromNvs( pShadowItem );
 			pShadowItem->jItem.bUpdate = true;
 			vTaskDelay( 10 / portTICK_PERIOD_MS );
+		}
+		else if( pShadowItem->jItem.jType == JSON_STRING )
+		{
+			/* For strings without associated NVS storage, create string, but don't set update flag */
+			_initString( &pShadowItem->jItem.jValue.string );
+			printf( "shadow_initItemList, key = %s, value = %s\n", pShadowItem->jItem.key, pShadowItem->jItem.jValue.string );
 		}
 	}
 	IotLogInfo( "%d items initialized", shadowData.numberOfItems );
@@ -1025,6 +1056,8 @@ bool shadow_updateItem( int item, const void * pData )
 {
 	bool bChanged = false;
 	_shadowItem_t *pShadowItem;
+
+	IotLogInfo( "shadow_updateItem: %d", item );
 
 	if( item < shadowData.numberOfItems )
 	{

@@ -71,6 +71,8 @@ typedef enum
 	eEventSubject_Critical_ExtendedOPError,
 	eEventSubject_Critical_ClearMemError,
 	eEventSubject_Critical_OPRecoveryError,
+	eEventSubject_Idle,
+	eEventSubject_Sleep,
 	eEventSubject_EndOfList,
 	eEventSubject_None
 } _eventSubject_t;

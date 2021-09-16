@@ -75,7 +75,9 @@ static const char * _subjectString[] =
 	[ eEventSubject_Critical_PuncMechError ]	= "CriticalError_PM",
 	[ eEventSubject_Critical_ExtendedOPError ]	= "CriticalError_ExtendedOP",
 	[ eEventSubject_Critical_ClearMemError ]	= "CriticalError_ClearMem",
-	[ eEventSubject_Critical_OPRecoveryError ]	= "CriticalError_OPRecovery"
+	[ eEventSubject_Critical_OPRecoveryError ]	= "CriticalError_OPRecovery",
+	[ eEventSubject_Idle ] 						= "Idle",
+	[ eEventSubject_Sleep ] 					= "Sleep"
 
 };
 
