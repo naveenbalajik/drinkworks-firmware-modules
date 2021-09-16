@@ -98,7 +98,8 @@ enum ShciOpcode
 	eEEBlockRestore =										0xC5,		/**< Command: */
 	eTimeGet =												0xC6,		/**< Command: Get Time/Date */
 	eTimeSet =												0xC7,		/**< Command: Set Time/Date */
-	eStatsGet =												0xC8		/**< Command: Get Statistics */
+	eStatsGet =												0xC8,		/**< Command: Get Statistics */
+	eAsyncData =											0xC9,		/**< Command: Notify of change to Asynchronous Data */
 };
 typedef uint8_t _shciOpcode_t;
 

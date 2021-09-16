@@ -43,4 +43,6 @@ void shadow_disconnect( void );
 
 void shadow_updateReported( void );
 
+bool shadow_updateItem( int item, const void * pData );
+
 #endif /* MODULES_SRC_SHADOW_INCLUDE_SHADOW_H_ */

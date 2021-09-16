@@ -1,0 +1,82 @@
+{
+	"$id": "https://drinkworks.com/eventrecord.schema.json",
+	"$schema": "https://json-schema.org/draft/2012-12/schema",
+	"description": "A representation of a Drinkworks appliance event",
+	"type": "object",
+	"properties": {
+		"serialNumber": {
+                     "type": "string",
+                     "description": "Appliance serial number"
+		},
+		"requestType": {
+                     "type": "string",
+                     "description": "Type of record"
+		},
+		"createdAt": {
+                     "type": "string",
+                     "description": "Time and Date of message"
+		},
+		"body": {
+			"type": "object",
+			"required": [ "logs" ],
+			"properties": {
+				"logs": {
+					"type": "array",
+					"items": { "$ref": "#/$defs/event" }
+				}
+			}
+		}
+	},
+	"$defs" : {
+		 "event" : {
+			"type": "object",
+			"required":  [ "Index", "DateTime", "Status", "StatusText" ],
+			"properties" : {
+				"Index" : {
+					"type": "number",
+					"descrption": "Event record index"
+				},
+				"DateTime": {
+					"type": "string",
+					"descrption": "Event Date and Time, ISO format"
+				},
+				"Status": {
+					"type": "number",
+					"descrption": "Enumerated Event status"
+				},
+				"StatusText": {
+					"type": "string",
+					"descrption": "Event status"
+				},
+				"CatalogID": {
+					"type": "number",
+					"descrption": "POD recipe (Barcode 2)",
+					"minimum": 0,
+					"maximum": 2047
+				},
+				"BeverageID": {
+					"type": "number",
+					"descrption": "POD SKU (Barcode 1)",
+					"minimum": 0,
+					"maximum": 2047
+				},
+				"CycleTime" : {
+					"type": "number",
+					"descrption": "Dispense cycle time, seconds"
+				},
+				"PeakPressure" : {
+					"type": "number",
+					"descrption": "Dispense peak pressure, psi"
+				},
+				"FirmwareVersion" : {
+					"type": "number",
+					"descrption": "Firmware version"
+				},
+				"FreezeEvents" : {
+					"type": "number",
+					"descrption": "Number of freeze events detected"
+				}
+			}
+		}
+	}
+}

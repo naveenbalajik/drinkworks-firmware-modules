@@ -6,7 +6,7 @@ import serial
 import argparse
 
 # Update this version number with subsequent releases
-utilityVersion = "1.3"
+utilityVersion = "1.4"
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -15,7 +15,7 @@ def get_val_from_key(key, haystack):
     startofValIndx = haystack[endOfKeyLoc:].find("=") + endOfKeyLoc + 1
     # ensure the = is close to the key
     numNewLines = haystack[endOfKeyLoc:startofValIndx].count("\n")
-    if(startofValIndx - endOfKeyLoc > 40 or numNewLines > 1):
+    if(startofValIndx - endOfKeyLoc > 41 or numNewLines > 1):
         print ("Error: Value for " + key + " not in expected location")
         return
     else:
