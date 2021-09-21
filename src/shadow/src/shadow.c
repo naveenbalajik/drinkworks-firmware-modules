@@ -125,17 +125,43 @@ void _storeInNvs( _shadowItem_t * pItem )
  *
  * @param[in] pItem			Pointer to Shadow Item
  */
-void _fetchFromNvs( _shadowItem_t * pItem )
+static void _fetchFromNvs( _shadowItem_t * pItem )
 {
 	uint8_t bValue;
+	size_t size;
+	esp_err_t err;
+	char * currentVal;
 
 	IotLogInfo( "_fetchFromNvs: %s", pItem->jItem.key );
 
 	switch( pItem->jItem.jType )
 	{
 		case JSON_STRING:
-			if( ESP_OK != NVS_Get( pItem->nvsItem, pItem->jItem.jValue.string, 0 ) )
+			/* Get the size of item in NVS */
+			err = NVS_Get_Size_Of( pItem->nvsItem, &size );
+
+			/* If size can be read */
+			if( err == ESP_OK )
 			{
+				currentVal = pvPortMalloc( size );							// Allocate buffer
+				if( currentVal != NULL )
+				{
+					err = NVS_Get( pItem->nvsItem, currentVal, &size );		// Get current value
+					if( err == ESP_OK )
+					{
+						pItem->jItem.jValue.string = currentVal;			// Set value to allocated buffer
+					}
+				}
+				else
+				{
+					err = ESP_FAIL;											// Allocation failed
+				}
+			}
+
+			/* If any error in reading current value */
+			if( err != ESP_OK )
+			{
+				/* Set NVS with default value */
 				NVS_Set( pItem->nvsItem, pItem->jItem.jValue.string, 0 );
 			}
 			break;
@@ -1011,19 +1037,7 @@ void shadow_initItemList( _shadowItem_t *pShadowItemList )
 			/* For strings with associated NVS set default to a dynamically allocated "Uninitialized" string */
 			if( pShadowItem->jItem.jType == JSON_STRING )
 			{
-//				_initString( pShadowItem->jItem.jValue.string );
-				const char uninit[] = "uninitialized";
-
-				/* Allocate space from new string */
-				pShadowItem->jItem.jValue.string = pvPortMalloc( sizeof( uninit ) );
-				if( pShadowItem->jItem.jValue.string == NULL )
-				{
-					IotLogError( "Cannot allocate shadow item buffer" );
-				}
-				else
-				{
-					strcpy( pShadowItem->jItem.jValue.string, uninit );				// copy "uninitialized" string
-				}
+				_initString( &pShadowItem->jItem.jValue.string );
 			}
 			_fetchFromNvs( pShadowItem );
 			pShadowItem->jItem.bUpdate = true;

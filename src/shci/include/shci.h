@@ -100,6 +100,7 @@ enum ShciOpcode
 	eTimeSet =												0xC7,		/**< Command: Set Time/Date */
 	eStatsGet =												0xC8,		/**< Command: Get Statistics */
 	eAsyncData =											0xC9,		/**< Command: Notify of change to Asynchronous Data */
+	eMcuIdSet =												0xCA,		/**< Command: Set MCU (PIC) ID */
 };
 typedef uint8_t _shciOpcode_t;
 
