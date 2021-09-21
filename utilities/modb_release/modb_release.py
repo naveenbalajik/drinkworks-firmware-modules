@@ -30,7 +30,7 @@ import argparse
 import filecmp
 
 # Update this version number with subsequent releases
-utilityVersion = "1.1"
+utilityVersion = "1.2"
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -227,7 +227,7 @@ if __name__ == "__main__":
         print("PIC Image file not found")
         sys.exit(0)
     if count > 1:
-        printf("More than one .aws file found!")
+        print("More than one .aws file found!")
         sys.exit(0)
    
     print( f'Found aws file: {picFilePath}')
