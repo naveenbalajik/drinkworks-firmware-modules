@@ -716,6 +716,7 @@ typedef struct
 
 static void _postNoImageAvailable( void );
 static bool _transferPending( void );
+static double hostOta_getFirmwareVersion( void );
 
 /* ************************************************************************* */
 /* **********             L O C A L   V A R I A B L E S           ********** */
@@ -758,7 +759,8 @@ static hostOta_Interface_t	hostOtaInterface =
 	.pal_functions = &hostOtaFunctions,
 	.pendDownloadCb = &hostOta_pendUpdate,
 	.imageUnavailableCb = &_postNoImageAvailable,
-	.transferPendingCb = &_transferPending
+	.transferPendingCb = &_transferPending,
+	.firmwareVersionCb = &hostOta_getFirmwareVersion,
 };
 
 /* ************************************************************************* */
@@ -2828,6 +2830,16 @@ bool hostOta_pendUpdate( void )
 const AltProcessor_Functions_t * hostOta_getFunctionTable( void )
 {
 	return &hostOtaFunctions;
+}
+
+/**
+ * @brief	Get Host Current Firmware Version
+ *
+ * @return	Firmware Version
+ */
+static double hostOta_getFirmwareVersion( void )
+{
+	return _hostota.currentVersion_PIC;
 }
 
 /**

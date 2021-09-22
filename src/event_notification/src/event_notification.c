@@ -157,12 +157,10 @@ static void _feedbackSubscriptionCallback( void* param1, IotMqttCallbackParam_t*
 			len = mjson_get_string( pPayload, payloadLength, "$.subject", buffer, sizeof( buffer ) );
 			if( len != -1 )
 			{
-//				printf("found subject: %.*s\n", len, buffer );
 				// Iterate through subject table
 				for (i = 0; i < eventNotify.subjectCount; ++i )
 				{
 					pFeedback = &eventNotify.pFeedbackSubject[ i ];
-					printf("Looking for: %s\n", pFeedback->subject );
 					// Look for matching subject
 					if( strncmp( buffer, pFeedback->subject, len) == 0 )
 					{
@@ -218,7 +216,6 @@ static void _feedbackSubscriptionCallback( void* param1, IotMqttCallbackParam_t*
  */
 void eventNotification_Init( const char *thingName, const char *serialNumber, _initializeCallback_t initExtend )
 {
-	printf( "\n\n*****  eventNotification_Init  *****\n\n" );
 	IotLogInfo( "eventNotification_Init" );
 	if( NULL != thingName )
 	{
@@ -243,12 +240,10 @@ void eventNotification_Init( const char *thingName, const char *serialNumber, _i
 			strcat( eventNotify.topicNameFeedback, _topicSuffixFeedback );						/* Append suffix */
 			eventNotify.topicSizeFeedback = strlen( eventNotify.topicNameFeedback );			/* save topic name length */
 
-			printf( "eventNotification_Init, feedback topic: %s\n", eventNotify.topicNameFeedback );
 			IotLogInfo( "eventNotification_Init, feedback topic: %s", eventNotify.topicNameFeedback );
 			/* Subscribe to Feedback topic */
 			if( mqtt_subscribeTopic( eventNotify.topicNameFeedback, _feedbackSubscriptionCallback, NULL ) == IOT_MQTT_SUCCESS )
 			{
-				printf( "Feedback topic subscription: success\n" );
 				IotLogInfo( "Feedback topic subscription: success" );
 			}
 
