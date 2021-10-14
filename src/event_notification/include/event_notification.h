@@ -41,6 +41,7 @@ typedef enum
 	eEventSubject_OverPressure,
 	eEventSubject_CarbonationTimeout,
 	eEventSubject_PmError,
+	eEventSubject_RecoveryEntry,
 	eEventSubject_RecoveryStart,
 	eEventSubject_OobeStart,
 	eEventSubject_OobeFirmwareUpdate,
@@ -73,6 +74,8 @@ typedef enum
 	eEventSubject_Critical_OPRecoveryError,
 	eEventSubject_Idle,
 	eEventSubject_Sleep,
+	eEventSubject_PodReadErrorFirst,
+	eEventSubject_PodReadErrorSubsequent,
 	eEventSubject_EndOfList,
 	eEventSubject_None
 } _eventSubject_t;

@@ -46,6 +46,7 @@ static const char * _subjectString[] =
 	[ eEventSubject_OverPressure ]				= "OverPressure",
 	[ eEventSubject_CarbonationTimeout ]		= "CarbonationTimeout",
 	[ eEventSubject_PmError ]					= "PunctureMechError",
+	[ eEventSubject_RecoveryEntry ]				= "RecoveryEntry",
 	[ eEventSubject_RecoveryStart ]				= "RecoveryStart",
 	[ eEventSubject_OobeStart ]					= "OobeStart",
 	[ eEventSubject_OobeFirmwareUpdate ]		= "OobeFirmwareUpdate",
@@ -77,7 +78,9 @@ static const char * _subjectString[] =
 	[ eEventSubject_Critical_ClearMemError ]	= "CriticalError_ClearMem",
 	[ eEventSubject_Critical_OPRecoveryError ]	= "CriticalError_OPRecovery",
 	[ eEventSubject_Idle ] 						= "Idle",
-	[ eEventSubject_Sleep ] 					= "Sleep"
+	[ eEventSubject_Sleep ] 					= "Sleep",
+	[ eEventSubject_PodReadErrorFirst ]			= "PodReadErrorFirst",
+	[ eEventSubject_PodReadErrorSubsequent ]	= "PodReadErrorSubsequent"
 
 };
 
