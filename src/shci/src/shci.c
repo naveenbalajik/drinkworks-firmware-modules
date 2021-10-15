@@ -32,15 +32,18 @@
 
 /************************************************************/
 #define TEST_POINT_1    15			// Camera LED, IO15
-#define	TEST_POINT_2	33			// Camera Reset, IO33
+#define	TEST_POINT_2	12			// Camera Reset, IO12
 #define GPIO_OUTPUT_PIN_SEL  ( ( 1ULL << TEST_POINT_1 ) | ( 1ULL << TEST_POINT_2 ) )
+
+/* Change the following line from undef to define to enable use of debug testpoints */
+#undef	DEBUG_USING_GPIO
 
 #ifdef	DEBUG_USING_GPIO
 
 #define	DEBUG_GPIO_INIT()				debug_gpio_init()
 #define	DEBUG_GPIO_PIN_SET( pin )	    gpio_set_level( pin, 1)
 #define	DEBUG_GPIO_PIN_CLR( pin )	    gpio_set_level( pin, 0)
-#define DEBUG_GPIO_PIN_TOGGLE( pin )	gpio_set_level( pin, (gpio_set_level( pin ) ^ 0x01) )
+#define DEBUG_GPIO_PIN_TOGGLE( pin )	gpio_set_level( pin, (gpio_get_level( pin ) ^ 0x01) )
 
 #else
 
@@ -204,18 +207,19 @@ static _shciRxStateType_t _shciProcessInput( _shciCommand_t *ic )
 						len = uart_read_bytes( _shciUartNum, &ic->opCode, (ic->length + 2), 0 );	// read (length+2) bytes
 						/* compute CRC and validate that it is zero */
 						ic->crc = crc16_ccitt_compute( &ic->rawData[ 1 ], ( ic->length + 4 ) );		// include length and crc bytes
-					}
-					DEBUG_GPIO_PIN_CLR( TEST_POINT_1 );
-					if ( ic->crc == 0 )																// if crc is zero
-					{
-						ic->pbCount = ( ic->length - 1 );
-						_shciUseCRC = true;															// if a CRC packet is successfully received, enable CRC's when transmitting
-						nextState = eSHCIRxValid;
-					}
-					else
-					{
-						IotLogError( "ProcessInput, non-zero CRC" );
-						nextState = eSHCIRxError;
+
+						DEBUG_GPIO_PIN_CLR( TEST_POINT_1 );
+						if ( ic->crc == 0 )															// if crc is zero
+						{
+							ic->pbCount = ( ic->length - 1 );
+							_shciUseCRC = true;														// if a CRC packet is successfully received, enable CRC's when transmitting
+							nextState = eSHCIRxValid;
+						}
+						else
+						{
+							IotLogError( "ProcessInput, non-zero CRC" );
+							nextState = eSHCIRxError;
+						}
 					}
 				}
 				else

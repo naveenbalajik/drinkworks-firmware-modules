@@ -41,6 +41,7 @@ typedef enum
 	eEventSubject_OverPressure,
 	eEventSubject_CarbonationTimeout,
 	eEventSubject_PmError,
+	eEventSubject_RecoveryEntry,
 	eEventSubject_RecoveryStart,
 	eEventSubject_OobeStart,
 	eEventSubject_OobeFirmwareUpdate,
@@ -71,9 +72,28 @@ typedef enum
 	eEventSubject_Critical_ExtendedOPError,
 	eEventSubject_Critical_ClearMemError,
 	eEventSubject_Critical_OPRecoveryError,
+	eEventSubject_Idle,
+	eEventSubject_Sleep,
+	eEventSubject_PodReadErrorFirst,
+	eEventSubject_PodReadErrorSubsequent,
 	eEventSubject_EndOfList,
 	eEventSubject_None
 } _eventSubject_t;
+
+/**
+ * @brief	Changed Topic event handler
+ */
+typedef void (* _feedbackSubjectCallback_t)( const char * pData, const int len );
+
+/**
+ * @brief	Feedback Subject
+ */
+typedef struct
+{
+	const char * subject;
+	_feedbackSubjectCallback_t callback;
+} _feedbackSubject_t;
+
 
 /**
  * @brief Initialize Event Notification module
@@ -96,5 +116,7 @@ void eventNotification_SendEvent( char *pJson );
  * @return		Event Subject string; NULL if subject is invalid
  */
 const char * eventNotification_getSubject( _eventSubject_t subject );
+
+void eventNotification_RegisterFeedbackSubjects( const _feedbackSubject_t * pSubjectTable, const uint32_t subjectCount );
 
 #endif /* _EVENT_NOTIFICATION_H_ */

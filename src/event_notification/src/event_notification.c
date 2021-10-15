@@ -7,6 +7,7 @@
 #include "event_notification.h"
 #include "mqtt.h"
 #include "mjson.h"
+#include "app_logging.h"			// FIXME
 
 /**
  * @brief Max topic name length
@@ -45,6 +46,7 @@ static const char * _subjectString[] =
 	[ eEventSubject_OverPressure ]				= "OverPressure",
 	[ eEventSubject_CarbonationTimeout ]		= "CarbonationTimeout",
 	[ eEventSubject_PmError ]					= "PunctureMechError",
+	[ eEventSubject_RecoveryEntry ]				= "RecoveryEntry",
 	[ eEventSubject_RecoveryStart ]				= "RecoveryStart",
 	[ eEventSubject_OobeStart ]					= "OobeStart",
 	[ eEventSubject_OobeFirmwareUpdate ]		= "OobeFirmwareUpdate",
@@ -74,7 +76,11 @@ static const char * _subjectString[] =
 	[ eEventSubject_Critical_PuncMechError ]	= "CriticalError_PM",
 	[ eEventSubject_Critical_ExtendedOPError ]	= "CriticalError_ExtendedOP",
 	[ eEventSubject_Critical_ClearMemError ]	= "CriticalError_ClearMem",
-	[ eEventSubject_Critical_OPRecoveryError ]	= "CriticalError_OPRecovery"
+	[ eEventSubject_Critical_OPRecoveryError ]	= "CriticalError_OPRecovery",
+	[ eEventSubject_Idle ] 						= "Idle",
+	[ eEventSubject_Sleep ] 					= "Sleep",
+	[ eEventSubject_PodReadErrorFirst ]			= "PodReadErrorFirst",
+	[ eEventSubject_PodReadErrorSubsequent ]	= "PodReadErrorSubsequent"
 
 };
 
@@ -83,15 +89,24 @@ static const char * _subjectString[] =
  */
 typedef struct
 {
-	char 	topicName[ MAX_TOPIC_LEN ];						/**< Event Notification topic name */
-	size_t	topicSize;										/**< Event Notification topic name length */
+	char 	topicNameEvent[ MAX_TOPIC_LEN ];				/**< Event Notification topic name */
+	size_t	topicSizeEvent;									/**< Event Notification topic name length */
+	char 	topicNameFeedback[ MAX_TOPIC_LEN ];				/**< Feedback topic name */
+	size_t	topicSizeFeedback;								/**< Feedback topic name length */
 	char	serialNumber[ SER_NUM_BUF_LEN ];				/**< Serial Number */
+	const	_feedbackSubject_t	* pFeedbackSubject;			/**< Feedback Subject Table */
+	uint32_t				subjectCount;			/**< Number of Subjects in Subject Table */
 } _eventNofify_t;
 
 /**
  * @brief	Suffix, added to the ThingName, to form the Event Notification MQTT topic
  */
-static const char _topicSuffix[] = "/Events";
+static const char _topicSuffixEvent[] = "/Events";
+
+/**
+ * @brief	Suffix, added to the ThingName, to form the Feedback MQTT topic
+ */
+static const char _topicSuffixFeedback[] = "/Feedback";
 
 static _eventNofify_t eventNotify;
 
@@ -107,10 +122,90 @@ static void _sendToEventTopic( char *pJSON )
 
 	if( mqtt_IsConnected() )
 	{
-		if( eventNotify.topicSize )
+		if( eventNotify.topicSizeEvent )
 		{
-			mqtt_SendMsgToTopic( eventNotify.topicName, eventNotify.topicSize, pJSON, strlen( pJSON ), NULL );
+			mqtt_SendMsgToTopic( eventNotify.topicNameEvent, eventNotify.topicSizeEvent, pJSON, strlen( pJSON ), NULL );
 		}
+	}
+}
+
+/**
+ * @brief Callback from feedback subscription
+ *
+ * @param[in] param1	Semaphore for provisioning request
+ * @param[in] pPublish	Information about the completed operation passed by the MQTT library.
+ */
+static void _feedbackSubscriptionCallback( void* param1, IotMqttCallbackParam_t* const pPublish )
+{
+//	IotSemaphore_t* pPublishesReceived = ( IotSemaphore_t * )param1;
+	const char* pPayload = pPublish->u.message.info.pPayload;
+	int payloadLength = pPublish->u.message.info.payloadLength;
+	char buffer[ 64 ];
+
+	IotLogInfo( "Message received from topic:%.*s", pPublish->u.message.topicFilterLength, pPublish->u.message.pTopicFilter );
+
+	// Ensure that the message came in on the expected topic
+	if( memcmp( pPublish->u.message.pTopicFilter, eventNotify.topicNameFeedback, eventNotify.topicSizeFeedback ) == 0 )
+	{
+		const char *val;
+		int len = 0;
+
+		// Check for Subject table
+		if( eventNotify.pFeedbackSubject != NULL )
+		{
+			uint32_t	i;
+			const _feedbackSubject_t *pFeedback;
+
+			// Look for the "subject" in the message, this will be a string token
+			len = mjson_get_string( pPayload, payloadLength, "$.subject", buffer, sizeof( buffer ) );
+			if( len != -1 )
+			{
+				// Iterate through subject table
+				for (i = 0; i < eventNotify.subjectCount; ++i )
+				{
+					pFeedback = &eventNotify.pFeedbackSubject[ i ];
+					// Look for matching subject
+					if( strncmp( buffer, pFeedback->subject, len) == 0 )
+					{
+						IotLogInfo( "Found registered subject: %s", pFeedback->subject );
+
+						// Look for the "data" in the message, this will be a JSON Object token
+						if( MJSON_TOK_OBJECT == mjson_find( pPayload, payloadLength, "$.data", &val, &len ) )
+						{
+							IotLogInfo( "Found data: %.*s", len, val );
+
+							// invoke callback, if valid
+							if( pFeedback->callback != NULL )
+							{
+								pFeedback->callback( val, len );
+							}
+							else
+							{
+								IotLogError( "No callback function" );
+							}
+						}
+						else
+						{
+							IotLogError( "Data key not present" );
+						}
+						break;							// terminate on subject match
+					}
+				}
+
+			}
+			else
+			{
+				IotLogError( "Subject key not present" );
+			}
+		}
+		else
+		{
+			IotLogError( "No Feedback Subject table" );
+		}
+	}
+	else
+	{
+		IotLogError( "Message Received on unexpected topic" );
 	}
 }
 
@@ -124,14 +219,15 @@ static void _sendToEventTopic( char *pJSON )
  */
 void eventNotification_Init( const char *thingName, const char *serialNumber, _initializeCallback_t initExtend )
 {
+	IotLogInfo( "eventNotification_Init" );
 	if( NULL != thingName )
 	{
-		/* Make sure topic name will fit in buffer */
-		if( MAX_TOPIC_LEN > ( strlen( thingName ) + strlen( _topicSuffix ) ) )
+		/* Make sure Event topic name will fit in buffer */
+		if( MAX_TOPIC_LEN > ( strlen( thingName ) + strlen( _topicSuffixEvent ) ) )
 		{
-			strcpy( eventNotify.topicName, thingName );									/* Copy ThingName */
-			strcat( eventNotify.topicName, _topicSuffix );								/* Append suffix */
-			eventNotify.topicSize = strlen( eventNotify.topicName );					/* save topic name length */
+			strcpy( eventNotify.topicNameEvent, thingName );									/* Copy ThingName */
+			strcat( eventNotify.topicNameEvent, _topicSuffixEvent );							/* Append suffix */
+			eventNotify.topicSizeEvent = strlen( eventNotify.topicNameEvent );					/* save topic name length */
 
 			/* Call any extended initialization function */
 			if( NULL != initExtend )
@@ -139,7 +235,24 @@ void eventNotification_Init( const char *thingName, const char *serialNumber, _i
 				initExtend();
 			}
 		}
+
+		/* Make sure Feedback topic name will fit in buffer */
+		if( MAX_TOPIC_LEN > ( strlen( thingName ) + strlen( _topicSuffixFeedback ) ) )
+		{
+			strcpy( eventNotify.topicNameFeedback, thingName );									/* Copy ThingName */
+			strcat( eventNotify.topicNameFeedback, _topicSuffixFeedback );						/* Append suffix */
+			eventNotify.topicSizeFeedback = strlen( eventNotify.topicNameFeedback );			/* save topic name length */
+
+			IotLogInfo( "eventNotification_Init, feedback topic: %s", eventNotify.topicNameFeedback );
+			/* Subscribe to Feedback topic */
+			if( mqtt_subscribeTopic( eventNotify.topicNameFeedback, _feedbackSubscriptionCallback, NULL ) == IOT_MQTT_SUCCESS )
+			{
+				IotLogInfo( "Feedback topic subscription: success" );
+			}
+
+		}
 	}
+
 	if( NULL != serialNumber )
 	{
 		strncpy( eventNotify.serialNumber, serialNumber, SER_NUM_BUF_LEN );
@@ -207,4 +320,18 @@ const char * eventNotification_getSubject( _eventSubject_t subject )
 	{
 		return NULL;
 	}
+}
+
+/**
+ * @brief	Register Feedback Subject Table
+ *
+ * Feedback Subject Table contains the Subject string and callback function for each subject being registered
+ *
+ * @param[in] pSubjectTable		Pointer to Feedback subject table.
+ * @param[in] subjectCount		Number of Subjects in table
+ */
+void eventNotification_RegisterFeedbackSubjects( const _feedbackSubject_t * pSubjectTable, const uint32_t subjectCount  )
+{
+	eventNotify.pFeedbackSubject = pSubjectTable;				// Save pointer to feedback subject table
+	eventNotify.subjectCount = subjectCount;					// Save Number of subjects
 }

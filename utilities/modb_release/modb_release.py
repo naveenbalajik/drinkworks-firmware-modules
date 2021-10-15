@@ -30,7 +30,7 @@ import argparse
 import filecmp
 
 # Update this version number with subsequent releases
-utilityVersion = "1.1"
+utilityVersion = "1.3"
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -227,7 +227,7 @@ if __name__ == "__main__":
         print("PIC Image file not found")
         sys.exit(0)
     if count > 1:
-        printf("More than one .aws file found!")
+        print("More than one .aws file found!")
         sys.exit(0)
    
     print( f'Found aws file: {picFilePath}')
@@ -279,6 +279,9 @@ if __name__ == "__main__":
         with open(project, "r") as projectArgs:
             for line in projectArgs:
                 #Edit partition-table line
+                if "bootloader/bootloader" in line:
+                    #skip line if it has bootloader (added that above)
+                    continue
                 if "partition_table/" in line:
                     line = line.replace("partition_table/", "")
                 if line != "\n" and line != " \n":

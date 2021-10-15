@@ -167,7 +167,7 @@ typedef struct
     pxAltOTAPALResetDevice_t xResetDevice;                     /* OTA Reset Device callback pointer */
     pxAltOTAPALSetPlatformImageState_t xSetImageState;         /* OTA Set Platform Image State callback pointer */
     pxAltOTAPALWriteBlock_t xWriteBlock;                       /* OTA Write Block callback pointer */
-//    pxOTACompleteCallback_t xCompleteCallback;                      /* OTA Job Completed callback pointer */
+    pxOTACompleteCallback_t xComplete;							/* OTA Job Completed callback pointer */
 //    pxOTACustomJobCallback_t xCustomJobCallback;                    /* OTA Custom Job callback pointer */
 } AltProcessor_Functions_t;
 
@@ -194,6 +194,13 @@ typedef void ( * hostOtaImageUnavailableCallback_t )( void );
 typedef bool ( * hostImageTransferPendingCallback_t )( void );
 
 /**
+ * @brief	Get Host Firmware Version callback function
+ *
+ * @return Current Host Firmware Version
+ */
+typedef double ( * hostOtaGetVersionCallback_t )( void );
+
+/**
  * @brief	All Interface items for Host Ota module
  */
 typedef struct
@@ -203,6 +210,7 @@ typedef struct
 	hostOtaImageUnavailableCallback_t	imageUnavailableCb;					/**< Image Unavailable callback function */
 	hostImageTransferPendingCallback_t	transferPendingCb;					/**< Image Transfer pending callback function */
 	QueueHandle_t						queue;
+	hostOtaGetVersionCallback_t			firmwareVersionCb;					/**< Host Firmware Version callback function */
 } hostOta_Interface_t;
 
 /**

@@ -30,8 +30,8 @@ enum RecordStatus
 	eCleaning_Cycle_Completed =				0x80,
 	eRinsing_Cycle_Completed =				0x81,
 	eCO2_Module_Attached =					0x82,
-	eFirmware_Update_Passed =				0x83,
-	eFirmware_Update_Failed =				0x84,
+	eFirmware_PIC_Update_Passed =			0x83,		/**< PIC firmware update successful */
+	eFirmware_PIC_Update_Failed =			0x84,		/**< PIC firmware update failed */
 	eDrain_Cycle_Complete =					0x85,
 	eFreezeEventUpdate =					0x86,
 	eCritical_Error_OverTemp =				0x87,
@@ -41,6 +41,8 @@ enum RecordStatus
 	eCritical_Error_ExtendedOPError = 		0x8B,
 	eCritical_Error_BadMemClear = 			0x8C,
 	eCritical_Error_OPRecoveryError =		0x8D,		/**< Critical Error: Over-pressure Recovery Error */
+	eFirmware_ESP_Update_Passed =			0x90,		/**< ESP32 firmware update successful */
+	eFirmware_ESP_Update_Failed =			0x91,		/**< ESP32 firmware update failed */
 	eBLE_ModuleReset = 						0xE0,		/**< Module reset detected by comparing Firmware Version Characteristic */
 	eBLE_IdleStatus =						0xE1,		/**< Module reporting Idle Status, unexpectedly */
 	eBLE_StandbyStatus =					0xE2,		/**< Module reporting Standby Status, unexpectedly */

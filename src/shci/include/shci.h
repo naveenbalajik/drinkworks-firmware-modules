@@ -88,6 +88,7 @@ enum ShciOpcode
 	eEventRecordData =										0xBC,		/**< Command: Send Event Record data (Model-A) */
 	eRecipeRead =											0xBD,		/**< Command: */
 	eStateChange =											0xBE,		/**< Command: Notify change of Dispense State */
+	ePodDispense =											0xBF,		/**< Event: Pod Dispense Feedback */
 
 	eEspSetSerialNumber = 									0xC0,		/**< Command: */
 	eEspSetPowerState = 									0xC1,		/**< Command: */
@@ -97,7 +98,9 @@ enum ShciOpcode
 	eEEBlockRestore =										0xC5,		/**< Command: */
 	eTimeGet =												0xC6,		/**< Command: Get Time/Date */
 	eTimeSet =												0xC7,		/**< Command: Set Time/Date */
-	eStatsGet =												0xC8		/**< Command: Get Statistics */
+	eStatsGet =												0xC8,		/**< Command: Get Statistics */
+	eAsyncData =											0xC9,		/**< Command: Notify of change to Asynchronous Data */
+	eMcuIdSet =												0xCA,		/**< Command: Set MCU (PIC) ID */
 };
 typedef uint8_t _shciOpcode_t;
 

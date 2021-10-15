@@ -716,6 +716,7 @@ typedef struct
 
 static void _postNoImageAvailable( void );
 static bool _transferPending( void );
+static double hostOta_getFirmwareVersion( void );
 
 /* ************************************************************************* */
 /* **********             L O C A L   V A R I A B L E S           ********** */
@@ -745,6 +746,7 @@ static AltProcessor_Functions_t hostOtaFunctions =
     .xResetDevice              = hostOta_ResetDevice,
     .xSetImageState            = hostOta_setImageState,
     .xWriteBlock               = hostOta_WriteBlock,
+	.xComplete                 = hostOta_Complete,
 };
 
 /**
@@ -757,7 +759,8 @@ static hostOta_Interface_t	hostOtaInterface =
 	.pal_functions = &hostOtaFunctions,
 	.pendDownloadCb = &hostOta_pendUpdate,
 	.imageUnavailableCb = &_postNoImageAvailable,
-	.transferPendingCb = &_transferPending
+	.transferPendingCb = &_transferPending,
+	.firmwareVersionCb = &hostOta_getFirmwareVersion,
 };
 
 /* ************************************************************************* */
@@ -2177,7 +2180,10 @@ static _mzXfer_state_t PIC32MZ_ImageTransfer( bool bStart )
 static void setImageState( OTA_PAL_ImageState_t eState)
 {
 	_hostota.imageState = eState;
-	NVS_Set( NVS_HOSTOTA_STATE, &_hostota.imageState, NULL);
+	if( ESP_OK != NVS_Set( NVS_HOSTOTA_STATE, &_hostota.imageState, NULL ) )
+	{
+		IotLogError( "Error writing NVS_HOSTOTA_STATE" );
+	}
 }
 
 /**
@@ -2466,6 +2472,7 @@ static void _hostOtaTask(void *arg)
 				}
 				else
 				{
+					setImageState( eOTA_PAL_ImageState_Invalid );			/* Note image is invalid */
 					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
     				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
 					_hostota.state = eHostOtaWaitMQTT;				/* If error encountered parsing JSON, pend on an update from AWS */
@@ -2532,6 +2539,7 @@ static void _hostOtaTask(void *arg)
 				}
 				else
 				{
+					setImageState( eOTA_PAL_ImageState_Invalid );			/* Note image is invalid */
 					IotLogError( "Image SHA256 Hash does not match metadata SHA256" );
 					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
     				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
@@ -2625,26 +2633,7 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			case eHostOtaPendUpdate:
-				if( eOTA_PAL_ImageState_PendingCommit == _hostota.imageState )
-				{
-					/* If image state is pending commit */
-					if( _hostota.Version_PIC == _hostota.currentVersion_PIC )
-					{
-						/* If downloaded Image version is equal to current version: update was successful */
-						hostOtaNotificationUpdate( 	eNotifyUpdateSuccess, _hostota.currentVersion_PIC );
-						setImageState( eOTA_PAL_ImageState_Valid );
-						IotLogInfo( "Host update successful, current version: %5.2f", _hostota.currentVersion_PIC );
-					}
-					else
-					{
-						/* TODO can this be reached? */
-						/* If downloaded Image version is not equal to current version: update failed */
-						hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );
-						setImageState( eOTA_PAL_ImageState_Invalid );
-						IotLogInfo( "Host update failed, current version: %5.2f", _hostota.currentVersion_PIC );
-					}
-
-				}
+				// ImageState is updated by hostOta_Complete() PAL function, via OTA_SetImageState()
 
 				/* Monitor Change Image flag, will be set if a Factory Image is requested */
 				if( _hostota.bChangeImage )
@@ -2844,6 +2833,16 @@ const AltProcessor_Functions_t * hostOta_getFunctionTable( void )
 }
 
 /**
+ * @brief	Get Host Current Firmware Version
+ *
+ * @return	Firmware Version
+ */
+static double hostOta_getFirmwareVersion( void )
+{
+	return _hostota.currentVersion_PIC;
+}
+
+/**
  * @brief	Get Host OTA Interface
  *
  * @return	Pointer to Host Ota Interface
@@ -2851,4 +2850,57 @@ const AltProcessor_Functions_t * hostOta_getFunctionTable( void )
 hostOta_Interface_t * hostOta_getInterface( void )
 {
 	return &hostOtaInterface;
+}
+
+/**
+ * @brief	Host OTA Complete callback
+ *
+ * This function is called in response to an OTA Job completing.
+ * 		Event Status can be:
+ * 			eOTA_JobEvent_Activate
+ *			eOTA_JobEvent_Fail
+ *			eOTA_JobEvent_StartTest
+ *
+ * 	However, the caller (prvPAL_OTAComplete_override) only calls with eOTA_JobEvent_StartTest
+ */
+void hostOta_Complete( OTA_JobEvent_t eEvent )
+{
+	OTA_Err_t xErr = kOTA_Err_Uninitialized;
+	OTA_ImageState_t eState;
+
+	if( eEvent == eOTA_JobEvent_StartTest )
+	{
+		IotLogInfo( "hostOta_Complete( StartTest)" );
+		if( eOTA_PAL_ImageState_PendingCommit == _hostota.imageState )
+		{
+			/* If image state is pending commit */
+			if( _hostota.Version_PIC == _hostota.currentVersion_PIC )
+			{
+				/* If downloaded Image version is equal to current version: update was successful */
+				hostOtaNotificationUpdate( 	eNotifyUpdateSuccess, _hostota.currentVersion_PIC );
+				IotLogInfo( "Host update successful, current version: %5.2f", _hostota.currentVersion_PIC );
+				eState = eOTA_ImageState_Accepted;
+			}
+			else
+			{
+				/* TODO can this be reached? */
+				/* If downloaded Image version is not equal to current version: update failed */
+				hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );
+				IotLogInfo( "Host update failed, current version: %5.2f", _hostota.currentVersion_PIC );
+				eState = eOTA_ImageState_Rejected;
+			}
+
+			/* Update the Image State using the OTA Agent API - this also updates the Job Status */
+			xErr = OTA_SetImageState( eState );
+			if( xErr != kOTA_Err_None )
+	        {
+	        	IotLogError( " Error! Failed to set image state as %s.\r\n",  ( eState == eOTA_ImageState_Accepted) ? "accepted" : "rejected");
+	        }
+
+		}
+		else
+		{
+			IotLogInfo( "ImageState = %d", _hostota.imageState );
+		}
+	}
 }

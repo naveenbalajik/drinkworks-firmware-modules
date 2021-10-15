@@ -76,8 +76,8 @@ const static _recordStatusEntry_t recordStatusTable[] =
 		{ eCleaning_Cycle_Completed,			"Cleaning Cycle Completed" },
 		{ eRinsing_Cycle_Completed,				"Rinsing Cycle Completed" },
 		{ eCO2_Module_Attached,					"CO2 Cylinder Attached" },
-		{ eFirmware_Update_Passed,				"Firmware Update Passed" },
-		{ eFirmware_Update_Failed,				"Firmware Update Failed" },
+		{ eFirmware_PIC_Update_Passed,			"PIC Firmware Update Passed" },
+		{ eFirmware_PIC_Update_Failed,			"PIC Firmware Update Failed" },
 		{ eDrain_Cycle_Complete,				"Drain Cycle Complete" },
 		{ eFreezeEventUpdate,					"Freeze Event Update" },
 		{ eCritical_Error_OverTemp,				"Critical Error: OverTemp" },
@@ -87,6 +87,8 @@ const static _recordStatusEntry_t recordStatusTable[] =
 		{ eCritical_Error_ExtendedOPError,		"Critical Error: ExtendedOPError" },
 		{ eCritical_Error_BadMemClear,			"Critical Error: BadMemClear" },
 		{ eCritical_Error_OPRecoveryError,		"Critical Error: OverPressure Recovery" },
+		{ eFirmware_ESP_Update_Passed,			"ESP Firmware Update Passed" },
+		{ eFirmware_ESP_Update_Failed,			"ESP Firmware Update Failed" },
 		{ eBLE_ModuleReset,						"BLE: ModuleReset" },
 		{ eBLE_IdleStatus,						"BLE: IdleStatus" },
 		{ eBLE_StandbyStatus,					"BLE: StandbyStatus" },
@@ -303,7 +305,7 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 			break;
 
 		/* Firmware Update */
-		case	eFirmware_Update_Passed:
+		case	eFirmware_PIC_Update_Passed:
 			/* Firmware Version (optional, only present if sufficient size) */
 			if( FIRMWARE_ENTRY_MIN_SIZE <= size )
 			{
@@ -348,7 +350,7 @@ static char *formatEventRecord( _dispenseRecord_t	*pDispenseRecord, uint16_t siz
 		case	eCleaning_Cycle_Completed:
 		case	eRinsing_Cycle_Completed:
 		case	eCO2_Module_Attached:
-		case	eFirmware_Update_Failed:
+		case	eFirmware_PIC_Update_Failed:
 		case	eDrain_Cycle_Complete:
 		case	eCritical_Error_PuncMechFail:
 		case	eCritical_Error_TrickleFillTmout:
@@ -1044,8 +1046,6 @@ void eventRecords_saveRecord( char * pInput )
 
 	/* Save record in FIFO */
 	fifo_put( _evtrec.fifoHandle, pJSON, strlen( pJSON ) );
-
-	printf( pJSON );
 
 	free( pJSON );						/* free mjson format buffer */
 }

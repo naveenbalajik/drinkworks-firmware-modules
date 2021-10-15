@@ -76,9 +76,10 @@
 
 #include "host_ota.h"
 
+#include "aws_application_version.h"
 #include "wifiFunction.h"
-
-#include	"event_notification.h"
+#include "event_records.h"
+#include "event_notification.h"
 
 static void App_OTACompleteCallback( OTA_JobEvent_t eEvent );
 
@@ -142,6 +143,8 @@ typedef	struct
 	uint32_t							completeBlocks;								/**< Number of blocks that have been completed */
 	TimerHandle_t						xTimer;										/**< Timer used to detect no update job */
 	QueueHandle_t						hostQueue;									/**< Queue to communicate with Host OTA module */
+	uint32_t							savedServerFileID;							/**< Temporarily save the ServerFileID */
+	hostOtaGetVersionCallback_t			hostFirmwareVersionCb;						/**< callback function, returns Host Current Firmware Version */
 } otaData_t;
 
 static otaData_t otaData =
@@ -220,6 +223,150 @@ static const char * _pStateStr[ eOTA_AgentState_All ] =
 static OTA_PAL_ImageState_t CurrentImageState = eOTA_PAL_ImageState_Valid;
 
 /**
+ * @brief	Create OTA Record
+ *
+ * Use the notify and processor arguments to determine the status event.
+ * Format and save the Event Record
+ *
+ * @param[in]	notify		Enumerated OTA notification
+ * @param[in]	processor	Processor Identification string, NULL if unknown
+ */
+static void _createOtaRecord(  _otaNotification_t notify, char *processor, double version )
+{
+	uint8_t	status = eStatusUnknown;
+	char * pJSON = NULL;
+
+	/* Set status based on notify and processor */
+	if( strcmp( processor, "PIC" ) == 0 )
+	{
+		switch( notify )
+		{
+			case eNotifyOtaUpdateAccepted:
+				status = eFirmware_PIC_Update_Passed;
+				break;
+
+			case eNotifyOtaUpdateRejected:
+			case eNotifyOtaUpdateAborted:
+				status = eFirmware_PIC_Update_Failed;
+				break;
+
+			default:
+				break;
+		}
+	}
+	else if( strcmp( processor, "ESP" ) == 0 )
+	{
+		switch( notify )
+		{
+			case eNotifyOtaUpdateAccepted:
+				status = eFirmware_ESP_Update_Passed;
+				break;
+
+			case eNotifyOtaUpdateRejected:
+			case eNotifyOtaUpdateAborted:
+				status = eFirmware_ESP_Update_Failed;
+				break;
+
+			default:
+				break;
+		}
+	}
+
+	/* For known statuses, create Event Record */
+	if( status != eStatusUnknown )
+	{
+		mjson_printf( &mjson_print_dynamic_buf, &pJSON,
+				"{%Q:%d, %Q:%Q, %Q:%f}",
+				"Status",          status,
+				"StatusText",      eventRecords_statusText( status ),
+				"FirmwareVersion", version
+				);
+
+		/* Save it */
+		eventRecords_saveRecord( pJSON );
+	}
+}
+
+/**
+ * @brief	Format an OTA notification
+ *
+ *	Caller must free allocated buffer after use.
+ *
+ * @param[in]	notify		Enumerated OTA notification
+ * @param[in]	processor	Processor Identification string, NULL if unknown
+ * @param[in]	bProgress	true if progress elements are required
+ * @param[out]	pSize		Pointer to size of returned record
+ *
+ * @return		Pointer to formatted JSON record
+ */
+static char * _formatOtaNotification( _otaNotification_t notify, char *processor, bool bProgress, int32_t *pSize )
+{
+	int32_t lenProgress = 0, lenBase = 0, lenProc = 0, lenMerged;
+	char * pBase = NULL;
+	char * pProc = NULL;
+	char * pProgress = NULL;
+	char * pMerged = NULL;
+
+	/* Format the State elements */
+	lenBase = mjson_printf( &mjson_print_dynamic_buf, &pBase,
+				"{%Q:%Q}",
+				"State", otaNotificationMessage[ notify ] );
+
+	if( processor != NULL )
+	{
+		/* Format the processor element */
+		lenProc = mjson_printf( &mjson_print_dynamic_buf, &pProc,
+				"{%Q:%Q}",
+				"Processor", processor );
+
+		/* Merge the state and processor buffers */
+		lenMerged = mjson_merge( pBase, lenBase, pProc, lenProc, mjson_print_dynamic_buf, &pMerged);
+
+		/* Free buffers, combined -> Base */
+		free( pBase );
+		pBase = pMerged;
+		pMerged = NULL;
+		free( pProc );
+		pProc = NULL;
+		lenBase = lenMerged;
+	}
+
+	if( bProgress )
+	{
+		/* format the progress elements */
+		lenProgress = mjson_printf( &mjson_print_dynamic_buf, &pProgress,
+				"{%Q:{%Q:%d, %Q:%d}}",
+				"progress",
+				"complete", otaData.completeBlocks,
+				"total", otaData.fileBlocks );
+
+		/* Merge the base and progress buffers */
+		lenMerged = mjson_merge( pBase, lenBase, pProgress, lenProgress, mjson_print_dynamic_buf, &pMerged);
+
+		/* Free buffers, combined -> Base */
+		free( pBase );
+		pBase = pMerged;
+		pMerged = NULL;
+		free( pProgress );
+		pProgress = NULL;
+		lenBase = lenMerged;
+	}
+
+	/* Wrap the combined State/Proc/Progress with Subject */
+	*pSize = mjson_printf( &mjson_print_dynamic_buf, &pMerged,
+			"{%Q:%s}",
+			eventNotification_getSubject( eEventSubject_OtaUpdate ),
+			pBase );
+
+	/* Free buffers */
+	free( pBase );
+	pBase = NULL;
+
+	return pMerged;
+}
+
+
+/**
  * @brief	Post notification of OTA Update Status
  *
  * This function could post the notification to the device shadow, or to the MQTT Event topic.
@@ -235,35 +382,50 @@ static OTA_PAL_ImageState_t CurrentImageState = eOTA_PAL_ImageState_Valid;
  * 	- Update Validation
  * 	- Update Complete vN.NN
  */
-static void _otaNotificationUpdate( _otaNotification_t notify )
+static void _otaNotificationUpdate( _otaNotification_t notify, uint32_t *pFileId )
 {
 	char * jsonBuffer = NULL;
 	int	n = 0;
+	char *processor = NULL;
+	double version = 0;
+
+	/* If pFileId is valid, set processor string, get version */
+	if( pFileId != NULL )
+	{
+		if( *pFileId == 0 )
+		{
+			processor = "ESP";
+			version = xAppFirmwareVersion.u.x.ucMajor + ( ( double ) xAppFirmwareVersion.u.x.ucMinor / 1000);
+		}
+		else
+		{
+			processor = "PIC";
+			if( otaData.hostFirmwareVersionCb != NULL )
+			{
+				version = otaData.hostFirmwareVersionCb();
+			}
+
+		}
+	}
 
 	/* Format Notification update */
 	switch( notify )
 	{
 		case eNotifyOtaDownload:
-			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:{%Q:%d, %Q:%d}}}",
-					eventNotification_getSubject( eEventSubject_OtaUpdate ),
-					"State", otaNotificationMessage[ notify ],
-					"progress", "complete", otaData.completeBlocks, "total", otaData.fileBlocks);
+			jsonBuffer = _formatOtaNotification( notify, processor, true, &n );
 			break;
-//			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q, %Q:%Q, %Q:{%Q:%d, %Q:%d}}}",
-//					eventNotification_getSubject( eEventSubject_OtaUpdate ),
-//					"State", otaNotificationMessage[ notify ],
-//					"Processor", (otaData.C->ulServerFileID == 0 ) ? "ESP" : "PIC,"
-//					"progress", "complete", otaData.completeBlocks, "total", otaData.fileBlocks);
-//			break;
 
-		case eNotifyOtaWaitForImage:
-		case eNotifyOtaImageVerification:
 		case eNotifyOtaUpdateAccepted:
 		case eNotifyOtaUpdateRejected:
 		case eNotifyOtaUpdateAborted:
+			/* For Accepted, Rejected and Aborted updates create an Event Record */
+			_createOtaRecord( notify, processor, version );
+			/* fallthrough */
+
+		case eNotifyOtaWaitForImage:
+		case eNotifyOtaImageVerification:
 		case eNotifyOtaNoUpdateAvailable:
-			n = mjson_printf( &mjson_print_dynamic_buf, &jsonBuffer, "{%Q:{%Q:%Q}}",
-					eventNotification_getSubject( eEventSubject_OtaUpdate ), "State", otaNotificationMessage[ notify ] );
+			jsonBuffer = _formatOtaNotification( notify, processor, false, &n );
 			break;
 
 		default:
@@ -460,6 +622,8 @@ static OTA_PAL_ImageState_t prvPAL_GetPlatformImageState_override( uint32_t ulSe
 {
     DEFINE_OTA_METHOD_NAME( "prvPAL_GetPlatformImageState_override" );
 
+    otaData.savedServerFileID = ulServerFileID;							// Save the Server File ID
+
     if ( ulServerFileID == 0 )
     {
         // Update self
@@ -518,34 +682,41 @@ static OTA_Err_t prvPAL_SetPlatformImageState_override( uint32_t ulServerFileID,
 
     if ( ulServerFileID == 0 )
     {
-    	if( otaData.C != NULL )
+    	OTA_State_t agentState = OTA_GetAgentState();
+
+		IotLogInfo( "%s: eState = %d", OTA_METHOD_NAME, eState );
+//    	printf( "*** AgentState = %d ***\n",  agentState );
+
+    	/* Only notify if OTA Agent is in Creating File state.  A bogus job will haveFileID of 0, but agentState will not be Creating File */
+    	if( agentState == eOTA_AgentState_CreatingFile )
     	{
-    		IotLogInfo( "%s: eState = %d, Version = %08X", OTA_METHOD_NAME, eState, otaData.C->ulUpdaterVersion );
+//    		IotLogInfo( "%s: eState = %d <<<<", OTA_METHOD_NAME, eState );
+
+        	/* Notify */
+        	switch( eState )
+        	{
+    			case eOTA_ImageState_Accepted:
+    				_otaNotificationUpdate( eNotifyOtaUpdateAccepted, &ulServerFileID );
+    				break;
+
+    			case eOTA_ImageState_Rejected:
+    				_otaNotificationUpdate( eNotifyOtaUpdateRejected, &ulServerFileID );
+    				break;
+
+    			case eOTA_ImageState_Aborted:
+    				_otaNotificationUpdate( eNotifyOtaUpdateAborted, &ulServerFileID );
+    				break;
+
+    			default:
+    				break;
+        	}
+
     	}
-    	else
-    	{
-    		IotLogInfo( "%s: eState = %d", OTA_METHOD_NAME, eState );
-    	}
+//    	else
+//    	{
+//    		IotLogInfo( "%s: eState = %d", OTA_METHOD_NAME, eState );
+//    	}
     	vTaskDelay( 100 / portTICK_PERIOD_MS );
-
-    	/* Notify */
-    	switch( eState )
-    	{
-			case eOTA_ImageState_Accepted:
-				_otaNotificationUpdate( eNotifyOtaUpdateAccepted );
-				break;
-
-			case eOTA_ImageState_Rejected:
-				_otaNotificationUpdate( eNotifyOtaUpdateRejected );
-				break;
-
-			case eOTA_ImageState_Aborted:
-				_otaNotificationUpdate( eNotifyOtaUpdateAborted );
-				break;
-
-			default:
-				break;
-    	}
 
         // Update self
         return prvPAL_SetPlatformImageState(eState);
@@ -557,13 +728,36 @@ static OTA_Err_t prvPAL_SetPlatformImageState_override( uint32_t ulServerFileID,
     }
     else
     {
-        OTA_LOG_L1( "[%s](%d) OTA for alternate processor: %d\r\n", OTA_METHOD_NAME, ulServerFileID, eState  );
-        otaData.hostPal->xSetImageState( eState );
+     	double version = 0;
 
-//        if ( eState==eOTA_ImageState_Testing )
-//        {
-//            CurrentImageState = eOTA_PAL_ImageState_PendingCommit;
-//        }
+        OTA_LOG_L1( "[%s](%d) OTA for alternate processor: %d\r\n", OTA_METHOD_NAME, ulServerFileID, eState  );
+
+        /* Get Version */
+		if( otaData.hostFirmwareVersionCb != NULL )
+		{
+			version = otaData.hostFirmwareVersionCb();
+		}
+
+    	/* Create Event Record */
+    	switch( eState )
+    	{
+			case eOTA_ImageState_Accepted:
+				_createOtaRecord( eNotifyOtaUpdateAccepted, "PIC", version );
+				break;
+
+			case eOTA_ImageState_Rejected:
+				_createOtaRecord( eNotifyOtaUpdateRejected, "PIC", version );
+				break;
+
+			case eOTA_ImageState_Aborted:
+				_createOtaRecord( eNotifyOtaUpdateAborted, "PIC", version );
+				break;
+
+			default:
+				break;
+    	}
+
+        otaData.hostPal->xSetImageState( eState );
 
         return kOTA_Err_None;
     }
@@ -597,6 +791,21 @@ int16_t prvPAL_WriteBlock_override( OTA_FileContext_t * const C,
         OTA_LOG_L1( "[%s] OTA for alternate processor.\r\n", OTA_METHOD_NAME );
         return otaData.hostPal->xWriteBlock( C, iOffset, pacData, iBlockSize );
     }
+}
+
+void prvPAL_OTAComplete_override( OTA_JobEvent_t eEvent )
+{
+    DEFINE_OTA_METHOD_NAME( "prvPAL_OTAComplete_override" );
+
+    if( ( eEvent == eOTA_JobEvent_StartTest ) && ( otaData.savedServerFileID == 1 ) && ( otaData.hostPal->xComplete != NULL ) )
+	{
+    	otaData.savedServerFileID = 0xFFFFFFFF;
+    	otaData.hostPal->xComplete( eEvent );
+	}
+    else
+	{
+    	App_OTACompleteCallback( eEvent );
+	}
 }
 
 /* end of secondaryota_patch.txt */
@@ -668,11 +877,10 @@ static void _OTAUpdateTask( void *arg )
         .xResetDevice              = prvPAL_ResetDevice_override,
         .xSetPlatformImageState    = prvPAL_SetPlatformImageState_override,
         .xWriteBlock               = prvPAL_WriteBlock_override,
-        .xCompleteCallback         = App_OTACompleteCallback,
+        .xCompleteCallback         = prvPAL_OTAComplete_override,
         .xCustomJobCallback        = NULL	// otaDemoCustomJobCallback
     };
     bool	bNoUpdateAvailable = false;
-//    double percent;
 
 	IotLogInfo( "_OTAUpdateTask" );
 	otaData.previousState = OTA_GetAgentState();
@@ -682,24 +890,6 @@ static void _OTAUpdateTask( void *arg )
 	{
 		otaData.bConnected = mqtt_IsConnected();
 		otaData.eState = OTA_GetAgentState();
-
-		/* Look for state changes of OTA Agent */
-//		if( otaData.eState != otaData.previousState )
-//		{
-//			IotLogInfo( "OTA Agent State: %s -> %s", _pStateStr[ otaData.previousState ], _pStateStr[ otaData.eState ] );
-//			if( ( otaData.previousState == eOTA_AgentState_Ready ) && ( otaData.eState == eOTA_AgentState_WaitingForJob ) )
-//			{
-//				IotLogInfo( "No update available" );
-//				bNoUpdateAvailable = true;
-//			}
-//			else if( otaData.eState == eOTA_AgentState_WaitingForFileBlock )
-//			{
-//				otaData.lastPrecentComplete = 0;
-//				otaData.fileBlocks = otaData.C->ulBlocksRemaining;
-//				IotLogInfo( "Total File Blocks = %u", otaData.fileBlocks );
-//			}
-//			otaData.previousState = otaData.eState;
-//		}
 
 		switch( otaData.taskState )
 		{
@@ -779,7 +969,7 @@ static void _OTAUpdateTask( void *arg )
 					{
 						IotLogInfo( "OTA Agent State: %s -> %s", _pStateStr[ otaData.previousState ], _pStateStr[ otaData.eState ] );
 						otaData.fileBlocks = 0;												// Clear File Blocks on entry into WaitForJob
-						_otaNotificationUpdate( eNotifyOtaWaitForImage );
+						_otaNotificationUpdate( eNotifyOtaWaitForImage, NULL );
 						xTimerStart( otaData.xTimer, 0 );									// Start Timer
 					}
 					vTaskDelay( 10 / portTICK_PERIOD_MS );			// short delay to catch transitions
@@ -805,7 +995,7 @@ static void _OTAUpdateTask( void *arg )
 						{
 							otaData.completeBlocks = ( otaData.fileBlocks - otaData.C->ulBlocksRemaining );
 							IotLogInfo( "FileId: %u  Complete: %u/%u", otaData.C->ulServerFileID, otaData.completeBlocks, otaData.fileBlocks );
-							_otaNotificationUpdate( eNotifyOtaDownload );
+							_otaNotificationUpdate( eNotifyOtaDownload, &otaData.C->ulServerFileID );
 
 							/* If processing Host Image */
 							if( otaData.C->ulServerFileID == 1 )
@@ -813,14 +1003,6 @@ static void _OTAUpdateTask( void *arg )
 								_sendToHostQueue( &_hostOta_downloading );						// queue message to Host_ota module
 							}
 						}
-//						percent = ( ( double )( otaData.fileBlocks - otaData.C->ulBlocksRemaining ) / otaData.fileBlocks ) * 100;
-//						/* If percentage has changed */
-//						if( otaData.lastPrecentComplete != ( uint32_t )percent )
-//						{
-//							/* Save and report new percentage */
-//							otaData.lastPrecentComplete = ( uint32_t ) percent;
-//							IotLogInfo( "FileId: %u  Remaining: %u/%u (%u)", otaData.C->ulServerFileID, otaData.C->ulBlocksRemaining, otaData.fileBlocks );
-//						}
 					}
 					vTaskDelay( 10 / portTICK_PERIOD_MS );			// short delay to catch transitions
 				}
@@ -832,13 +1014,6 @@ static void _OTAUpdateTask( void *arg )
 					}
 					vTaskDelay( 10 / portTICK_PERIOD_MS );			// short delay to catch transitions
 				}
-//				{
-//					/* Periodically output statistics */
-//					IotLogInfo( "State: %s  Received: %u   Queued: %u   Processed: %u   Dropped: %u", _pStateStr[ otaData.eState ],
-//								OTA_GetPacketsReceived(), OTA_GetPacketsQueued(), OTA_GetPacketsProcessed(), OTA_GetPacketsDropped() );
-//					/* Wait - one second ... this may cause state transitions to be missed */
-//					IotClock_SleepMs( OTA_TASK_DELAY_SECONDS * 1000 );
-//				}
 				break;
 
 
@@ -932,7 +1107,7 @@ static void App_OTACompleteCallback( OTA_JobEvent_t eEvent )
 
 		vTaskDelay( 100 / portTICK_PERIOD_MS );				// give other tasks a chance to reset the task watchdog timer, before activating image
 
-		_otaNotificationUpdate( eNotifyOtaImageVerification );
+		_otaNotificationUpdate( eNotifyOtaImageVerification, NULL );
 
 		vTaskDelay( 100 / portTICK_PERIOD_MS );				// give other tasks a chance to reset the task watchdog timer, before activating image
 
@@ -990,7 +1165,7 @@ void vTimerCallback( TimerHandle_t xTimer )
 	if( xTimer != NULL )
 	{
 		IotLogInfo( "OTA Timer expired - No Update available" );
-		_otaNotificationUpdate( eNotifyOtaNoUpdateAvailable );
+		_otaNotificationUpdate( eNotifyOtaNoUpdateAvailable, NULL );
 		_sendToHostQueue( &_hostOta_noImageAvailable );							// Queue message to host_ota module
 
 		/*
@@ -1066,8 +1241,11 @@ int OTAUpdate_init( const char * pIdentifier,
 	/* Save the callback function for ImageUnavailable */
 	otaData.imageUnavailableCb = pHostInterface->imageUnavailableCb;
 
-	/* Ave the Transfer Pending callback function */
+	/* Save the Transfer Pending callback function */
 	otaData.transferPendingCb = pHostInterface->transferPendingCb;
+
+	/* Save Host Current Firmware Version callback function */
+	otaData.hostFirmwareVersionCb = pHostInterface->firmwareVersionCb;
 
 	/* Create a Timer - 5 seconds was too short */
 	otaData.xTimer = xTimerCreate( "OtaTimer", ( 10000 / portTICK_PERIOD_MS ), pdFALSE, ( void * )0, vTimerCallback );

@@ -78,7 +78,7 @@ def check_partition( port, name, address, length, minMatch):
         print("    " + s)
 
 #
-# Model-B Appliance ESP Encription Verification
+# Model-B Appliance ESP Encryption Verification
 #
 # This program should be run on both an encypted appliance and an unencrypted appliance and the data compared
 #		

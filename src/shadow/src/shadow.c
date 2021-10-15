@@ -61,6 +61,7 @@ typedef struct
 	time_t					contextTime;						/**< Time value used as context for Shadow callback */
 	bool					bConnected;							/**< Shadow connected status */
 	bool					bInitialized;						/**< Flag to ensure shadow library is only initialized once */
+	int						numberOfItems;						/**< Number of Shadow Items */
 
 } shadowData_t;
 
@@ -124,17 +125,43 @@ void _storeInNvs( _shadowItem_t * pItem )
  *
  * @param[in] pItem			Pointer to Shadow Item
  */
-void _fetchFromNvs( _shadowItem_t * pItem )
+static void _fetchFromNvs( _shadowItem_t * pItem )
 {
 	uint8_t bValue;
+	size_t size;
+	esp_err_t err;
+	char * currentVal;
 
 	IotLogInfo( "_fetchFromNvs: %s", pItem->jItem.key );
 
 	switch( pItem->jItem.jType )
 	{
 		case JSON_STRING:
-			if( ESP_OK != NVS_Get( pItem->nvsItem, pItem->jItem.jValue.string, 0 ) )
+			/* Get the size of item in NVS */
+			err = NVS_Get_Size_Of( pItem->nvsItem, &size );
+
+			/* If size can be read */
+			if( err == ESP_OK )
 			{
+				currentVal = pvPortMalloc( size );							// Allocate buffer
+				if( currentVal != NULL )
+				{
+					err = NVS_Get( pItem->nvsItem, currentVal, &size );		// Get current value
+					if( err == ESP_OK )
+					{
+						pItem->jItem.jValue.string = currentVal;			// Set value to allocated buffer
+					}
+				}
+				else
+				{
+					err = ESP_FAIL;											// Allocation failed
+				}
+			}
+
+			/* If any error in reading current value */
+			if( err != ESP_OK )
+			{
+				/* Set NVS with default value */
 				NVS_Set( pItem->nvsItem, pItem->jItem.jValue.string, 0 );
 			}
 			break;
@@ -182,6 +209,90 @@ void _fetchFromNvs( _shadowItem_t * pItem )
 	}
 }
 
+/**
+ * @brief	Update the local storage for the shadow item
+ *
+ * @param[in] pItem		Pointer to the Shadow Item
+ * @param[in] pValue	Pointer to the Shadow Item Value
+ *
+ * @return true: item value changed; false: item value unchanged
+ */
+static bool _updateItem(  _shadowItem_t * pItem, const void * pValue )
+{
+	bool	bChanged = false;
+	size_t	size;
+	IotLogInfo( "_updateItem: %s", pItem->jItem.key );
+
+	switch( pItem->jItem.jType )
+	{
+		case JSON_STRING:														// '\0' terminated string
+			size = strlen( ( char * ) pValue ) + 1;
+
+			IotLogInfo( "_updateItem, string: %s -> %s", pItem->jItem.jValue.string, pValue );
+
+			/* compare new to current value */
+			if( strcmp( pValue, pItem->jItem.jValue.string ) != 0 )
+			{
+				bChanged = true;
+			}
+
+			/* Free existing buffer storage */
+			if( pItem->jItem.jValue.string != NULL )
+			{
+				vPortFree( pItem->jItem.jValue.string );
+				pItem->jItem.jValue.string = NULL;
+			}
+			/* Allocate space from new string */
+			pItem->jItem.jValue.string = pvPortMalloc( size );
+			memcpy( pItem->jItem.jValue.string, pValue, size );
+			break;
+
+		case JSON_NUMBER:
+			IotLogError( "Storing floating-point value in NVS is not supported" );
+			break;
+
+		case JSON_INTEGER:
+			if( *pItem->jItem.jValue.integer != *( int16_t * )pValue )
+			{
+				bChanged = true;
+			}
+			*pItem->jItem.jValue.integer = *( int16_t * )pValue;
+			break;
+
+		case JSON_INT32:
+			if( *pItem->jItem.jValue.integer32 != *( int32_t * )pValue )
+			{
+				bChanged = true;
+			}
+			*pItem->jItem.jValue.integer32 = *( int32_t * )pValue;
+			break;
+
+		case JSON_UINT32:
+			if( *pItem->jItem.jValue.integerU32 != *( uint32_t * )pValue )
+			{
+				bChanged = true;
+			}
+			*pItem->jItem.jValue.integerU32 = *( uint32_t * )pValue;
+			break;
+
+		case JSON_BOOL:
+			{
+				bool bValue;
+				bValue = ( ( *( uint8_t *)pValue ) == 0 ) ? false : true;
+				if( *pItem->jItem.jValue.truefalse != bValue )
+				{
+					bChanged = true;
+				}
+				*pItem->jItem.jValue.truefalse = bValue;
+			}
+			break;
+
+		case JSON_NONE:
+		default:
+			break;
+	}
+	return bChanged;
+}
 
 /**
  * @brief	Create a client token using a timestamp
@@ -218,6 +329,7 @@ static char * _formatShadowUpdate( void )
     _jsonItem_t *pItem;
     bool	bUpdateNeeded = false;
 
+    IotLogInfo( "_formatShadowUpdate" );
     /* Start by creating a client token */
 	len = mjson_printf( &mjson_print_dynamic_buf, &staticShadowJSON, "{%Q:%Q}", "clientToken", _makeToken() );
 
@@ -246,6 +358,8 @@ static char * _formatShadowUpdate( void )
 
     	}
     }
+
+    IotLogInfo( "shadowJSON = %s", staticShadowJSON );
 
     /* If no update is needed, free format buffer and return NULL */
     if( bUpdateNeeded == false )
@@ -880,6 +994,28 @@ int shadow_init(void)
 }
 
 /**
+ * @brief	Initialize a Shadow String Item to "uninitialized"
+ *
+ * Allocate a dynamic buffer and copy constant string into it.
+ */
+static void _initString( char **pString )
+{
+	const char uninit[] = "uninitialized";
+
+	/* Allocate space from new string */
+	*pString = pvPortMalloc( sizeof( uninit ) );
+	if( pString == NULL )
+	{
+		IotLogError( "Cannot allocate shadow item buffer" );
+	}
+	else
+	{
+		strcpy( *pString, uninit );				// copy "uninitialized" string
+		printf( "_initString: %s\n", *pString );
+	}
+}
+
+/**
  * @brief	Initialize Shadow Item List
  *
  * @param[in]	pShadowItemList		Pointer to list of Shadow Items
@@ -890,14 +1026,67 @@ void shadow_initItemList( _shadowItem_t *pShadowItemList )
 
 	IotLogInfo( "Initializing Shadow Item List" );
 	shadowData.itemList = pShadowItemList;
+	shadowData.numberOfItems = 0;
 
 	/* Iterate through Shadow Item List fetching values from NVS */
 	for( pShadowItem = shadowData.itemList; pShadowItem->jItem.key != NULL; ++pShadowItem )
 	{
+		++shadowData.numberOfItems;
 		if( pShadowItem->nvsItem != -1 )
 		{
+			/* For strings with associated NVS set default to a dynamically allocated "Uninitialized" string */
+			if( pShadowItem->jItem.jType == JSON_STRING )
+			{
+				_initString( &pShadowItem->jItem.jValue.string );
+			}
 			_fetchFromNvs( pShadowItem );
 			pShadowItem->jItem.bUpdate = true;
+			vTaskDelay( 10 / portTICK_PERIOD_MS );
+		}
+		else if( pShadowItem->jItem.jType == JSON_STRING )
+		{
+			/* For strings without associated NVS storage, create string, but don't set update flag */
+			_initString( &pShadowItem->jItem.jValue.string );
+			printf( "shadow_initItemList, key = %s, value = %s\n", pShadowItem->jItem.key, pShadowItem->jItem.jValue.string );
 		}
 	}
+	IotLogInfo( "%d items initialized", shadowData.numberOfItems );
+}
+
+/**
+ * @brief	Update a Shadow Item
+ *
+ * The local storage is updated
+ * If the Item has associated NVS storage, that is updated
+ * The Item's update flag is set
+ * Attempt to update the AWS shadow
+ *
+ * @param[in]	item	Shadow Item index
+ * @param[in]	pData	Pointer to the item's new data
+ *
+ * @return true: item value changed; false: item value unchanged
+ */
+bool shadow_updateItem( int item, const void * pData )
+{
+	bool bChanged = false;
+	_shadowItem_t *pShadowItem;
+
+	IotLogInfo( "shadow_updateItem: %d", item );
+
+	if( item < shadowData.numberOfItems )
+	{
+		pShadowItem = &shadowData.itemList[ item ];
+		bChanged = _updateItem( pShadowItem, pData );			// update the local storage
+		if( pShadowItem->nvsItem != -1 )						// for items with NVS storage
+		{
+			_storeInNvs( pShadowItem );							// Update NVS store
+		}
+		pShadowItem->jItem.bUpdate = true;						// set the update flag
+		shadow_updateReported();								// Update the Shadow
+	}
+	else
+	{
+		IotLogError( "Invalid Shadow Item (%d), number of items = %d", item, shadowData.numberOfItems );
+	}
+	return bChanged;
 }

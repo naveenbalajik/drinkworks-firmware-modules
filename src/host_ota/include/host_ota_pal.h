@@ -81,6 +81,7 @@ int16_t hostOta_WriteBlock( OTA_FileContext_t * const C,
 
 bool hostOta_isImageValid( void );
 
+void hostOta_Complete( OTA_JobEvent_t eEvent );
 
 #ifdef __cplusplus
 }
