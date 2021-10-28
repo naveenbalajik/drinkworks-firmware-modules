@@ -25,6 +25,7 @@ import json
 import re
 import argparse
 import functools
+import shutil
 
 # Update this version number with subsequent releases
 utilityVersion = "1.0"
@@ -87,18 +88,34 @@ if __name__ == "__main__":
     # Invoke HexMate command, check exit code before deleting input file
     # At command prompt "echo %errorlevel%" shows exit code
     # Hexmate return 0 upon success
-    if( os.system(hexmateCommand) == 0):
-
-        # Delete original file
-        os.remove(args.hexfile)
-	
-        # Rename temp file to original filename
-        os.rename( tempfile, args.hexfile )
-
-        # Success
-        sys.exit(0)
-    else:
+    if( os.system(hexmateCommand) != 0):
         print( f'ERROR: hexmate failed')
         sys.exit(6)
+		
+    print( 'Hexmate sucess' )
+	
+    # Delete original file
+    try:
+        shutil.copyfile( tempfile, args.hexfile )
+    except OSError as why:
+        print( f'Error copying {tempfile} to {args.hexfile}: str(why)')
+        sys.exit(7)
+		
+    sys.exit(0)
+    if( os.remove(args.hexfile) != 0):
+        print( f'ERROR: delete {args.hexfile} failed')
+        sys.exit(7)
+		
+    print( f'Remove {args.hexfile} success' )
+	
+    # Rename temp file to original filename
+    if( os.rename( tempfile, args.hexfile ) != 0):
+        print( f'ERROR: rename failed')
+        sys.exit(8)
+
+    print( f'Rename success')
+	
+    # Success
+    sys.exit(0)
 	
 	
