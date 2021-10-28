@@ -85,7 +85,7 @@ if __name__ == "__main__":
     hexmateCommand = f'"{args.hexmate}" {args.hexfile} {fill}@{args.ProgStart:#x}:{args.ProgEnd:#x} {fill}@{args.BootStart:#x}:{args.BootEnd:#x} {check}{args.CrcStart:#x}-{args.CrcEnd:#x}@{args.CrcLocation:#x}{flags} -o{tempfile}'
     print( f'{hexmateCommand}')
 	
-    # Invoke HexMate command, check exit code before deleting input file
+    # Invoke HexMate command, check exit code before overwriting input file
     # At command prompt "echo %errorlevel%" shows exit code
     # Hexmate return 0 upon success
     if( os.system(hexmateCommand) != 0):
@@ -94,27 +94,15 @@ if __name__ == "__main__":
 		
     print( 'Hexmate sucess' )
 	
-    # Delete original file
+    # overwrite original file
     try:
         shutil.copyfile( tempfile, args.hexfile )
     except OSError as why:
         print( f'Error copying {tempfile} to {args.hexfile}: str(why)')
         sys.exit(7)
 		
-    sys.exit(0)
-    if( os.remove(args.hexfile) != 0):
-        print( f'ERROR: delete {args.hexfile} failed')
-        sys.exit(7)
-		
-    print( f'Remove {args.hexfile} success' )
-	
-    # Rename temp file to original filename
-    if( os.rename( tempfile, args.hexfile ) != 0):
-        print( f'ERROR: rename failed')
-        sys.exit(8)
+    print( f'Copy {tempfile} --> {args.hexfile}')
 
-    print( f'Rename success')
-	
     # Success
     sys.exit(0)
 	
