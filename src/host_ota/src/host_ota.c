@@ -686,6 +686,7 @@ typedef struct
 	hostOta_status_t	bootmeStatus;				/**< OTA Status reported to PIC via Bootme Response */
 	TimerHandle_t		xfrTimer;					/**< Timer use to detect timeouts in transfer */
 	bool				bXferTimeout;				/**< true if transfer timer expired */
+	uint32_t			erasePageSize;				/**< Host MCU erase page size, set from version.dci */
 
 } host_ota_t;
 
@@ -898,9 +899,12 @@ static esp_err_t onStatus_VersionAck( const void * pData )
 	esp_err_t	err = ESP_OK;
 	const _blVersionStatus_t * pVersion = pData;
 
+	_hostota.erasePageSize = pVersion->dci.erasePageSize;
+
 	IotLogInfo( "Firmware version = %d.%02d", pVersion->versionMajor, pVersion->versionMinor );
 	IotLogInfo( "Device ID/Rev = %04X/%04X", pVersion->device.id, pVersion->device.revision );
 	IotLogInfo( "Max packet size = %d", pVersion->maxPacketSize );
+	IotLogInfo( "Erase page size = %d", _hostota.erasePageSize );
 
 	return( err );
 }
@@ -1558,7 +1562,16 @@ static size_t flashErase( host_ota_t *pHost, _otaOpcode_t opcode )
 	size_t			pageCount;
 	IotLogDebug( "Send Flash Erase" );
 
-	pageCount = ( pHost->ImageSize - pHost->startAddress) / 256;			// erase page is 128 words, 256 bytes
+	/* Calculate page count */
+	if( pHost->erasePageSize )															// If erase page size has been set from version.dci
+	{
+		pageCount = ( pHost->ImageSize - pHost->startAddress) / pHost->erasePageSize;	// use supplied erase page size
+
+	}
+	else
+	{
+		pageCount = ( pHost->ImageSize - pHost->startAddress) / 256;					// default erase page is 128 words, 256 bytes
+	}
 
 	/* pack command */
 	return( packFlashEraseCmnd( pHost->pXferBuf, pHost->targetAddress, pageCount ) );
@@ -1615,6 +1628,7 @@ static void nextBlock( host_ota_t *pHost )
 static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 {
 	_blCommand_t * pCommand = pHost->pXferBuf;
+	int skipBlockCount = 0;
 
 	IotLogDebug( "Send Flash Write" );
 
@@ -1644,6 +1658,10 @@ static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 		{
 			break;
 		}
+
+		/* count number of blocks skipped, to control when to add delay */
+		++skipBlockCount;
+
 		IotLogDebug( "Image page @ %08X is blank - skip writing", pHost->imageAddress );
 
 		/* increment addresses, decrement counters */
@@ -1656,8 +1674,14 @@ static size_t flashWrite( host_ota_t *pHost, _otaOpcode_t opcode )
 		 *
 		 * Setting the delay to 50ms should be safe. It will increase the transfer time by ~4.3s, compared with
 		 * a 10ms delay ... but it will work!
+		 *
+		 * Only add delay after skipBlockCount reaches threshold, this will speed up transfer
 		 */
-    	vTaskDelay( 50 / portTICK_PERIOD_MS );
+		if( skipBlockCount > 10 )
+		{
+			vTaskDelay( 50 / portTICK_PERIOD_MS );
+			skipBlockCount = 0;
+		}
 	}
 
 	/* Pack data into command */
@@ -2533,6 +2557,13 @@ static void _hostOtaTask(void *arg)
     				else
     				{
     					_hostota.bOtaImageVerified = true;
+    				}
+
+    				/* Check ImageState in NVS, if Invalid, set to Unknown */
+    				if( _hostota.imageState == eOTA_PAL_ImageState_Invalid )
+    				{
+    					setImageState( eOTA_PAL_ImageState_Unknown );			/* Note image is unknown */
+    					IotLogInfo( "ImageState Invalid --> Unknown" );
     				}
 
 					_hostota.state = eHostOtaVersionCheck;
