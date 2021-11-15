@@ -2810,7 +2810,15 @@ OTA_PAL_ImageState_t hostOta_getImageState( void )
 OTA_Err_t hostOta_setImageState( OTA_ImageState_t eState )
 {
 	IotLogInfo( "Set ImageState = %d", eState);
-	_hostota.imageState = eState;
+	if( eState == eOTA_ImageState_Aborted )
+	{
+		IotLogError( "Aborted state not supported, set to Invalid" );
+		eState = eOTA_PAL_ImageState_Invalid;
+	}
+
+	/* Update state in _hostOta and in NVS */
+	setImageState( eState );
+
 	return( kOTA_Err_None );
 }
 

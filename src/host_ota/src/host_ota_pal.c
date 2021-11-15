@@ -47,6 +47,8 @@
 #include "mbedtls/base64.h"
 
 #include "host_ota_pal.h"
+//#include "host_ota.h"
+extern OTA_Err_t hostOta_setImageState( OTA_ImageState_t eState );
 
 #define kOTA_HalfSecondDelay    pdMS_TO_TICKS( 500UL )
 #define ECDSA_INTEGER_LEN       32
@@ -616,9 +618,14 @@ OTA_Err_t hostOta_CloseFile( OTA_FileContext_t * const C )
  */
 OTA_Err_t IRAM_ATTR hostOta_ResetDevice( void )
 {
+	ESP_LOGI( TAG, "hostOta_ResetDevice, Host OTA Transfer failed!!" );
+	hostOta_setImageState( eOTA_PAL_ImageState_Invalid );
+
     /* Short delay for debug log output before reset. */
     vTaskDelay( kOTA_HalfSecondDelay );
-    esp_restart();
+
+    ESP_LOGI( TAG, "No reason to reset the ESP here!!! ");
+//    esp_restart();
     return kOTA_Err_None;
 }
 
