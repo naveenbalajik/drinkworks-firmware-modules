@@ -31,12 +31,20 @@ import shutil
 # Update this version number with subsequent releases
 utilityVersion = "1.0"
 
-#filelines = []
-constants = []
+path = r'C:\Users\ian.whitehead\Desktop\ModelB_DispenseEngine\MODB.X'
 
 POLYNOMIAL = 0x1021
 PRESET = 0
 
+scanlines = list()
+
+#
+# CRC16 support
+#
+
+#
+# Build CRC look-up table
+#
 def _initial(c):
     crc = 0
     c = c << 8
@@ -50,22 +58,29 @@ def _initial(c):
 
 _tab = [ _initial(i) for i in range(256) ]
 
+#
+# Add byte to CRC calculation, using lookup table
+#
 def _update_crc(crc, c):
     cc = 0xff & c
 
     tmp = (crc >> 8) ^ cc
     crc = (crc << 8) ^ _tab[tmp & 0xff]
     crc = crc & 0xffff
-#    print (crc)
-
     return crc
 
+#
+# Calculate CRC on a string
+#
 def crc(str):
     crc = PRESET
     for c in str:
         crc = _update_crc(crc, ord(c))
     return crc
 
+#
+# Calculate a CRC on a byte array
+#
 def crcb(ba):
     crc = PRESET
     for c in ba:
@@ -73,18 +88,6 @@ def crcb(ba):
     return crc
 	
 	
-def lines_that_equal(line_to_match, fp):
-    return [line for line in fp if line == line_to_match]
-
-def lines_that_contain(string, fp):
-    print( f'Looking for {string}')
-    return [line for line in fp if string in line]
-
-def lines_that_start_with(string, fp):
-    return [line for line in fp if line.startswith(string)]
-
-def lines_that_end_with(string, fp):
-    return [line for line in fp if line.endswith(string)]
 
 def string_Value( string ):
     number = re.match(r'0x[0-9|A-F|a-f]+', string)
@@ -99,53 +102,102 @@ def string_Value( string ):
             value = 0
     return value
 
+#
+# Swap bytes of 16-bit word value
+#
 def byteswap(word):
     return( ( word >> 8 ) + ( ( word & 0x00ff ) << 8 ) )
-	
-def find_constant_definition( string, lines):
-    ss = f'^#define\s*{string}\s*([0-9|A-F|a-f|x|X]+)'
+
+#
+# Find a defined constant from the lines array
+#
+# C-style constants are of the form
+#  "#define   <tag>  <value>"
+#	
+def find_constant_definition( tag, lines):
+    # Search string includes <tag>
+    ss = f'^#define\s*{tag}\s*([0-9|A-F|a-f|x|X]+)'
     value = 0
     pattern = re.compile(ss)
     for line in lines:
         z = pattern.match(line)
         if z:
-#            print( f'{string} = {z.group(1)}')
+#            print( f'{tag} = {z.group(1)}')
             value = string_Value( z.group( 1 ) )
-#            print( f'{string} = {string_Value(z.group(1))}')
-#    print( f'{string} = {value:#x}')
+#            print( f'{tag} = {string_Value(z.group(1))}')
+#    print( f'{tag} = {value:#x}')
     return value
+
+#
+# Extract a 16-bit word value from input string
+#
+# string can be in the form of:
+#    decimal:  1234
+#    hexadecimal: 0x1234
+#    defined constant:  OOBE_STAGE1_DEFAULT
+#
+# For defined constants the source file (and included files) will be scanned for the first occurance of
+# a valid C-style constant definition.
+#	e.g.  "#define  OOBE_STAGE1_DEFAULT  0xffff"
+#
+# Return a 2-element bytearray
 	
 def word_value( string ):
-    number = re.match(r'[0-9]+', string)
-    if (number != None):
-        value = (int(string))
-        #print( f'word_value: {value:#x}')
-    else:
-        number = re.match(r'0x[0-9|A-F|a-f]+', string)
-        if number != None:
-            print( f'Hex number: {number}')
-        else:
-#            print( f'Defined constant: {string}')
-			# Add defined constant to list
-#            constants.append( string )
-            value = find_constant_definition(string, filelines )
-			
-    return bytearray( divmod(value, 256))
-	
-def byte_value( string ):
+    # first look for hex value
     number = re.match(r'0x[0-9|A-F|a-f]+', string)
     if number != None:
         value = int(string, 16)
-        #print( f'byte_value: {value:#x}')
-        #print( f'Hex number: {number}')
+        print( f'Hex number: {value:#x}')
     else:
+        # next look for decimal value
+        number = re.match(r'[0-9]+', string)
+        if (number != None):
+            value = (int(string))
+            #print( f'word_value: {value:#x}')
+        else:
+            # lastly, look for defined constants
+            #print( f'Defined constant: {string}')
+            value = find_constant_definition(string, scanlines )
+			
+    return bytearray( divmod(value, 256))
+	
+#
+# Extract an 8-bit byte value from input string
+#
+# string can be in the form of:
+#    decimal:  12
+#    hexadecimal: 0x12
+#    C-stype character:  'E'
+#    defined constant:  TEST_VALUE
+#
+# For defined constants the source file (and included files) will be scanned for the first occurance of
+# a valid C-style constant definition.
+#	e.g.  "#define  TEST_VALUE  0x7C"
+#
+# Returns 8-bit value
+def byte_value( string ):
+    # first look for hex value
+    number = re.match(r'0x[0-9|A-F|a-f]+', string)
+    if number != None:
+        value = int(string, 16)
+    else:
+        # next look for decimal value
         number = re.match(r'[0-9]+', string)
         if number != None:
             value = (int(string))
-            #print( f'byte_value: {value:#x}')
         else:
-#            print( f'Defined constant: {string}')
-            value = find_constant_definition( string, filelines )
+             # next look for C-style character, keep it simple
+            patt = r"'([A-Z|a-z|0-9])'"
+            if re.search( patt, string ) is not None:
+                pattern = re.compile(r"'([A-Z|a-z|0-9])'")
+                for match in pattern.finditer( string ):
+                    ba = bytearray( match.group(1).encode() )
+                    value = ba[0]
+                    #print( f'value = {value:#x}')
+            else:
+                # lastly, look for defined constants
+                #print( f'Defined constant: {string}')
+                value = find_constant_definition( string, scanlines )
     return value
 
 #
@@ -163,27 +215,17 @@ def byte_value( string ):
 #
 def parse_data( line ):
     databytes = bytearray()
-	#print( f'Data: {line}')
-    #print(re.split('^\s*\.[_A-Z|a-z0-9|\s]+=\s*', line))
-    #print(re.split('\s*\.[_A-Z|a-z0-9|\s=]+', line))
-    #print(re.split('^[^=]*=\s*', line))
-    #data = re.search(r'(\b[a-z|A-Z|0-9]+\b)\s*\{?(.*),$', line)
-#    data = re.search(r'(\b[a-z|A-Z|0-9]+\b)\s*\{?(.*),$', line)
-#    print( data.groups() )
-#    pattern = re.compile(r'(\b\(uint[0-9]+_t\)[a-z|A-Z|0-9]+,\b)')
-    pattern = re.compile(r'(\(uint[0-9]+_t\))([_|a-z|A-Z|0-9]+)')
-#    pattern = re.compile(r'(\b"(uint8_t)"[a-z|A-Z|0-9]+,\b)')
+    pattern = re.compile(r"(\(uint[0-9]+_t\))(['_|a-z|A-Z|0-9]+)")
+	
+	# find data items in line, accumulate bytes in databytes
     for match in pattern.finditer(line):
         if '16' in match.group(1):
-            #print( f'Word: {match.group(2)}')
             ba = word_value( match.group(2) )
-            #print( f'{ba[0]:#x},{ba[1]:#x}')
             databytes.append( ba[1] )
             databytes.append( ba[0] )
         if '8' in match.group(1):
-            #print( f'Byte: {match.group(2)}')
-            
             databytes.append( byte_value( match.group(2)) )
+
     #print( 'databytes: ' + (' '.join(format(x, '02x') for x in databytes ) ) )
     datastring = (' '.join(format(x, '02x') for x in databytes ) )
     crc = crcb( databytes)
@@ -208,6 +250,26 @@ def parse_value( line ):
         field = z.group( 1 )
     return field
 
+#
+# Read Include file, if present, add lines to scanlines list
+#
+def readInclude( line ):
+    pattern = re.compile( r'#include\s*"([\._|a-z|A-Z|0-9]+)"')
+    z = pattern.match( line )
+    if z:
+        filename = path + "\\" + z.group( 1 )
+	    # Check that include file exists
+        if os.path.exists( filename ):
+            #print( f'Include file \"{filename}\" exists')
+            try:
+                file = open(filename, 'r')
+                includeLines = file.readlines()
+                for iline in includeLines:
+                    scanlines.append( iline )	
+            except OSError:
+                print( f'Could not open/read file {filename}')
+	
+    return
 
 
 
@@ -242,6 +304,13 @@ def scanSourceFile(filename):
             elif "/*#* _CRC_END_ *#*/" in line:
                 print( 'Error: CRC_END before CRC_START')
                 sys.exit(3)
+            elif line.startswith( r'#include' ):
+#                print( f'Include file: {line}' )
+                readInclude( line )
+            else:
+                # Add to scan lines
+                scanlines.append( line )
+				
             # copy line to output
             outlines.append( line )
 				
@@ -276,10 +345,18 @@ def scanSourceFile(filename):
                 print( f'\t{field:15}\t\t = {calculatedCRC}' )
                 outlines.append( f'\t{field:15}\t\t = {calculatedCRC}\n' )
 				
+    # write scanlines to file
+    try:
+        scanfile = open("scan.c", 'w')
+        for sc in scanlines:
+            scanfile.writelines( sc )
+    except OSError:
+        print( f'Could not open/ write scan file')
+
     # write outlines to file
     try:
         outfile = open("output.c", 'w')
-        outfile.writelines( outlines)
+        outfile.writelines( outlines )
     except OSError:
         print( f'Could not open/ write file')
         sys.exit(9)		
