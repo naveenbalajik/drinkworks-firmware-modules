@@ -109,6 +109,16 @@ def byteswap(word):
     return( ( word >> 8 ) + ( ( word & 0x00ff ) << 8 ) )
 
 #
+# Strip out C-style comments
+#
+#	Basic functionality:
+#		// .....
+#		/* .... */
+#
+def stripcomments(text):
+    return re.sub('//.*|/\*.*\*/', '', text)
+	
+#
 # Find a defined constant from the lines array
 #
 # C-style constants are of the form
@@ -116,16 +126,46 @@ def byteswap(word):
 #	
 def find_constant_definition( tag, lines):
     # Search string includes <tag>
-    ss = f'^#define\s*{tag}\s*([0-9|A-F|a-f|x|X]+)'
+    reTag = re.compile( f'^#define\s*{tag}\s*(.*)')
     value = 0
-    pattern = re.compile(ss)
+    tagFound = False
+
+    # Find the tag line	
     for line in lines:
-        z = pattern.match(line)
+        z = reTag.match( line )
+        #z = pattern.match(line)
         if z:
-#            print( f'{tag} = {z.group(1)}')
-            value = string_Value( z.group( 1 ) )
+            # Strip off any C-style comments
+            const = stripcomments( z.group(1) )
+            #print( f'{tag}:: {const}')
+			
+			# look for parentheses
+            outer = re.compile("\((.+)\)")
+            m = outer.search( const )
+            if m:
+                inner_str = m.group(1)
+                print( f'inner: {inner_str}')
+				
+                # look for type casting
+                typecast = re.compile( r"(\(uint[0-9]+_t\))\s+(['a-f|A-F|0-9]+)" )
+                n = typecast.match( inner_str )
+                if n:
+                    value = string_Value( n.group(2) )
+                    #print( f'value = {n.group(2)}')
+                else:
+                    print( "No typecast match ")
+                    value = 0
+            else:
+                value = string_Value( const )
 #            print( f'{tag} = {string_Value(z.group(1))}')
+            # terminate search on first match
+            tagFound = True
+            break
 #    print( f'{tag} = {value:#x}')
+
+    if not tagFound:
+        print( f'No value found for {tag}' )
+
     return value
 
 #
@@ -226,13 +266,9 @@ def parse_data( line ):
         if '8' in match.group(1):
             databytes.append( byte_value( match.group(2)) )
 
-    #print( 'databytes: ' + (' '.join(format(x, '02x') for x in databytes ) ) )
     datastring = (' '.join(format(x, '02x') for x in databytes ) )
     crc = crcb( databytes)
-    #print( f'CRC: {crc:#x}')
     crcValueString = f'0x{byteswap(crc):04x},\t\t/* {datastring} -> 0x{crc:04x} */'
-    #print( f'CRC: 0x{byteswap(crc):04x},\t\t/* {datastring} -> 0x{crc:04x} */')
-    #print( f'CRC: {crcValueString}')
     return crcValueString
 	
 #
@@ -260,7 +296,6 @@ def readInclude( line ):
         filename = path + "\\" + z.group( 1 )
 	    # Check that include file exists
         if os.path.exists( filename ):
-            #print( f'Include file \"{filename}\" exists')
             try:
                 file = open(filename, 'r')
                 includeLines = file.readlines()
