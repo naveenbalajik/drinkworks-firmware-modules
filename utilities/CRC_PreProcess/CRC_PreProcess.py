@@ -16,12 +16,7 @@
 #
 import sys
 import os
-#import hashlib
-#import base64
-#from intelhex import IntelHex
-#import datetime
 import libscrc
-import json
 import re
 import argparse
 import functools
@@ -90,6 +85,10 @@ def crcb(ba):
 #
 # Strip off type casting
 #
+# Strip off type casting:
+#	(uint8_t)
+#	(uint16_6)
+#
 def typeCast( string ):
     typecast = re.compile( r"(\(uint[0-9]+_t\))\s+(['a-f|A-F|0-9]+)" )
     n = typecast.match( string )
@@ -102,6 +101,14 @@ def typeCast( string ):
 
 #
 # Look for binary operation
+#
+# Binary operation Macro expansion
+#  <v1> <op> <v2>
+# Where
+#    v1, V2:  ( .... ) or [a-f|A-F|0-9|_]
+#    op: +,*, -
+#
+# If v1 and/or v2 of the form (... ) recurse
 #
 def binaryOperation( string ):	
     lrv = '(\(.+\)|[a-z|A-Z|0-9|_]+)'			# left or right value
@@ -124,7 +131,6 @@ def binaryOperation( string ):
         value = calc
     else:
 #        print( "No binary operation")
-        #value = string_Value( string )
         value = typeCast( string )
     return value
 
@@ -165,13 +171,6 @@ def stripcomments(text):
 # C-style constants are of the form
 #  "#define   <tag>  <value>"
 #
-# Macro expansion
-#  <v1> <op> <v2>
-# Where
-#    v1, V2:  ( .... ) or [a-f|A-F|0-9|_]
-#    op: +,*, -
-#
-# If v1 and/or v2 of the form (... ) recurse
 #	
 def find_constant_definition( tag, lines):
     # Search string includes <tag>
@@ -183,53 +182,11 @@ def find_constant_definition( tag, lines):
     # Find the tag line	
     for line in lines:
         z = reTag.match( line )
-        #z = pattern.match(line)
         if z:
             # Strip off any C-style comments
             const = stripcomments( z.group(1) )
             #print( f'{tag}:: {const}')
             value = strip_parentheses( const )
-			# look for outer parentheses
-#            outer = re.compile("\((.+)\)")
-#            m = outer.search( const )
-#            if m:
-#                inner_str = m.group(1)
-#                print( f'inner: {inner_str}')
-				
-                # look for type casting
-#                typecast = re.compile( r"(\(uint[0-9]+_t\))\s+(['a-f|A-F|0-9]+)" )
-#                n = typecast.match( inner_str )
-#                if n:
-#                    value = string_Value( n.group(2) )
-#                    #print( f'value = {n.group(2)}')
-#                else:
-#					# Look for binary operation
-#                    lrv = '(\(.+\)|[a-z|A-Z|0-9|_]+)'			# left or right value
-#                    opr = '([\*\+-])'							# operator
-#                    pattern = f'\s*{lrv}\s+{opr}\s+{lrv}'
-#                    reSplit = re.compile( pattern )
-#                    results = reSplit.match( inner_str );
-#					# Look for inner parentheses with operator
-#                    #reInner = re.compile("\s*\(\s*([A-Z|a-z|0-9|_]+)\s+([\*\+-])\s*([A-Z|a-z|0-9|_]+)\s*\)")
-#                    #results = reInner.match( inner_str )
-#                    if results:
-#                        print( f'v1:{results.group(1)} op:{results.group(2)} v2:{results.group(3)}' )
-#                        v1 = string_Value( results.group(1) )
-#                        v2 = string_Value( results.group(3) )
-#                        op = results.group(2)
-#                        if op == '+':
-#                            calc = v1 + v2
-#                        if op == '*':
-#                            calc = v1 * v2
-#                        if op == '-':
-#                            calc = v1 - v2
-#                        print( f'{v1} {op} { v2} = {calc}' )
-#                    else:
-#                        print( "No inner parentheses macro")
-#                    value = 0
-#            else:
-#                value = string_Value( const )
-#            print( f'{tag} = {string_Value(z.group(1))}')
             # terminate search on first match
             tagFound = True
             break
@@ -241,76 +198,19 @@ def find_constant_definition( tag, lines):
     return value
 
 #
-# Extract a 16-bit word value from input string
+# Extract a numeric value from input string
 #
 # string can be in the form of:
 #    decimal:  1234
 #    hexadecimal: 0x1234
+#    C-stype character:  'E'
 #    defined constant:  OOBE_STAGE1_DEFAULT
 #
 # For defined constants the source file (and included files) will be scanned for the first occurance of
 # a valid C-style constant definition.
 #	e.g.  "#define  OOBE_STAGE1_DEFAULT  0xffff"
 #
-# Return a 2-element bytearray
-	
-def word_value( string ):
-    # first look for hex value
-    number = re.match(r'0x[0-9|A-F|a-f]+', string)
-    if number != None:
-        value = int(string, 16)
-        print( f'Hex number: {value:#x}')
-    else:
-        # next look for decimal value
-        number = re.match(r'[0-9]+', string)
-        if (number != None):
-            value = (int(string))
-            #print( f'word_value: {value:#x}')
-        else:
-            # lastly, look for defined constants
-            #print( f'Defined constant: {string}')
-            value = find_constant_definition(string, scanlines )
-			
-    return bytearray( divmod(value, 256))
-	
-#
-# Extract an 8-bit byte value from input string
-#
-# string can be in the form of:
-#    decimal:  12
-#    hexadecimal: 0x12
-#    C-stype character:  'E'
-#    defined constant:  TEST_VALUE
-#
-# For defined constants the source file (and included files) will be scanned for the first occurance of
-# a valid C-style constant definition.
-#	e.g.  "#define  TEST_VALUE  0x7C"
-#
-# Returns 8-bit value
-def byte_value( string ):
-    # first look for hex value
-    number = re.match(r'0x[0-9|A-F|a-f]+', string)
-    if number != None:
-        value = int(string, 16)
-    else:
-        # next look for decimal value
-        number = re.match(r'[0-9]+', string)
-        if number != None:
-            value = (int(string))
-        else:
-             # next look for C-style character, keep it simple
-            patt = r"'([A-Z|a-z|0-9])'"
-            if re.search( patt, string ) is not None:
-                pattern = re.compile(r"'([A-Z|a-z|0-9])'")
-                for match in pattern.finditer( string ):
-                    ba = bytearray( match.group(1).encode() )
-                    value = ba[0]
-                    #print( f'value = {value:#x}')
-            else:
-                # lastly, look for defined constants
-                #print( f'Defined constant: {string}')
-                value = find_constant_definition( string, scanlines )
-    return value
+# Returns numeric value
 
 def string_Value( string ):
     number = re.match(r'0x[0-9|A-F|a-f]+', string)
@@ -333,11 +233,6 @@ def string_Value( string ):
                 # lastly, look for defined constants
                 #print( f'Defined constant: {string}')
                 value = find_constant_definition( string, scanlines )
-           # lastly, look for defined constants
-            #print( f'Defined constant: {string}')
-            #value = find_constant_definition(string, scanlines )
-            #print( f'Defined constant: {string}')
-            #value = 0
     return value
 
 #
@@ -367,7 +262,6 @@ def parse_data( line ):
             databytes.append( ba[1] )
         if '8' in match.group(1):
             databytes.append( value )
-            #databytes.append( byte_value( match.group(2)) )
 
     datastring = (' '.join(format(x, '02x') for x in databytes ) )
     crc = crcb( databytes)
@@ -483,14 +377,6 @@ def scanSourceFile(filename):
                 print( f'\t{field:15}\t\t = {calculatedCRC}' )
                 outlines.append( f'\t{field:15}\t\t = {calculatedCRC}\n' )
 				
-    # write scanlines to file
-    try:
-        scanfile = open("scan.c", 'w')
-        for sc in scanlines:
-            scanfile.writelines( sc )
-    except OSError:
-        print( f'Could not open/ write scan file')
-
     # write outlines to file
     try:
         outfile = open("output.c", 'w')
