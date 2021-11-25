@@ -16,10 +16,10 @@
 #
 import sys
 import os
-import hashlib
-import base64
-from intelhex import IntelHex
-import datetime
+#import hashlib
+#import base64
+#from intelhex import IntelHex
+#import datetime
 import libscrc
 import json
 import re
@@ -86,21 +86,62 @@ def crcb(ba):
     for c in ba:
         crc = _update_crc(crc, c)
     return crc
-	
-	
 
-def string_Value( string ):
-    number = re.match(r'0x[0-9|A-F|a-f]+', string)
-    if (number != None):
-        value = int(string, 16)
+#
+# Strip off type casting
+#
+def typeCast( string ):
+    typecast = re.compile( r"(\(uint[0-9]+_t\))\s+(['a-f|A-F|0-9]+)" )
+    n = typecast.match( string )
+    if n:
+        value = string_Value( n.group(2) )
+#        print( f'value = {n.group(2)}')
     else:
-        number = re.match(r'[0-9]+', string)
-        if number != None:
-            value = (int(string))
-        else:
-            print( f'Defined constant: {string}')
-            value = 0
+        value = string_Value( string )
     return value
+
+#
+# Look for binary operation
+#
+def binaryOperation( string ):	
+    lrv = '(\(.+\)|[a-z|A-Z|0-9|_]+)'			# left or right value
+    opr = '([\*\+-])'							# operator
+    pattern = f'\s*{lrv}\s+{opr}\s+{lrv}'
+    reSplit = re.compile( pattern )
+    results = reSplit.match( string );
+    if results:
+#        print( f'v1:{results.group(1)} op:{results.group(2)} v2:{results.group(3)}' )
+        v1 = strip_parentheses( results.group(1) )
+        v2 = strip_parentheses( results.group(3) )
+        op = results.group(2)
+        if op == '+':
+            calc = v1 + v2
+        if op == '*':
+            calc = v1 * v2
+        if op == '-':
+            calc = v1 - v2
+#        print( f'{v1} {op} { v2} = {calc}' )
+        value = calc
+    else:
+#        print( "No binary operation")
+        #value = string_Value( string )
+        value = typeCast( string )
+    return value
+
+#
+# Strip off outer parantheses
+#
+def strip_parentheses( string ):
+    # look for outer parentheses
+    outer = re.compile("\((.+)\)")
+    m = outer.search( string )
+    if m:
+#        print( f'inner: {m.group(1)}')
+        value = binaryOperation( m.group(1) )
+    else:
+        value = binaryOperation( string )
+    return value		
+
 
 #
 # Swap bytes of 16-bit word value
@@ -123,13 +164,22 @@ def stripcomments(text):
 #
 # C-style constants are of the form
 #  "#define   <tag>  <value>"
+#
+# Macro expansion
+#  <v1> <op> <v2>
+# Where
+#    v1, V2:  ( .... ) or [a-f|A-F|0-9|_]
+#    op: +,*, -
+#
+# If v1 and/or v2 of the form (... ) recurse
 #	
 def find_constant_definition( tag, lines):
     # Search string includes <tag>
     reTag = re.compile( f'^#define\s*{tag}\s*(.*)')
     value = 0
     tagFound = False
-
+#    print( f'Looking for {tag}')
+	
     # Find the tag line	
     for line in lines:
         z = reTag.match( line )
@@ -138,25 +188,47 @@ def find_constant_definition( tag, lines):
             # Strip off any C-style comments
             const = stripcomments( z.group(1) )
             #print( f'{tag}:: {const}')
-			
-			# look for parentheses
-            outer = re.compile("\((.+)\)")
-            m = outer.search( const )
-            if m:
-                inner_str = m.group(1)
-                print( f'inner: {inner_str}')
+            value = strip_parentheses( const )
+			# look for outer parentheses
+#            outer = re.compile("\((.+)\)")
+#            m = outer.search( const )
+#            if m:
+#                inner_str = m.group(1)
+#                print( f'inner: {inner_str}')
 				
                 # look for type casting
-                typecast = re.compile( r"(\(uint[0-9]+_t\))\s+(['a-f|A-F|0-9]+)" )
-                n = typecast.match( inner_str )
-                if n:
-                    value = string_Value( n.group(2) )
-                    #print( f'value = {n.group(2)}')
-                else:
-                    print( "No typecast match ")
-                    value = 0
-            else:
-                value = string_Value( const )
+#                typecast = re.compile( r"(\(uint[0-9]+_t\))\s+(['a-f|A-F|0-9]+)" )
+#                n = typecast.match( inner_str )
+#                if n:
+#                    value = string_Value( n.group(2) )
+#                    #print( f'value = {n.group(2)}')
+#                else:
+#					# Look for binary operation
+#                    lrv = '(\(.+\)|[a-z|A-Z|0-9|_]+)'			# left or right value
+#                    opr = '([\*\+-])'							# operator
+#                    pattern = f'\s*{lrv}\s+{opr}\s+{lrv}'
+#                    reSplit = re.compile( pattern )
+#                    results = reSplit.match( inner_str );
+#					# Look for inner parentheses with operator
+#                    #reInner = re.compile("\s*\(\s*([A-Z|a-z|0-9|_]+)\s+([\*\+-])\s*([A-Z|a-z|0-9|_]+)\s*\)")
+#                    #results = reInner.match( inner_str )
+#                    if results:
+#                        print( f'v1:{results.group(1)} op:{results.group(2)} v2:{results.group(3)}' )
+#                        v1 = string_Value( results.group(1) )
+#                        v2 = string_Value( results.group(3) )
+#                        op = results.group(2)
+#                        if op == '+':
+#                            calc = v1 + v2
+#                        if op == '*':
+#                            calc = v1 * v2
+#                        if op == '-':
+#                            calc = v1 - v2
+#                        print( f'{v1} {op} { v2} = {calc}' )
+#                    else:
+#                        print( "No inner parentheses macro")
+#                    value = 0
+#            else:
+#                value = string_Value( const )
 #            print( f'{tag} = {string_Value(z.group(1))}')
             # terminate search on first match
             tagFound = True
@@ -240,6 +312,34 @@ def byte_value( string ):
                 value = find_constant_definition( string, scanlines )
     return value
 
+def string_Value( string ):
+    number = re.match(r'0x[0-9|A-F|a-f]+', string)
+    if (number != None):
+        value = int(string, 16)
+    else:
+        number = re.match(r'[0-9]+', string)
+        if number != None:
+            value = (int(string))
+        else:
+              # next look for C-style character, keep it simple
+            patt = r"'([A-Z|a-z|0-9])'"
+            if re.search( patt, string ) is not None:
+                pattern = re.compile(r"'([A-Z|a-z|0-9])'")
+                for match in pattern.finditer( string ):
+                    ba = bytearray( match.group(1).encode() )
+                    value = ba[0]
+                    #print( f'value = {value:#x}')
+            else:
+                # lastly, look for defined constants
+                #print( f'Defined constant: {string}')
+                value = find_constant_definition( string, scanlines )
+           # lastly, look for defined constants
+            #print( f'Defined constant: {string}')
+            #value = find_constant_definition(string, scanlines )
+            #print( f'Defined constant: {string}')
+            #value = 0
+    return value
+
 #
 # Parse line containing data items to be CRC'd
 #
@@ -259,12 +359,15 @@ def parse_data( line ):
 	
 	# find data items in line, accumulate bytes in databytes
     for match in pattern.finditer(line):
+        value = string_Value( match.group(2) )
         if '16' in match.group(1):
-            ba = word_value( match.group(2) )
-            databytes.append( ba[1] )
+            value = byteswap( value )
+            ba = bytearray( divmod(value, 256))
             databytes.append( ba[0] )
+            databytes.append( ba[1] )
         if '8' in match.group(1):
-            databytes.append( byte_value( match.group(2)) )
+            databytes.append( value )
+            #databytes.append( byte_value( match.group(2)) )
 
     datastring = (' '.join(format(x, '02x') for x in databytes ) )
     crc = crcb( databytes)
