@@ -26,7 +26,7 @@ import shutil
 # Update this version number with subsequent releases
 utilityVersion = "1.0"
 
-path = r'C:\Users\ian.whitehead\Desktop\ModelB_DispenseEngine\MODB.X'
+#path = r'C:\Users\ian.whitehead\Desktop\ModelB_DispenseEngine\MODB.X'
 
 POLYNOMIAL = 0x1021
 PRESET = 0
@@ -290,7 +290,7 @@ def readInclude( line ):
     pattern = re.compile( r'#include\s*"([\._|a-z|A-Z|0-9]+)"')
     z = pattern.match( line )
     if z:
-        filename = path + "\\" + z.group( 1 )
+        filename = sourcePath + "\\" + z.group( 1 )
 	    # Check that include file exists
         if os.path.exists( filename ):
             try:
@@ -306,12 +306,16 @@ def readInclude( line ):
 
 
 # Scan file
-def scanSourceFile(filename):
+def scanSourceFile( filename, verbose ):
+
+    # Open file for Read and Writing
     try:
-        file = open(filename, 'r')
+        file = open(filename, 'r+')
     except OSError:
         print( f'Could not open/read file {filename}')
         sys.exit(1)
+	
+    basename = os.path.basename( filename )
 	
     global filelines
     filelines = file.readlines()	
@@ -325,7 +329,6 @@ def scanSourceFile(filename):
     #  Data - data between CRC_START and CRC_VALUE (one line)
     #  Value - Calculating/Replacing bewteen CRC_VALUE and CRC_END (one line)
 	#
-#    for line in file:
     for line in filelines:
         if mode == 'Search':
             if "/*#* _CRC_START_ *#*/" in line:
@@ -374,31 +377,42 @@ def scanSourceFile(filename):
             else:
                 #print( f'Value: {line}')
                 field = parse_value( line )
-                print( f'\t{field:15}\t\t = {calculatedCRC}' )
+                if verbose == True:
+                    print( f'\t{field:15}\t\t = {calculatedCRC}' )
                 outlines.append( f'\t{field:15}\t\t = {calculatedCRC}\n' )
-				
-    # write outlines to file
-    try:
-        outfile = open("output.c", 'w')
-        outfile.writelines( outlines )
-    except OSError:
-        print( f'Could not open/ write file')
-        sys.exit(9)		
+
+    # compare filelines with outlines
+    if outlines == filelines:
+        print( f'No changes to {basename} required' )
+    else:		
+        # If changes were made, write outlines to file
+        file.seek( 0 )
+        file.writelines( outlines )
+        print( f'Updated {basename}' )
     return
-	
+
+#
+#	"main" entry point
+#	
 if __name__ == "__main__":
 
+    global sourcePath
+	
     # Set up the arguments
     parser = argparse.ArgumentParser(description= f'Drinkworks CRC Pre-processor Utility, v{utilityVersion}')
     parser.add_argument("sourcefile", help="Source Filename")
+    parser.add_argument('--verbose', help="Verbose output", action='store_true')
     args = parser.parse_args()
 
 	# Check that Source file exists
     if not os.path.exists( args.sourcefile ):
         print( f'ERROR: Input file \"{args.sourcefile}\" does not exist')
         sys.exit(1)
-
-    scanSourceFile(args.sourcefile)
+	
+	# Extract directory name
+    sourcePath = os.path.dirname( args.sourcefile )
+	
+    scanSourceFile( args.sourcefile, args.verbose )
 
     print("Exiting Program")
     sys.exit(0)
