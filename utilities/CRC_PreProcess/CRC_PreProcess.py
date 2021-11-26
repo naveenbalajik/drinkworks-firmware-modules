@@ -26,8 +26,6 @@ import shutil
 # Update this version number with subsequent releases
 utilityVersion = "1.0"
 
-#path = r'C:\Users\ian.whitehead\Desktop\ModelB_DispenseEngine\MODB.X'
-
 POLYNOMIAL = 0x1021
 PRESET = 0
 
