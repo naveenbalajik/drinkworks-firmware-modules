@@ -4,7 +4,7 @@
 # Script to generate an ESP32 firmware release package for Drinkworks Model-B Appliance
 #
 # Companion Utility: hex2aws.py
-#    The hex2aws utility takes a PIC18F firmware *.hex file and processes it to generate the *.aws
+#    The hex2aws utility takes a PIC18F/PIC32MX firmware *.hex file and processes it to generate the *.aws
 #    file, suitable for uploading to AWS.
 #
 #    Example metadata:
@@ -30,7 +30,7 @@ import argparse
 import filecmp
 
 # Update this version number with subsequent releases
-utilityVersion = "1.3"
+utilityVersion = "1.4"
 
 def get_val_from_key(key, haystack):
     keyLoc = haystack.find(key)
@@ -116,7 +116,223 @@ def pad_file( source, destination, padBoundary):
 	# Pad Destination file
     with open(destination, "ab") as file:
         file.write(padBuffer)
+
+#
+#	Fixup the ESP32 Image File.
+#	Pad to 16-byte boundary
+#	Copy to ApplicationImage name in Release Folder
+#
+def fixup_image_file( ImageFile, ReleasePath, ApplicationImage, update ):
+    # Path for temporary padded Image
+    tempFile = f'{ReleasePath}\\temp.bin'
+
+    # Path for Application Image
+    appFile = f'{ReleasePath}\\{ApplicationImage}'
+
+    # Create a temporary padded image file
+    pad_file( ImageFile, tempFile, 16)
+            
+	# Copy to Application file (with version/build in name)
+    compare_copy_file( tempFile, appFile, update)
 	
+    # Delete temp file
+    os.remove( tempFile )
+	
+    return
+
+#
+#	Clear Folder
+#
+def clear_folder( name ):
+    if os.path.isdir( name ):
+        if not os.listdir( name ):
+            print("folder " + name + " is already empty")
+        else:
+            print("Clear folder: " + name )
+            shutil.rmtree( name )
+    else:
+        print("Folder: " + name + " does not exist")
+    return
+
+#
+#	Create Folder
+#
+def create_folder( name ):
+    if os.path.isdir(name):
+        if not os.listdir(name):
+            print( f'folder {name} is empty' )
+        elif not args.update:                        # exit if update argument not set
+            print( f'folder: {name} already exits and is not empty!' )
+            sys.exit()
+    else:
+        print( f'create folder: {name}' )
+        os.mkdir( name )
+    return
+
+#
+#	Get PIC Path
+#
+#	Validate that the path exists
+#
+def get_pic_path( picDir, picVersion ):
+    picPath = f'{picDir}\\v{picVersion:4.2f}'
+	
+    if not os.path.isdir(picPath):
+        print( f'PIC release directory not found: {picPath}')
+        sys.exit(9)
+		
+    return picPath
+
+#
+# locate PIC18/PIC32 Image, look for a sub-directory with the version number (e.g. Releases\v1.30)
+#
+#	PicPath will have already been validated
+#
+def get_pic_image( picPath, picVersion, picBuild, mcu ):
+    count = 0
+
+    mcuStr = f'_{mcu}_'
+	
+    # search for files matching version and (optionally) build number
+    searchString = f'_v{picVersion:4.2f}_b'
+    if picBuild != 0:
+        searchString += f'{picBuild:d}'
+    #print( f'Searching for file with: {searchString}')
+	
+    for file in os.listdir( picPath ):
+        if file.endswith(".aws") and searchString in file:
+            if mcuStr in file:
+                print( f'Found {mcu} Image: {file}')
+                picFile = file
+                count += 1
+	
+    if count == 0:
+        print( f'{mcu} Image file not found' )
+        sys.exit(7)
+    if count > 1:
+        print( f'More than one {mcu} .aws file found! Try specifying PIC Build number' )
+        sys.exit(8)
+    #print( f'Found file: {picFile}')
+		
+    return picFile
+
+#
+# Construct a programming arguments file
+#   PIC Factory Image is at fixed address (0x70000)
+#   Manufacturing Test Image has fixed name and fixed address (0x800000)
+#
+def construct_flash_args( ReleasePath, BuildPath, PicFile ):
+
+    pgmFile = ReleasePath + "\\flash_project_args"
+	
+    with open(pgmFile, "w") as argsFile:
+	
+        #Copy, with edit, Bootloader args
+        bootloader = BuildPath + "\\flash_bootloader_args"
+        with open(bootloader, "r") as bootloaderArgs:
+            for line in bootloaderArgs:
+                #Edit bootloader line
+                if "bootloader/bootloader" in line:
+                    line = line.replace("bootloader/bootloader", "bootloader")
+                # Replace flash_size detect with 16M
+                if "flash_size" in line:
+                    line = line.replace("detect", "16MB")
+                argsFile.write(line)
+				
+        #Copy, with edit, Project args
+        project = BuildPath + "\\flash_project_args"
+        with open(project, "r") as projectArgs:
+            for line in projectArgs:
+                #Edit partition-table line
+                if "bootloader/bootloader" in line:
+                    #skip line if it has bootloader (added that above)
+                    continue
+                if "partition_table/" in line:
+                    line = line.replace("partition_table/", "")
+                if line != "\n" and line != " \n":
+                    argsFile.write(line)
+                if "ota_data_initial" in line:
+                    #Add PIC Factory Image, after ota data initial
+                    argsFile.write("0x70000 " + PicFile + "\n")
+        #Add Manufacturing Test Image
+        argsFile.write("0x800000 dw_MfgTest.bin\n")
+    return
+
+#
+#	Copy release files to release destination
+#
+#	For "BuildFilename", fixup as "appFilename"
+#
+def copy_release_files( fileList, ReleasePath, buildFilename, appFilename, update ):	
+    for file in fileList:
+        compare_copy_file( file, ReleasePath, update)
+        # If application image file
+        if "dw_ModelB.bin" in file:
+            fixup_image_file( file, ReleasePath, applicationFilename, update )
+ 
+#
+#	Create Readme file, local to MCU specific release
+#
+def create_readme( logLines, ReleasePath, version, build, timestamp, internal, ZipPath ):
+    # Use 7-zip to create hash values for each file, except Readme.txt and previous ZIP file
+    systemCommand = f'"{ZipPath}" h -scrcsha256 {ReleasePath}\\* -x!Readme.txt -x!*.zip'
+    hashOutput = os.popen( systemCommand ).read()
+
+    # create ReadMe.txt file
+    readmeFile = ReleasePath + "\\Readme.txt"
+    separator = "\n\n============================================================================================\n"
+    skipNote = False
+
+    with open(readmeFile, "w") as readme:
+        readme.write("Drinkworks Model-B Appliance\n")
+        readme.write("ESP32 Firmware\n")
+        readme.write("Version: " + version + "\n")
+        readme.write("Build: " + build + "\n")
+        readme.write("Date: " + timestamp )
+        readme.write(separator)
+		
+        # Copy release notes from log file
+        #   Always skip lines starting with '#'
+        #   Always skip deleted notes
+        #   skip internal notes for external release
+        for line in logLines:
+            if not line.startswith("#"):
+                if line.isspace():
+                    startOfNote = True
+                else:
+                    if startOfNote:
+                        if "(deleted)" in line:
+                            skipNote = True
+                        elif "(internal)" in line and not internal:
+                            skipNote = True
+                        else:
+                            skipNote = False
+                            readme.write("\n")
+                        startOfNote = False
+						
+                    # Unless skipping this note, write line to Readme file
+                    if not skipNote:
+                        readme.write(line)
+                   
+        # Add Hash values
+        readme.write(separator)
+        readme.write(hashOutput)
+    return
+
+#
+# Create Release Archive
+#
+def create_release_archive( ReleasePath, mcu, version, build, ZipPath):
+     # Use 7-zip to package everything update, exclude preious ZIP file (if present)
+    archiveName = f'{ReleasePath}\\ModelB_ESP_{mcu}_v{version}b{build}.zip'
+    print( archiveName )
+    systemCommand = f'"{ZipPath}" a -x!*.zip {archiveName} {ReleasePath}\\*'
+    os.system(systemCommand)
+    return
+
+#
+#	Main entry point
+#	
 if __name__ == "__main__":
 
     # Some default paths, may be overiden with script arguments
@@ -150,8 +366,8 @@ if __name__ == "__main__":
     parser.add_argument('--message', '-m', nargs='*', help="set Release Note Message. Quote each line separately")
     parser.add_argument('--update', '-u', action='store_true', help="Update an existing release")
     parser.add_argument('--internal', '-i', action='store_true', help="Internal release")
-    parser.add_argument('--picDir', '-p', help="set PIC18F release directory", default=defaultPicDir)
-    parser.add_argument('--rootDir', '-r', help="set ESP32 Project roor directory", default=defaultRootDir)
+    parser.add_argument('--picDir', '-p', help="set PIC18F/PIC32MX release directory", default=defaultPicDir)
+    parser.add_argument('--rootDir', '-r', help="set ESP32/PIC32MX Project roor directory", default=defaultRootDir)
     parser.add_argument('--picBuild', '-b', help="set PIC18F Firmware Build Number. e.g. \'145\'", default=0, type=int)
     parser.add_argument('--zip', '-z', help="set 7-zip path", default=defaultSevenZip)
 	
@@ -173,130 +389,186 @@ if __name__ == "__main__":
         print( f'Invalid location for 7-zip: {args.zip}')
         sys.exit(-1)
 		
-    fileList = []
+    p18FileList = []
+    p32FileList = []
 	
-    fullReleasePath = releasePath + "v" + args.version
+    fullP18ReleasePath = f'{releasePath}v{args.version}\\P18'
+    fullP32ReleasePath = f'{releasePath}v{args.version}\\P32'
     fullBuildPath = args.rootDir + "\\" + args.source
 
-    # Clear Release Directory?
+    # Clear P18 and P32 Release Directory?
     if args.clear:
-        if os.path.isdir(fullReleasePath):
-            if not os.listdir(fullReleasePath):
-                print("folder " + fullReleasePath + " is already empty")
-            else:
-                print("Clear folder: " + fullReleasePath)
-                shutil.rmtree(fullReleasePath)
-        else:
-            print("Folder: " + fullReleasePath + " does not exist")
+        clear_folder( fullP18ReleasePath )
+        clear_folder( fullP32ReleasePath )
+#        if os.path.isdir( fullP18ReleasePath ):
+#            if not os.listdir( fullP18ReleasePath ):
+#                print("folder " + fullP18ReleasePath + " is already empty")
+#            else:
+#                print("Clear folder: " + fullP18ReleasePath)
+#                shutil.rmtree(fullP18ReleasePath)
+#        else:
+#            print("Folder: " + fullP18ReleasePath + " does not exist")
         sys.exit(0)
 		
-    print("Releasing version: " + args.version)
-    print( "Release path: " + fullReleasePath)
+    # Clear P32 Release Directory?
+#    if args.clear:
+#        if os.path.isdir( fullP32ReleasePath ):
+#            if not os.listdir( fullP32ReleasePath ):
+#                print("folder " + fullP32ReleasePath + " is already empty")
+#            else:
+#                print("Clear folder: " + fullP32ReleasePath )
+#                shutil.rmtree( fullP18ReleasePath )
+#        else:
+#            print("Folder: " + fullP32ReleasePath + " does not exist")
+#        sys.exit(0)
+		
+    print( "Releasing version: " + args.version)
+    print( "P18 Release path: " + fullP18ReleasePath)
+    print( "P32 Release path: " + fullP32ReleasePath)
     print( "Build path: " + fullBuildPath)
-    if os.path.isdir(fullReleasePath):
-        if not os.listdir(fullReleasePath):
-            print("folder " + fullReleasePath + " is empty")
-        elif not args.update:                        # exit if update argument not set
-            print("folder: " + fullReleasePath + " already exits and is not empty!")
-            sys.exit()
-    else:
-        print("create folder: " + fullReleasePath)
-        os.mkdir(fullReleasePath)
-
-    # Path for temporary padded Image
-    tempImagePath = fullReleasePath + "\\temp.bin"
-
-    # Path for Application Image
-    applicationImagePath = fullReleasePath + "\\dw_ModelB_v" + args.version + "b" + args.build + ".bin"
-
-    # locate PIC Image
-    count = 0
-    picFile = ""
-    searchString = f'_v{args.picVersion:4.2f}_b'
-    if args.picBuild != 0:
-        searchString += f'{args.picBuild:d}'
-    print( f'Searching for file with: {searchString}')
 	
-    for file in os.listdir(args.picDir):
-        if file.endswith(".aws") and searchString in file:
-            picFile = file
-            picFilePath = args.picDir + "\\" + picFile
-            count += 1
-	
-    if count == 0:
-        print("PIC Image file not found")
-        sys.exit(0)
-    if count > 1:
-        print("More than one .aws file found!")
-        sys.exit(0)
-   
-    print( f'Found aws file: {picFilePath}')
-	
+    create_folder( fullP18ReleasePath )
+    create_folder( fullP32ReleasePath )
+#    if os.path.isdir(fullReleasePath):
+#        if not os.listdir(fullReleasePath):
+#            print("folder " + fullReleasePath + " is empty")
+#        elif not args.update:                        # exit if update argument not set
+#            print("folder: " + fullReleasePath + " already exits and is not empty!")
+#            sys.exit()
+#    else:
+#        print("create folder: " + fullReleasePath)
+#        os.mkdir(fullReleasePath)
+
+    # locate PIC18/PIC32 Image, look for a sub-directory with the version number (e.g. Releases\v1.30)
+    picPath = get_pic_path( args.picDir, args.picVersion )
+    p18File = get_pic_image( picPath, args.picVersion, args.picBuild, 'P18' )
+    p32File = get_pic_image( picPath, args.picVersion, args.picBuild, 'P32' )
+
+#    # locate PIC18/PIC32 Image, look for a sub-directory with the version number (e.g. Releases\v1.30)
+#    p18Count = 0
+#    p32Count = 0
+#    picFiles = list()
+
+#    picPath = f'{args.picDir}\\v{args.picVersion:4.2f}'
+#
+#    if os.path.isdir(picPath):
+#        # search for files matching version and (optionally) build number
+#        searchString = f'_v{args.picVersion:4.2f}_b'
+#        if args.picBuild != 0:
+#            searchString += f'{args.picBuild:d}'
+#        print( f'Searching for file with: {searchString}')
+#    	
+#        for file in os.listdir( picPath ):
+#            if file.endswith(".aws") and searchString in file:
+#                if '_P18_' in file:
+#                    print( f'Found PIC18 Image: {file}')
+#                    p18File = f'{picPath}\\{file}'
+#                    p18Count += 1
+#                elif '_P32_' in file:
+#                    p32File = f'{picPath}\\{file}'
+#                    p32Count += 1
+#    	
+#        if p18Count == 0:
+#            print("PIC18 Image file not found")
+#            sys.exit(0)
+#        if p18Count >= 1:
+#            print("More than one PIC18 .aws file found!")
+#            sys.exit(0)
+#        if p32Count == 0:
+#            print("PIC32 Image file not found")
+#            sys.exit(0)
+#        if p32Count >= 1:
+#            print("More than one PIC32 .aws file found!")
+#            sys.exit(0)
+#       
+#        print( f'Found file: {p18File}')
+#        print( f'Found file: {p32File}')
+#    else:
+#        print( f'PIC release directory not found: {picPath}')
+#        sys.exit(9)
+		
     # Process the build files
     for file in buildFiles:
-        fileList.append( fullBuildPath + "\\" + file)
+        p18FileList.append( fullBuildPath + "\\" + file)
+        p32FileList.append( fullBuildPath + "\\" + file)
 
     # Process other file list, make each entry a full path
     for file in otherFiles:
-         fileList.append( args.rootDir + "\\" + file)
+         p18FileList.append( args.rootDir + "\\" + file)
+         p32FileList.append( args.rootDir + "\\" + file)
 
-    # Add PIC file to list
-    fileList.append(picFilePath)
+    # Add PIC18/32 file to appropriate list
+    p18FileList.append( f'{picPath}\\{p18File}' )
+    p32FileList.append( f'{picPath}\\{p32File}' )
 	
+    # Path for temporary padded Image
+    #tempImagePath = fullReleasePath + "\\temp.bin"
+
+    # Filename for Application Image
+    applicationFilename = f'dw_ModelB_v{args.version}b{args.build}.bin'
+
     # Copy Build files to destination
-    for file in fileList:
-        compare_copy_file( file, fullReleasePath, args.update)
-		# Copy application image to new file
-        # If application image file
-        if "dw_ModelB.bin" in file:
-            # Create a temporary padded image file
-            pad_file( file, tempImagePath, 16)
-            # Copy to file with version/build in name
-            compare_copy_file( tempImagePath, applicationImagePath, args.update)
-            # Delete temp file
-            os.remove(tempImagePath)
+    copy_release_files( p18FileList, fullP18ReleasePath, 'dw_ModelB.bin', applicationFilename, args.update )
+    copy_release_files( p32FileList, fullP32ReleasePath, 'dw_ModelB.bin', applicationFilename, args.update )
+
+#    for file in fileList:
+#        compare_copy_file( file, fullP18ReleasePath, args.update)
+#        compare_copy_file( file, fullP32ReleasePath, args.update)
+#		# Copy application image to new file
+#        # If application image file
+#        if "dw_ModelB.bin" in file:
+#            fixup_image_file( file, fullP18ReleasePath, applicationFilename, args.update )
+#            fixup_image_file( file, fullP32ReleasePath, applicationFilename, args.update )
+#            # Create a temporary padded image file
+#            pad_file( file, tempImagePath, 16)
+#            # Copy to file with version/build in name
+#            compare_copy_file( tempImagePath, applicationImagePath, args.update)
+#            # Delete temp file
+#            os.remove(tempImagePath)
 	
     #
     # Construct a programming arguments file
     #   PIC Factory Image is at fixed address (0x70000)
     #   Manufacturing Test Image has fixed name and fixed address (0x800000)
 	#
-    pgmFile = fullReleasePath + "\\flash_project_args"
-    with open(pgmFile, "w") as argsFile:
-        #Copy, with edit, Bootloader args
-        bootloader = fullBuildPath + "\\flash_bootloader_args"
-        with open(bootloader, "r") as bootloaderArgs:
-            for line in bootloaderArgs:
-                #Edit bootloader line
-                if "bootloader/bootloader" in line:
-                    line = line.replace("bootloader/bootloader", "bootloader")
-                # Replace flash_size detect with 16M
-                if "flash_size" in line:
-                    line = line.replace("detect", "16MB")
-                argsFile.write(line)
-        #Copy, with edit, Project args
-        project = fullBuildPath + "\\flash_project_args"
-        with open(project, "r") as projectArgs:
-            for line in projectArgs:
-                #Edit partition-table line
-                if "bootloader/bootloader" in line:
-                    #skip line if it has bootloader (added that above)
-                    continue
-                if "partition_table/" in line:
-                    line = line.replace("partition_table/", "")
-                if line != "\n" and line != " \n":
-                    argsFile.write(line)
-                if "ota_data_initial" in line:
-                    #Add PIC Factory Image, after ota data initial
-                    argsFile.write("0x70000 " + picFile + "\n")
-        #Add Manufacturing Test Image
-        argsFile.write("0x800000 dw_MfgTest.bin\n")
+    construct_flash_args( fullP18ReleasePath, fullBuildPath, p18File )
+    construct_flash_args( fullP32ReleasePath, fullBuildPath, p32File )
+#    pgmFile = fullReleasePath + "\\flash_project_args"
+#    with open(pgmFile, "w") as argsFile:
+#        #Copy, with edit, Bootloader args
+#        bootloader = fullBuildPath + "\\flash_bootloader_args"
+#        with open(bootloader, "r") as bootloaderArgs:
+#            for line in bootloaderArgs:
+#                #Edit bootloader line
+#                if "bootloader/bootloader" in line:
+#                    line = line.replace("bootloader/bootloader", "bootloader")
+#                # Replace flash_size detect with 16M
+#                if "flash_size" in line:
+#                    line = line.replace("detect", "16MB")
+#                argsFile.write(line)
+#        #Copy, with edit, Project args
+#        project = fullBuildPath + "\\flash_project_args"
+#        with open(project, "r") as projectArgs:
+#            for line in projectArgs:
+#                #Edit partition-table line
+#                if "bootloader/bootloader" in line:
+#                    #skip line if it has bootloader (added that above)
+#                    continue
+#                if "partition_table/" in line:
+#                    line = line.replace("partition_table/", "")
+#                if line != "\n" and line != " \n":
+#                    argsFile.write(line)
+#                if "ota_data_initial" in line:
+#                    #Add PIC Factory Image, after ota data initial
+#                    argsFile.write("0x70000 " + picFile + "\n")
+#        #Add Manufacturing Test Image
+#        argsFile.write("0x800000 dw_MfgTest.bin\n")
 
     #
     # Update release.log file
     #
 	
-    versionBuild = "v" + args.version + " b" + args.build
+    versionBuild = f'v{args.version} b{args.build}'
 	
     # Time/Date stamp the release
     from datetime import datetime
@@ -312,7 +584,7 @@ if __name__ == "__main__":
     with open(logFile, "r") as log:
         logLines = log.readlines()
 	
-    # Look for note(s) for existing vesrion/build, tag as "deleted"
+    # Look for note(s) for existing version/build, tag as "deleted"
     n = 0
     while n < len(logLines):
         if not logLines[n].startswith( "#"):
@@ -335,7 +607,8 @@ if __name__ == "__main__":
         newNote += "\n"
     logLines.append("\n")
     logLines.append(newNote)
-    logLines.append("  PIC firmware: " + picFile + "\n")
+    logLines.append("  P18 firmware: " + p18File + "\n")
+    logLines.append("  P32 firmware: " + p32File + "\n")
 	
     # if a message was specified, it can be multi-line, append each line
     if args.message:
@@ -345,54 +618,61 @@ if __name__ == "__main__":
     with open(logFile, "w") as log:
         log.writelines(logLines)
 
-    # Use 7-zip to create hash values for each file, except Readme.txt and previous ZIP file
-    systemCommand = f'"{args.zip}" h -scrcsha256 {fullReleasePath}\\* -x!Readme.txt -x!*.zip'
-    hashOutput = os.popen( systemCommand ).read()
+    # Create local readme files
+    create_readme( logLines, fullP18ReleasePath, args.version, args.build, dateTimeFormat, args.internal, args.zip )
+    create_readme( logLines, fullP32ReleasePath, args.version, args.build, dateTimeFormat, args.internal, args.zip )
+	
+#    # Use 7-zip to create hash values for each file, except Readme.txt and previous ZIP file
+#    systemCommand = f'"{args.zip}" h -scrcsha256 {fullReleasePath}\\* -x!Readme.txt -x!*.zip'
+#    hashOutput = os.popen( systemCommand ).read()
+#
+#
+#    # create ReadMe.txt file
+#    readmeFile = fullReleasePath + "\\Readme.txt"
+#    separator = "\n\n============================================================================================\n"
+#    skipNote = False
+#
+#    with open(readmeFile, "w") as readme:
+#        readme.write("Drinkworks Model-B Appliance\n")
+#        readme.write("ESP32 Firmware\n")
+#        readme.write("Version: " + args.version + "\n")
+#        readme.write("Build: " + args.build + "\n")
+#        readme.write("Date: " + dateTimeFormat )
+#        readme.write(separator)
+#		
+#        # Copy release notes from log file
+#        #   Always skip lines starting with '#'
+#        #   Always skip deleted notes
+#        #   skip internal notes for external release
+#        for line in logLines:
+#            if not line.startswith("#"):
+#                if line.isspace():
+#                    startOfNote = True
+#                else:
+#                    if startOfNote:
+#                        if "(deleted)" in line:
+#                            skipNote = True
+#                        elif "(internal)" in line and not args.internal:
+#                            skipNote = True
+#                        else:
+#                            skipNote = False
+#                            readme.write("\n")
+#                        startOfNote = False
+#						
+#                    # Unless skipping this note, write line to Readme file
+#                    if not skipNote:
+#                        readme.write(line)
+#                   
+#        # Add Hash values
+#        readme.write(separator)
+#        readme.write(hashOutput)
 
-    # create ReadMe.txt file
-    readmeFile = fullReleasePath + "\\Readme.txt"
-    separator = "\n\n============================================================================================\n"
-    skipNote = False
-
-    with open(readmeFile, "w") as readme:
-        readme.write("Drinkworks Model-B Appliance\n")
-        readme.write("ESP32 Firmware\n")
-        readme.write("Version: " + args.version + "\n")
-        readme.write("Build: " + args.build + "\n")
-        readme.write("Date: " + dateTimeFormat )
-        readme.write(separator)
-		
-        # Copy release notes from log file
-        #   Always skip lines starting with '#'
-        #   Always skip deleted notes
-        #   skip internal notes for external release
-        for line in logLines:
-            if not line.startswith("#"):
-                if line.isspace():
-                    startOfNote = True
-                else:
-                    if startOfNote:
-                        if "(deleted)" in line:
-                            skipNote = True
-                        elif "(internal)" in line and not args.internal:
-                            skipNote = True
-                        else:
-                            skipNote = False
-                            readme.write("\n")
-                        startOfNote = False
-						
-                    # Unless skipping this note, write line to Readme file
-                    if not skipNote:
-                        readme.write(line)
-                   
-        # Add Hash values
-        readme.write(separator)
-        readme.write(hashOutput)
-
-     # Use 7-zip to package everything update, exclude preious ZIP file (if present)
-    archiveName = fullReleasePath + "\\ModelB_ESP_" + "v" + args.version + "b" + args.build + ".zip"
-    print( archiveName )
-    systemCommand = f'"{args.zip}" a -x!*.zip {archiveName} {fullReleasePath}\\*'
-    os.system(systemCommand)
+    # Use 7-zip to package everything update, exclude previous ZIP file (if present)
+    create_release_archive( fullP18ReleasePath, 'P18', args.version, args.build, args.zip)
+    create_release_archive( fullP32ReleasePath, 'P32', args.version, args.build, args.zip)
+#    archiveName = fullReleasePath + "\\ModelB_ESP_" + "v" + args.version + "b" + args.build + ".zip"
+#    print( archiveName )
+#    systemCommand = f'"{args.zip}" a -x!*.zip {archiveName} {fullReleasePath}\\*'
+#    os.system(systemCommand)
 	
     print("Exiting Program")
