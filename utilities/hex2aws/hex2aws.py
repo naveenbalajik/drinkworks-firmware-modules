@@ -20,7 +20,7 @@ import argparse
 import functools
 
 # Update this version number with subsequent releases
-utilityVersion = "1.1"
+utilityVersion = "1.2"
 
 # Known MCUs
 knownMCUs = [ 'PIC18F', 'PIC32MX' ]
@@ -35,8 +35,8 @@ def format_meta_data( hexfile, hash, crc, address, size, timestamp, picVersion, 
     metaData += f'  "ImageSize": {size:d},\r\n'
     metaData += f'  "TimeStamp": "{timestamp}",\r\n'
     metaData += f'  "Version_PIC": {picVersion:5.2f},\r\n'
-    metaData += f'  "PaddingBoundary": {padding:d}\r\n'
-    metaData += f'  "MCU": {mcu}\r\n'
+    metaData += f'  "PaddingBoundary": {padding:d},\r\n'
+    metaData += f'  "MCU": "{mcu}"\r\n'
     metaData += "}"
     return metaData
 
@@ -47,11 +47,12 @@ def format_meta_data( hexfile, hash, crc, address, size, timestamp, picVersion, 
 #	 0: AWS file created (may have over-written existing file)
 #    1: Hash Value from existing AWS file matches that for processed HEX file
 #    2: Hash Values do not match, not over-writing
-def create_aws( hexfile, outpath, startAddr, binSize, picVersion, mcu, padBoundary = 512):
+def create_aws( hexfile, outpath, startAddr, binSize, picVersion, mcu, padBoundary = 512, forceOverwrite = False):
     # Split hexfile and form .aws output filename
     root_ext = os.path.splitext(os.path.basename(hexfile))
     awsFileName = outpath + "\\" + root_ext[0] + ".aws"
-	
+    print( f'create_aws: {awsFileName}')
+
 	# Check that Hex file exists
     if not os.path.exists( hexfile ):
         print( f'ERROR: Input file {hexfile} does not exist')
@@ -61,8 +62,8 @@ def create_aws( hexfile, outpath, startAddr, binSize, picVersion, mcu, padBounda
     ih = IntelHex( hexfile )
     contents = ih.tobinarray(start = startAddr, size = binSize)
     hash =  base64.b64encode(hashlib.sha256(contents).digest()).decode('ascii')
-	
-    # If AWS file exists, read it in and extract the SHA256 Hash value	
+
+    # If AWS file exists, read it in and extract the SHA256 Hash value
     if os.path.exists(awsFileName):
         with open(awsFileName, "r", errors="ignore") as file:
             data = file.read()
@@ -75,9 +76,12 @@ def create_aws( hexfile, outpath, startAddr, binSize, picVersion, mcu, padBounda
                     return 1
                 else:
                     print("AWS file already exists, hash value does not match that for processed HEX file")
-                    response = input("Over-write? (Y/N): ")
-                    if not ('Y' or 'y') in response:
-                        return 2
+                    if forceOverwrite:
+                        print("Forcing over-writing of AWS file")
+                    else:
+                        response = input("Over-write? (Y/N): ")
+                        if not ('Y' or 'y') in response:
+                            return 2
 
     # Time/Date stamp the release
 	# TODO: Add TimeZone Offset to be compatible with C# App
@@ -107,7 +111,7 @@ def create_aws( hexfile, outpath, startAddr, binSize, picVersion, mcu, padBounda
     else:
         print( f'Error: Unknown MCU:{mcu}')
         sys.exit(0)
-	
+
     # Format Meta Data
     metaData = format_meta_data( os.path.basename(hexfile), hash, crc, startAddr, binSize, dateTimeFormat, picVersion, mcu, padBoundary )
     n = len(metaData)
@@ -120,7 +124,7 @@ def create_aws( hexfile, outpath, startAddr, binSize, picVersion, mcu, padBounda
         awsFile.write( padBuffer )
         awsFile.write( contents )
     return 0
-	
+
 if __name__ == "__main__":
 
     # Set up the arguments
@@ -133,13 +137,14 @@ if __name__ == "__main__":
     parser.add_argument('--pad', '-p', help="set meta-data padding length. Default is \'512\'", nargs='?', const=512, default=512, type=int)
     parser.add_argument('--build', '-b', help="set PIC Firmware Build Number. e.g. \'145\'", nargs='?', const=0, default=0, type=int)
     parser.add_argument('--mcu', '-m', help="set Microcontroller. e.g. \'PIC18F'", default="PIC18F")
+    parser.add_argument('--force', '-f', help="force overwriting of .aws file", action='store_true')
     args = parser.parse_args()
 
     if args.destination:
         outputPath = args.destination
     else:
         outputPath = args.picReleasePath
-	
+
     # Try to find the Hex Image file in the PIC release path
     if not os.path.isdir(args.picReleasePath):
         print( "PIC Release Path: {picReleasePath} does not exist" )
@@ -149,15 +154,15 @@ if __name__ == "__main__":
     if args.build != 0:
         searchString += f'{args.build:d}'
     print( f'Searching for file with: {searchString}')
-	
+
     count = 0
     picFile = ""
-	
+
     for file in os.listdir(args.picReleasePath):
         if file.endswith(".hex") and searchString in file:
             hexfile = args.picReleasePath + "\\" +file
             count += 1
-	
+
     if count == 0:
         print("PIC Hex Image file not found")
         sys.exit(0)
@@ -166,12 +171,12 @@ if __name__ == "__main__":
         sys.exit(0)
 
     print( f'Found hex file: {hexfile}')
-	
+
     if args.mcu not in knownMCUs:
         print( f'Unknown MCU: {args.mcu}')
         sys.exit(0)
     print( f'Known MCU: {args.mcu}')
-	
-    status = create_aws( hexfile, outputPath, args.start, args.length, args.picVersion, args.mcu, args.pad)
+
+    status = create_aws( hexfile, outputPath, args.start, args.length, args.picVersion, args.mcu, args.pad, args.force)
     print( f'Status = {status:d}')
     sys.exit(0)
