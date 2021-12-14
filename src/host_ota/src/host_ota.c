@@ -2558,16 +2558,7 @@ static bool _checkMcuID( void )
  */
 static void _hostOtaTask(void *arg)
 {
-//	char *json;
-//	int json_length;
-//	double value;
 	uint8_t	*pBuffer;
-//    size_t size;
-//    size_t address;
-//    size_t remaining;
-//    sha256_t	hash;
-//	mbedtls_sha256_context ctx;
-//	int mjson_stat;
 	esp_err_t	err = ESP_OK;
 	hostota_QueueItem_t	currentMessage;
 	OTA_Err_t xErr;
@@ -2626,43 +2617,6 @@ static void _hostOtaTask(void *arg)
 
     			break;
 
-#ifdef	DEPRICATED
-			case eHostOtaIdle:
-
-				/* Get currently running MZ firmware version */
-//				_hostota.currentVersion_MZ = shadowUpdate_getFirmwareVersion_MZ();
-//				IotLogInfo( "host ota: current MZ version = %5.2f", _hostota.currentVersion_MZ );
-
-				/* Get currently running PIC firmware version */
-				_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
-				IotLogInfo( "host ota: current PIC version = %5.2f", _hostota.currentVersion_PIC );
-
-				/* hardwire partition for initial development */
-				partitionType = ESP_PARTITION_TYPE_DATA;
-				partitionSubtype = 0x57;
-				partitionLabel = "pic_ota0";
-
-				_hostota.partition = ( esp_partition_t * )esp_partition_find_first( partitionType, partitionSubtype, partitionLabel );
-				if( NULL == _hostota.partition )
-				{
-					IotLogError( "Cannot find partition: %02X/%02X %s", partitionType, partitionSubtype, partitionLabel );
-					_hostota.state = eHostOtaError;
-				}
-				else
-				{
-					IotLogInfo("host ota: partition address = %08X, length = %08X, encrypted: %d", _hostota.partition->address, _hostota.partition->size, _hostota.partition->encrypted );
-
-					/*
-					 *	Read the first 512 bytes from the Flash partition
-					 *	Use esp_partition_read() reads flash correctly whether partition is encrypted or not
-					 */
-					esp_partition_read( _hostota.partition, 0, pBuffer, 512 );
-
-					IotLogInfo( "_hostOtaTask -> ParseJSON" );
-					_hostota.state = eHostOtaParseJSON;
-				}
-				break;
-#endif
 
 			case eHostOtaReadMetaData:
 				/* Read picFactory partition or pic_ota0 for the moment */
@@ -2715,111 +2669,6 @@ static void _hostOtaTask(void *arg)
 				}
 				break;
 
-#ifdef	DEPRICATED
-				/* Parse the JSON Header, extracting parameters */
-				json = (char *) pBuffer;
-				json_length = strlen( json );
-
-				IotLogDebug( "JSON[%d] = %s\n", json_length, json );
-
-				/*
-				 * Parameter: MCU, supported values: PIC18F, PIC32MX
-				 *
-				 * This parameter was added after initial PIC18F firmware release so may not be present for early PIC18 images
-				 */
-				mjson_stat = mjson_get_string( json, json_length, "$.MCU", _hostota.imageMcuId, MCU_SIZE );
-				if( 0 < mjson_stat )
-				{
-					IotLogInfo( "  MCU = %s",  _hostota.imageMcuId );		/* FIXME change to Debug */
-				}
-				else
-				{
-					_hostota.imageMcuId[0] = '\0';
-				}
-
-				mjson_stat = mjson_get_number( json, json_length, "$.PaddingBoundary", &value );
-				if( 0 != mjson_stat )
-				{
-					_hostota.PaddingBoundary = ( uint32_t ) value;
-					IotLogDebug( "  PaddingBoundary = %d\n", _hostota.PaddingBoundary );
-
-					mjson_stat = mjson_get_number( json, json_length, "$.LoadAddress", &value );
-				}
-
-				if( 0 != mjson_stat )
-				{
-					_hostota.LoadAddress = ( uint32_t ) value;
-					IotLogDebug( "  LoadAddress = 0x%08X\n", _hostota.LoadAddress );
-
-					mjson_stat = mjson_get_number( json, json_length, "$.ImageSize", &value );
-				}
-
-				if( 0 != mjson_stat )
-				{
-					_hostota.ImageSize = ( uint32_t ) value;
-					IotLogDebug( "  ImageSize = 0x%08X\n", _hostota.ImageSize );
-
-					mjson_stat = mjson_get_number( json, json_length, "$.CRC16_CCITT", &value );
-				}
-
-				if( 0 != mjson_stat )
-				{
-					_hostota.crc16_ccitt = ( uint16_t ) value;
-					IotLogDebug( "  CRC16_CCITT = 0x%04X\n", _hostota.crc16_ccitt );
-
-#ifdef	MZ_SUPPORT
-					mjson_stat = mjson_get_number( json, json_length, "$.Offset", &value );
-				}
-
-				if( 0 != mjson_stat )
-				{
-					_hostota.Offset = ( uint32_t ) value;
-					IotLogDebug( "  Offset = 0x%08X\n", _hostota.Offset );
-
-					mjson_stat = mjson_get_number( json, json_length, "$.Version_MZ", &_hostota.Version_MZ );
-				}
-
-				if( 0 != mjson_stat )
-				{
-					IotLogDebug( "  Version_MZ = %f\n", _hostota.Version_MZ );
-
-#endif
-					mjson_stat = mjson_get_number( json, json_length, "$.Version_PIC", &_hostota.Version_PIC );
-				}
-
-				if( 0 != mjson_stat )
-				{
-					IotLogDebug( "  Version_PIC = %f\n", _hostota.Version_PIC );
-
-#ifdef	MZ_SUPPORT
-					mjson_stat = mjson_get_base64(json, json_length, "$.SHA256Plain", ( char * )&_hostota.sha256Plain, sizeof( sha256_t ) );
-#else
-					mjson_stat = mjson_get_base64(json, json_length, "$.SHA256", ( char * )&_hostota.sha256Plain, sizeof( sha256_t ) );
-#endif
-				}
-
-				if( 0 != mjson_stat )
-				{
-					printsha256( "Plain", &_hostota.sha256Plain );
-
-#ifdef	MZ_SUPPORT
-					mjson_stat = mjson_get_base64(json, json_length, "$.SHA256Encrypted", ( char * )&_hostota.sha256Encrypted, sizeof( sha256_t ) );
-				}
-
-				if( 0 != mjson_stat )
-				{
-					printsha256( "Encrypted", &_hostota.sha256Encrypted );
-#endif
-    				IotLogInfo( "_hostOtaTask -> VerifyImage" );
-					_hostota.state = eHostOtaVerifyImage;
-				}
-				else
-				{
-    				IotLogInfo( "_hostOtaTask -> Reject" );
-					_hostota.state = eHostOtaReject;						/* If error encountered parsing JSON, reject image */
-				}
-				break;
-#endif
 
 			case eHostOtaVerifyImage:
 				if( _checkHash() )
@@ -2851,77 +2700,7 @@ static void _hostOtaTask(void *arg)
 					_hostota.state = eHostOtaReject;					/* If Image not Valid, reject image */
 				}
 				break;
-#if DEPRICATED
-				/* Verify the received image using the hash for the encrypted image, from the header */
-				mbedtls_sha256_init( &ctx );
-				mbedtls_sha256_starts( &ctx, 0 );						/* SHA-256, not 224 */
 
-				address = _hostota.PaddingBoundary;
-
-				/*
-				 *	Read image, block-by-block, calculating SHA256 Hash on the fly
-				 *	Use esp_partition_read() - reads flash correctly whether partition is encrypted or not
-				 */
-				for( remaining = _hostota.ImageSize; remaining ; ( remaining -= size ), ( address += size ) )
-				{
-					/* read a block of image */
-					size = ( 512 < remaining ) ? 512 : remaining;
-					esp_partition_read( _hostota.partition, address, pBuffer, size );
-					/* add to hash */
-					mbedtls_sha256_update( &ctx, pBuffer, size );
-				}
-
-				/* get result */
-				mbedtls_sha256_finish( &ctx, ( uint8_t * ) &hash );
-
-				printsha256( "Hash", &hash);
-
-#ifdef	MZ_SUPPORT
-				if( 0 == memcmp( &_hostota.sha256Encrypted, &hash, 32 ) )
-				{
-					IotLogInfo( "Image SHA256 Hash matches metadata SHA256Encrypted" );
-    				IotLogInfo( "_hostOtaTask -> VersionCheck" );
-					_hostota.state = eHostOtaVersionCheck;
-				}
-				else
-				{
-					IotLogError( "Image SHA256 Hash does not match metadata SHA256Encrypted" );
-					_hostota.state = eHostOtaReject;					/* If Image not Valid, reject image */
-				}
-#else
-				if( 0 == memcmp( &_hostota.sha256Plain, &hash, 32 ) )
-				{
-					IotLogInfo( "Image SHA256 Hash matches metadata SHA256" );
-    				IotLogInfo( "_hostOtaTask -> VersionCheck" );
-
-    				/* Which Image was just verified ? */
-    				if( _hostota.bFactoryImage )
-    				{
-    					_hostota.bFactoryImageVerified = true;
-    				}
-    				else
-    				{
-    					_hostota.bOtaImageVerified = true;
-    				}
-
-    				/* Check ImageState in NVS, if Invalid, set to Unknown */
-    				if( _hostota.imageState == eOTA_PAL_ImageState_Invalid )
-    				{
-    					setImageState( eOTA_PAL_ImageState_Unknown );			/* Note image is unknown */
-    					IotLogInfo( "ImageState Invalid --> Unknown" );
-    				}
-
-					_hostota.state = eHostOtaVersionCheck;
-				}
-				else
-				{
-					IotLogError( "Image SHA256 Hash does not match metadata SHA256" );
-    				IotLogInfo( "_hostOtaTask -> Reject" );
-					_hostota.state = eHostOtaReject;					/* If Image not Valid, reject image */
-				}
-#endif
-				break;
-#endif
 
 			case eHostOtaVersionCheck:
 
@@ -2951,52 +2730,9 @@ static void _hostOtaTask(void *arg)
 				{
     				IotLogInfo( "_hostOtaTask -> Reject" );
 					_hostota.state = eHostOtaReject;
-//					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
-//    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
-//					_hostota.state = eHostOtaWaitMQTT;				/* If downloaded Image version is not greater than current version, pend on an update from AWS */
 				}
 				break;
 
-#ifdef	DEPRICATED
-				/* Downloaded version is greater than the current PIC version: Check MCU IDs */
-				else if( _hostota.Version_PIC > _hostota.currentVersion_PIC )
-				{
-					IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
-    				IotLogInfo( "_hostOtaTask -> McuCheck" );
- 					_hostota.state = eHostOtaMcuCheck;
-				}
-				/* Downloaded version is less than or equal to the current PIC Version: No Update Available, wait on a download */
-				else
-				{
-					IotLogInfo( "Current Version: %5.2f, Downloaded Version: %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
-					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
-    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
-					_hostota.state = eHostOtaWaitMQTT;				/* If downloaded Image version is not greater than current version, pend on an update from AWS */
-				}
-#ifdef	MZ_SUPPORT
-				if( 0 > _hostota.currentVersion_MZ )
-				{
-					vTaskDelay( 1000 / portTICK_PERIOD_MS );
-					_hostota.currentVersion_MZ = shadowUpdate_getFirmwareVersion_MZ();
-				}
-				else if( _hostota.Version_MZ > _hostota.currentVersion_MZ )
-				{
-					IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_MZ, _hostota.Version_MZ);
-    				IotLogInfo( "_hostOtaTask -> Transfer" );
-    				_hostota.pStep = &blSteps[ 0 ];						/* start image transfer with first step */
-					_hostota.state = eHostOtaTransfer;
-					_hostota.bStartTransfer = true;
-				}
-				else
-				{
-					IotLogInfo( "Current Version: %5.2f, Downloaded Version: %5.2f", _hostota.currentVersion_MZ, _hostota.Version_MZ);
-					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
-    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
-					_hostota.state = eHostOtaWaitMQTT;				/* If downloaded Image version is not greater than current version, pend on an update from AWS */
-				}
-#endif
-				break;
-#endif
 
 				/*
 				 * Check MCU ID
@@ -3027,36 +2763,12 @@ static void _hostOtaTask(void *arg)
 					IotLogInfo( "Attempt to terminate AWS Job" );
 					hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );		/* terminate the AWS job */
 					setImageState( eOTA_PAL_ImageState_Invalid );				/* Note image as invalid */
-
-					/* Update the Image State using the OTA Agent API - this also updates the Job Status */
-//					xErr = OTA_SetImageState( eOTA_ImageState_Rejected );
-//					if( kOTA_Err_None != xErr )
-//			        {
-//			        	IotLogError( " Error! Failed to set image state as rejected: %04X", xErr );
-//			        }
-
 					_hostota.bImageDownloaded = false;							/* clear flag */
 				}
 				else
 				{
 					setImageState( eOTA_PAL_ImageState_Unknown );			/* Note image as unknown */
 				}
-//				switch( _hostota.imageState )
-//				{
-//					case eOTA_PAL_ImageState_Unknown:							/* If image state is unknown, stay unknown */
-//						break;
-//
-//					case eOTA_PAL_ImageState_PendingCommit:						/* If image state is pending commit, set to invalid */
-//						hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );	/* terminate the AWS job */
-//						setImageState( eOTA_PAL_ImageState_Invalid );			/* Note image as invalid */
-//						break;
-//
-//					case eOTA_PAL_ImageState_Valid:								/* If image state is valid, set to unknown */
-//					case eOTA_PAL_ImageState_Invalid:							/* If image state is invalid, set to unknown */
-//					default:
-//						setImageState( eOTA_PAL_ImageState_Unknown );			/* Note image as unknown */
-//						break;
-//				}
 
 		    	vTaskDelay( 5000 / portTICK_PERIOD_MS );						/* 5 second delay before retry */
 
@@ -3145,7 +2857,6 @@ static void _hostOtaTask(void *arg)
 
     				_hostota.pStep = &blSteps[ 0 ];											/* start image transfer with first step */
 					_hostota.state = eHostOtaTransfer;
-//					_hostota.bStartTransfer = true;
 				}
 				break;
 
@@ -3183,7 +2894,6 @@ static void _hostOtaTask(void *arg)
 				break;
 
 			default:
-//				_hostota.state = eHostOtaIdle;
 				_hostota.state = eHostOtaInit;
 				break;
 
