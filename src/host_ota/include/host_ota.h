@@ -64,7 +64,12 @@ typedef struct
  */
 typedef void (* _hostOtaNotifyCallback_t)( char *pJson );
 
-int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb );
+/**
+ * @brief Callback handler to fetch MCU ID from shadow
+ */
+typedef const char *( * _hostOtaFetchMcuIDCallback_t )( void );
+
+int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb, _hostOtaFetchMcuIDCallback_t fetchMcuIdCb );
 
 OTA_PAL_ImageState_t hostOta_getImageState( void );
 

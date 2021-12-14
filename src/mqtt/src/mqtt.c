@@ -612,7 +612,7 @@ int32_t mqtt_subscribeTopic(
 		pSubscription.topicFilterLength = ( ( uint16_t )strlen( pTopic ) );
 		pSubscription.callback.function = callbackFunc;
 		pSubscription.callback.pCallbackContext = pCallbackParameter;
-printf("mqtt_subscribeTopic: before IotMqtt_TimedSubscribe\n" );
+
 		/* Subscribe to topic */
 		subscriptionStatus = IotMqtt_TimedSubscribe(  mqttData.pMqttConnection, &pSubscription, 1, 0, MQTT_TIMEOUT_MS );
 

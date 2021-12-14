@@ -1,6 +1,12 @@
+#
+#  The pic18_job.py utility enables the creation of ota jobs for the PIC18F and PIC32MX.
+#
 import argparse
 import json
 import subprocess
+
+# Update this version number with subsequent releases
+utilityVersion = "1.1"
 
 awsEndpoint = '551671089203'
 region = 'us-east-1'
@@ -8,6 +14,7 @@ region = 'us-east-1'
 if __name__ == "__main__":
 
     # Set up the arguments
+    parser = argparse.ArgumentParser(description= f'Drinkworks AWS OTA Job Creation Utility for PIC processors, v{utilityVersion}')
     parser = argparse.ArgumentParser()
     parser.add_argument("jobName", help="set the OTA job name")
     parser.add_argument("thingGroupTarget", help="set target thing group. Example: MODB_PIC18_Firmware_Update")
@@ -16,6 +23,7 @@ if __name__ == "__main__":
     parser.add_argument("--fileName", help="Set fileName. Default is \'pic_ota0\'")
     parser.add_argument("--signerRoleArn", help="Set the role arn for the code signing. Default is \'profile_for_ESP32\'")
     parser.add_argument("--streamJobRoleArn", help="Set role arn for stream and job creation. Default is \'IoT_Update_Role\'")
+    parser.add_argument("--jobTimeout", help="Set job timeout in minutes. Default is \'10\' minutes", default=10, type=int )
     args = parser.parse_args()
 
     # Set default variables
@@ -130,7 +138,9 @@ if __name__ == "__main__":
     #otaJobJSON['awsJobExecutionsRolloutConfig'] = {"maximumPerMinute": 1000}
     otaJobJSON['awsJobPresignedUrlConfig'] = {}
     #otaJobJSON['awsJobAbortConfig']
-    # otaJobJSON['awsJobTimeoutConfig']
+    otaJobJSON['awsJobTimeoutConfig'] = {
+        "inProgressTimeoutInMinutes": args.jobTimeout
+    }
     otaJobJSON['files'] = []
     otaJobJSON['files'].append({
         'fileName':fileName,

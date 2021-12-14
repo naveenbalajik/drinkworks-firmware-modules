@@ -65,6 +65,8 @@
 #define	FIXED_CONNECTION_HANDLE		(37)
 #define	OTA_COMMAND_HANDLE					0x8062					// Dummy
 
+#define	MCU_SIZE	16					/**< Maximum size of MCU ID from Image header */
+
 /**
  * @brief	Timeout, in milliseconds, Pend for Update
  *
@@ -103,6 +105,8 @@ typedef enum
 	eHostOtaParseJSON,
 	eHostOtaVerifyImage,
 	eHostOtaVersionCheck,
+	eHostOtaMcuCheck,
+	eHostOtaReject,
 	eHostOtaWaitMQTT,
 	eHostOtaPendUpdate,
 	eHostOtaUpdateAvailable,
@@ -678,6 +682,7 @@ typedef struct
 	bool				bChangeImage;				/**< true if BootMe is requesting image that is not currently verified */
 	bool				bOtaImageVerified;			/**< true if Image in PIC OTA partition is verified */
 	bool				bFactoryImageVerified;		/**< true if Image in PIC Factory partition is verified */
+	bool				bImageDownloaded;			/**< true if Image has been downloaded, false if image is rejected or transfer started */
 	uint16_t			calc_crc;					/**< CRC value calculated by host */
 	_xferStatus_t		xferStatus;
 	bool				bUpdateAvailable;			/**< A validate PIC image is available */
@@ -687,7 +692,9 @@ typedef struct
 	TimerHandle_t		xfrTimer;					/**< Timer use to detect timeouts in transfer */
 	bool				bXferTimeout;				/**< true if transfer timer expired */
 	uint32_t			erasePageSize;				/**< Host MCU erase page size, set from version.dci */
-
+	_hostOtaFetchMcuIDCallback_t fetchMcuIdHandler;	/**< Callback handler to fetch MCU ID from Shadow */
+	const char *		pShadowMcuId;				/**< Pointer to Shadow MCU ID string */
+	char				imageMcuId[ MCU_SIZE ];		/**< buffer for storing Image MCU ID string */
 } host_ota_t;
 
 typedef size_t ( * _function_t )( host_ota_t *pHost, _otaOpcode_t opcode );
@@ -2233,6 +2240,7 @@ static bool _transferPending( void )
 		case eHostOtaParseJSON:
 		case eHostOtaVerifyImage:
 		case eHostOtaVersionCheck:
+		case eHostOtaMcuCheck:
 		case eHostOtaUpdateAvailable:
 		case eHostOtaWaitBootme:
 		case eHostOtaTransfer:
@@ -2245,42 +2253,324 @@ static bool _transferPending( void )
 		case eHostOtaWaitMQTT:
 		case eHostOtaPendUpdate:
 		case eHostOtaError:
+		case eHostOtaReject:
 		default:
 			return	false;
 	}
 }
 
 /**
- * @brief	Host OTA Task
+ * @brief	Parse the JSON formatted Metadata header
  *
- * Executes on separate thread:
- *	- Fetches Dispense Records from Host, puts to the Event FIFO
- *	- Gets Event Records from Event FIFO, pushes them to AWS
+ * Extracts the following:
  *
- *	Last record index fetched from Host is stored in NVS
- *	Last fetched record index is compared with record count to determine
- *	if there are more records to be fetched.
- *	If FIFO is full, no records are fetched.
+ * +--------------------+----------+----------------------------+----------+
+ * | Key                |  Type    |  Destination               | Required |
+ * +--------------------+----------+----------------------------+----------+
+ * | $.PaddingBoundary  |  number  |  _hostota.PaddingBoundary  |  Yes     |
+ * | $.LoadAddress      |  number  |  _hostota.LoadAddress      |  Yes     |
+ * | $.CRC16_CCITT      |  number  |  _hostota.crc16_ccitt      |  Yes     |
+ * | $.Version_PIC      |  number  |  _hostota.Version_PIC      |  Yes     |
+ * | $.SHA256           |  base64  |  _hostota.sha256Plain      |  Yes     |
+ * | $.MCU              |  string  |  _hostota.imageMcuId       |  No      |
+ * +--------------------+----------+----------------------------+----------+
  *
- *	Putting records to AWS ... TBD
- *
- * @param[in] arg Event FIFO handle
- *
+ * @param[in]	pBuffer	Pointer to buffer containing metadata
+ * @return	true: All required keys found; false: one or more required keys missing
  */
-static void _hostOtaTask(void *arg)
+static bool _parseJSON( uint8_t * pBuffer )
 {
 	char *json;
 	int json_length;
 	double value;
+	int mjson_stat;
+
+
+	/* Parse the JSON Header, extracting parameters */
+	json = (char *) pBuffer;
+	json_length = strlen( json );
+
+	IotLogDebug( "JSON[%d] = %s\n", json_length, json );
+
+	/*
+	 * Parameter: MCU, supported values: PIC18F, PIC32MX
+	 *
+	 * This parameter was added after initial PIC18F firmware release so may not be present for early PIC18 images
+	 */
+	mjson_stat = mjson_get_string( json, json_length, "$.MCU", _hostota.imageMcuId, MCU_SIZE );
+	if( 0 < mjson_stat )
+	{
+		IotLogInfo( "  MCU = %s",  _hostota.imageMcuId );		/* FIXME change to Debug */
+	}
+	else
+	{
+		_hostota.imageMcuId[0] = '\0';
+	}
+
+	mjson_stat = mjson_get_number( json, json_length, "$.PaddingBoundary", &value );
+	if( 0 != mjson_stat )
+	{
+		_hostota.PaddingBoundary = ( uint32_t ) value;
+		IotLogDebug( "  PaddingBoundary = %d\n", _hostota.PaddingBoundary );
+
+		mjson_stat = mjson_get_number( json, json_length, "$.LoadAddress", &value );
+	}
+
+	if( 0 != mjson_stat )
+	{
+		_hostota.LoadAddress = ( uint32_t ) value;
+		IotLogDebug( "  LoadAddress = 0x%08X\n", _hostota.LoadAddress );
+
+		mjson_stat = mjson_get_number( json, json_length, "$.ImageSize", &value );
+	}
+
+	if( 0 != mjson_stat )
+	{
+		_hostota.ImageSize = ( uint32_t ) value;
+		IotLogDebug( "  ImageSize = 0x%08X\n", _hostota.ImageSize );
+
+		mjson_stat = mjson_get_number( json, json_length, "$.CRC16_CCITT", &value );
+	}
+
+	if( 0 != mjson_stat )
+	{
+		_hostota.crc16_ccitt = ( uint16_t ) value;
+		IotLogDebug( "  CRC16_CCITT = 0x%04X\n", _hostota.crc16_ccitt );
+
+#ifdef	MZ_SUPPORT
+		mjson_stat = mjson_get_number( json, json_length, "$.Offset", &value );
+	}
+
+	if( 0 != mjson_stat )
+	{
+		_hostota.Offset = ( uint32_t ) value;
+		IotLogDebug( "  Offset = 0x%08X\n", _hostota.Offset );
+
+		mjson_stat = mjson_get_number( json, json_length, "$.Version_MZ", &_hostota.Version_MZ );
+	}
+
+	if( 0 != mjson_stat )
+	{
+		IotLogDebug( "  Version_MZ = %f\n", _hostota.Version_MZ );
+
+#endif
+		mjson_stat = mjson_get_number( json, json_length, "$.Version_PIC", &_hostota.Version_PIC );
+	}
+
+	if( 0 != mjson_stat )
+	{
+		IotLogDebug( "  Version_PIC = %f\n", _hostota.Version_PIC );
+
+#ifdef	MZ_SUPPORT
+		mjson_stat = mjson_get_base64(json, json_length, "$.SHA256Plain", ( char * )&_hostota.sha256Plain, sizeof( sha256_t ) );
+#else
+		mjson_stat = mjson_get_base64(json, json_length, "$.SHA256", ( char * )&_hostota.sha256Plain, sizeof( sha256_t ) );
+#endif
+	}
+
+	if( 0 != mjson_stat )
+	{
+		printsha256( "Plain", &_hostota.sha256Plain );
+
+#ifdef	MZ_SUPPORT
+		mjson_stat = mjson_get_base64(json, json_length, "$.SHA256Encrypted", ( char * )&_hostota.sha256Encrypted, sizeof( sha256_t ) );
+	}
+
+	if( 0 != mjson_stat )
+	{
+		printsha256( "Encrypted", &_hostota.sha256Encrypted );
+#endif
+		IotLogInfo( "All required JSON keys present" );
+		return true;
+	}
+	else
+	{
+		IotLogInfo( "Requires JSON key(s) missing" );
+		return false;
+	}
+}
+
+
+/**
+ * @brief	Compare SHA256 Hash of downloaded image with value in metadata
+ *
+ * @return	true: Hash values match; false Hash values do not match
+ */
+static bool _checkHash( void )
+{
 	uint8_t	*pBuffer;
     size_t size;
     size_t address;
     size_t remaining;
     sha256_t	hash;
 	mbedtls_sha256_context ctx;
-	int mjson_stat;
+
+	pBuffer = pvPortMalloc( 512 );
+
+	/* Verify the received image using the hash for the encrypted image, from the header */
+	mbedtls_sha256_init( &ctx );
+	mbedtls_sha256_starts( &ctx, 0 );						/* SHA-256, not 224 */
+
+	address = _hostota.PaddingBoundary;
+
+	/*
+	 *	Read image, block-by-block, calculating SHA256 Hash on the fly
+	 *	Use esp_partition_read() - reads flash correctly whether partition is encrypted or not
+	 */
+	for( remaining = _hostota.ImageSize; remaining ; ( remaining -= size ), ( address += size ) )
+	{
+		/* read a block of image */
+		size = ( 512 < remaining ) ? 512 : remaining;
+		esp_partition_read( _hostota.partition, address, pBuffer, size );
+		/* add to hash */
+		mbedtls_sha256_update( &ctx, pBuffer, size );
+	}
+
+	/* get result */
+	mbedtls_sha256_finish( &ctx, ( uint8_t * ) &hash );
+
+	/* free the buffer */
+	vPortFree( pBuffer );
+
+	printsha256( "Hash", &hash);
+
+#ifdef	MZ_SUPPORT
+	if( 0 == memcmp( &_hostota.sha256Encrypted, &hash, 32 ) )
+	{
+		IotLogInfo( "Image SHA256 Hash matches metadata SHA256Encrypted" );
+		return true;
+	}
+	else
+	{
+		IotLogError( "Image SHA256 Hash does not match metadata SHA256Encrypted" );
+		return false;
+	}
+#else
+	if( 0 == memcmp( &_hostota.sha256Plain, &hash, 32 ) )
+	{
+		IotLogInfo( "Image SHA256 Hash matches metadata SHA256" );
+		return true;
+	}
+	else
+	{
+		IotLogError( "Image SHA256 Hash does not match metadata SHA256" );
+		return false;
+	}
+#endif
+}
+
+/**
+ * @brief	Compare downloaded image version to current image version
+ *
+ * @return true: downloaded > current; false downloaded <= current
+ */
+static bool _checkVersion( void )
+{
+	/* Downloaded version is greater than the current PIC version */
+	if( _hostota.Version_PIC > _hostota.currentVersion_PIC )
+	{
+		IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
+		return true;
+	}
+	/* Downloaded version is less than or equal to the current PIC Version */
+	else
+	{
+		IotLogInfo( "Current Version: %5.2f, Downloaded Version: %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
+		return false;
+	}
+}
+
+
+/**
+ * @brief	Compare Shadow and Image MCU IDs
+ *
+ * Going forward new images will have an "MCU" field and device Shadow will have an "MCU_ID" item.
+ * When both are present they must match for an image to be valid for the system.
+ * Legacy system may not have one or both items, the following table shows which combinations should
+ * be accepted and which rejected.
+ *
+ * +-----------------+---------------------------------+
+ * |                 |       MCU in Image Header       |
+ * | Shadow MCU_ID   +----------+----------+-----------+
+ * |                 |    n/a   |  PIC18F  |  PIC32MX  |
+ * +-----------------+----------+----------+-----------+
+ * | n/a             |  Accept  |  Accept  |  Reject   |
+ * | PIC18F47Q43     |  Reject  |  Accept  |  Reject   |
+ * | PIC18F57Q43     |  Accept  |  Accept  |  Reject   |
+ * | PIC32MX150F128D |	Reject  |  Reject  |  Accept   |
+ * +-----------------+----------+----------+-----------+
+ *
+ * @return	true: MCU IDs match, accept image; false: MCU IDs do not match, reject image
+ */
+static bool _checkMcuID( void )
+{
+	size_t size;
+
+	/* Fetch MCU ID from shadow */
+	if( _hostota.fetchMcuIdHandler != NULL )
+	{
+		_hostota.pShadowMcuId = _hostota.fetchMcuIdHandler();
+		IotLogInfo( "Shadow MCU ID: %s", _hostota.pShadowMcuId );		/* FIXME remove */
+	}
+	else
+	{
+		_hostota.pShadowMcuId = NULL;
+	}
+
+	size = strlen( _hostota.imageMcuId );				/* length of image MCU ID string */
+
+	if( ( _hostota.pShadowMcuId != NULL ) && size &&
+		( strncmp( _hostota.pShadowMcuId, _hostota.imageMcuId, size ) == 0 ) )
+	{
+		IotLogInfo( "Image and Shadow MCU IDs match" );
+		return true;
+	}
+	else if( ( ( size == -1 ) && ( _hostota.pShadowMcuId == NULL ) ) ||
+			 ( ( size == -1 ) && ( strcmp( _hostota.imageMcuId, "PIC18F57Q43") == 0 ) ) ||
+			 ( ( _hostota.pShadowMcuId == NULL ) && ( strncmp( _hostota.imageMcuId, "PIC18F", 6 ) == 0 ) ) )
+	{
+		IotLogInfo( "Image and Shadow MCU IDs edge condition match" );
+		return true;
+	}
+	else
+	{
+		IotLogInfo( "Image and shadow MCU IDs mis-match" );
+		return false;
+	}
+}
+
+/**
+ * @brief	Host OTA Task
+ *
+ * The OTA Agent will handle downloading Host PIC Images from AWS and storing them in the PIC_OTA Flash partition
+ *
+ * This task executes on separate thread and is responsible for:
+ *  - Reading the meta data from the image header
+ *  - Validating the image (SHA256 hash)
+ *  - Validating the image version relative to currently executing version
+ *  - Notifying the PIC that an firmware update image is available
+ *  - Waiting for the PIC to initiate the transfer sequence with a BOOTME message
+ *  - Start the image transfer sequence (Erase, Program, Verify, Reset)
+ *  - Activate the updated image, so AWS job completes
+ *
+ * @param[in] arg Unused
+ *
+ */
+static void _hostOtaTask(void *arg)
+{
+//	char *json;
+//	int json_length;
+//	double value;
+	uint8_t	*pBuffer;
+//    size_t size;
+//    size_t address;
+//    size_t remaining;
+//    sha256_t	hash;
+//	mbedtls_sha256_context ctx;
+//	int mjson_stat;
 	esp_err_t	err = ESP_OK;
 	hostota_QueueItem_t	currentMessage;
+	OTA_Err_t xErr;
 
 	esp_partition_type_t partitionType;
 	esp_partition_subtype_t partitionSubtype;
@@ -2328,6 +2618,7 @@ static void _hostOtaTask(void *arg)
     			_hostota.currentVersion_PIC = -1;											// default current PIC version to invalid value
     			_hostota.bOtaImageVerified = false;
     			_hostota.bFactoryImageVerified = false;
+    			_hostota.bImageDownloaded = false;
 
     			/* Try reading Meta-data */
 				IotLogInfo( "_hostOtaTask -> ReadMetaData" );
@@ -2412,11 +2703,39 @@ static void _hostOtaTask(void *arg)
 
 			case eHostOtaParseJSON:
 
+				if( _parseJSON( pBuffer ) )
+				{
+	   				IotLogInfo( "_hostOtaTask -> VerifyImage" );
+					_hostota.state = eHostOtaVerifyImage;
+				}
+				else
+				{
+					IotLogInfo( "_hostOtaTask -> Reject" );
+					_hostota.state = eHostOtaReject;						/* If error encountered parsing JSON, reject image */
+				}
+				break;
+
+#ifdef	DEPRICATED
 				/* Parse the JSON Header, extracting parameters */
 				json = (char *) pBuffer;
 				json_length = strlen( json );
 
 				IotLogDebug( "JSON[%d] = %s\n", json_length, json );
+
+				/*
+				 * Parameter: MCU, supported values: PIC18F, PIC32MX
+				 *
+				 * This parameter was added after initial PIC18F firmware release so may not be present for early PIC18 images
+				 */
+				mjson_stat = mjson_get_string( json, json_length, "$.MCU", _hostota.imageMcuId, MCU_SIZE );
+				if( 0 < mjson_stat )
+				{
+					IotLogInfo( "  MCU = %s",  _hostota.imageMcuId );		/* FIXME change to Debug */
+				}
+				else
+				{
+					_hostota.imageMcuId[0] = '\0';
+				}
 
 				mjson_stat = mjson_get_number( json, json_length, "$.PaddingBoundary", &value );
 				if( 0 != mjson_stat )
@@ -2496,15 +2815,43 @@ static void _hostOtaTask(void *arg)
 				}
 				else
 				{
-					setImageState( eOTA_PAL_ImageState_Invalid );			/* Note image is invalid */
-					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
-    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
-					_hostota.state = eHostOtaWaitMQTT;				/* If error encountered parsing JSON, pend on an update from AWS */
+    				IotLogInfo( "_hostOtaTask -> Reject" );
+					_hostota.state = eHostOtaReject;						/* If error encountered parsing JSON, reject image */
 				}
 				break;
+#endif
 
 			case eHostOtaVerifyImage:
+				if( _checkHash() )
+				{
+    				IotLogInfo( "_hostOtaTask -> VersionCheck" );
 
+    				/* Which Image was just verified ? */
+    				if( _hostota.bFactoryImage )
+    				{
+    					_hostota.bFactoryImageVerified = true;
+    				}
+    				else
+    				{
+    					_hostota.bOtaImageVerified = true;
+    				}
+
+    				/* Check ImageState in NVS, if Invalid, set to Unknown */
+    				if( _hostota.imageState == eOTA_PAL_ImageState_Invalid )
+    				{
+    					setImageState( eOTA_PAL_ImageState_Unknown );			/* Note image is unknown */
+    					IotLogInfo( "ImageState Invalid --> Unknown" );
+    				}
+
+					_hostota.state = eHostOtaVersionCheck;
+				}
+				else
+				{
+    				IotLogInfo( "_hostOtaTask -> Reject" );
+					_hostota.state = eHostOtaReject;					/* If Image not Valid, reject image */
+				}
+				break;
+#if DEPRICATED
 				/* Verify the received image using the hash for the encrypted image, from the header */
 				mbedtls_sha256_init( &ctx );
 				mbedtls_sha256_starts( &ctx, 0 );						/* SHA-256, not 224 */
@@ -2539,9 +2886,7 @@ static void _hostOtaTask(void *arg)
 				else
 				{
 					IotLogError( "Image SHA256 Hash does not match metadata SHA256Encrypted" );
-					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
-    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
-					_hostota.state = eHostOtaWaitMQTT;					/* If Image not Valid, pend on an update from AWS */
+					_hostota.state = eHostOtaReject;					/* If Image not Valid, reject image */
 				}
 #else
 				if( 0 == memcmp( &_hostota.sha256Plain, &hash, 32 ) )
@@ -2570,14 +2915,13 @@ static void _hostOtaTask(void *arg)
 				}
 				else
 				{
-					setImageState( eOTA_PAL_ImageState_Invalid );			/* Note image is invalid */
 					IotLogError( "Image SHA256 Hash does not match metadata SHA256" );
-					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
-    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
-					_hostota.state = eHostOtaWaitMQTT;					/* If Image not Valid, pend on an update from AWS */
+    				IotLogInfo( "_hostOtaTask -> Reject" );
+					_hostota.state = eHostOtaReject;					/* If Image not Valid, reject image */
 				}
 #endif
 				break;
+#endif
 
 			case eHostOtaVersionCheck:
 
@@ -2598,13 +2942,28 @@ static void _hostOtaTask(void *arg)
 					vTaskDelay( 1000 / portTICK_PERIOD_MS );
 					_hostota.currentVersion_PIC = shadowUpdate_getFirmwareVersion_PIC();
 				}
-				/* Downloaded version is greater than the current PIC version: Update Available */
+				else if( _checkVersion() )
+				{
+    				IotLogInfo( "_hostOtaTask -> McuCheck" );
+ 					_hostota.state = eHostOtaMcuCheck;
+				}
+				else
+				{
+    				IotLogInfo( "_hostOtaTask -> Reject" );
+					_hostota.state = eHostOtaReject;
+//					_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
+//    				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
+//					_hostota.state = eHostOtaWaitMQTT;				/* If downloaded Image version is not greater than current version, pend on an update from AWS */
+				}
+				break;
+
+#ifdef	DEPRICATED
+				/* Downloaded version is greater than the current PIC version: Check MCU IDs */
 				else if( _hostota.Version_PIC > _hostota.currentVersion_PIC )
 				{
 					IotLogInfo( "Update from %5.2f to %5.2f", _hostota.currentVersion_PIC, _hostota.Version_PIC);
-    				IotLogInfo( "_hostOtaTask -> UpdateAvailable" );
- 					_hostota.bUpdateAvailable = true;					/* validated image is available */
- 					_hostota.state = eHostOtaUpdateAvailable;
+    				IotLogInfo( "_hostOtaTask -> McuCheck" );
+ 					_hostota.state = eHostOtaMcuCheck;
 				}
 				/* Downloaded version is less than or equal to the current PIC Version: No Update Available, wait on a download */
 				else
@@ -2636,6 +2995,74 @@ static void _hostOtaTask(void *arg)
 					_hostota.state = eHostOtaWaitMQTT;				/* If downloaded Image version is not greater than current version, pend on an update from AWS */
 				}
 #endif
+				break;
+#endif
+
+				/*
+				 * Check MCU ID
+				 */
+			case eHostOtaMcuCheck:
+				if( _checkMcuID() )
+				{
+    				IotLogInfo( "_hostOtaTask -> UpdateAvailable" );
+ 					_hostota.bUpdateAvailable = true;					/* MCU IDs match: validated image is available */
+ 					_hostota.state = eHostOtaUpdateAvailable;
+				}
+				else
+				{
+    				IotLogInfo( "_hostOtaTask -> Reject" );
+					_hostota.state = eHostOtaReject;					/* If MCU IDs don't match, reject image */
+				}
+				break;
+
+				/*
+				 * If any image checks fail, reject the image
+				 * Recovery to include invalidating image and delay before new request, so a tight retry loop does not occur
+				 */
+			case eHostOtaReject:
+				IotLogInfo( "Rejecting Image, imageState = %d, bImageDownloaded = %d", _hostota.imageState, _hostota.bImageDownloaded );
+
+				if( _hostota.bImageDownloaded )									/* If Image has been downloaded */
+				{
+					IotLogInfo( "Attempt to terminate AWS Job" );
+					hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );		/* terminate the AWS job */
+					setImageState( eOTA_PAL_ImageState_Invalid );				/* Note image as invalid */
+
+					/* Update the Image State using the OTA Agent API - this also updates the Job Status */
+//					xErr = OTA_SetImageState( eOTA_ImageState_Rejected );
+//					if( kOTA_Err_None != xErr )
+//			        {
+//			        	IotLogError( " Error! Failed to set image state as rejected: %04X", xErr );
+//			        }
+
+					_hostota.bImageDownloaded = false;							/* clear flag */
+				}
+				else
+				{
+					setImageState( eOTA_PAL_ImageState_Unknown );			/* Note image as unknown */
+				}
+//				switch( _hostota.imageState )
+//				{
+//					case eOTA_PAL_ImageState_Unknown:							/* If image state is unknown, stay unknown */
+//						break;
+//
+//					case eOTA_PAL_ImageState_PendingCommit:						/* If image state is pending commit, set to invalid */
+//						hostOtaNotificationUpdate( eNotifyUpdateFailed, 0 );	/* terminate the AWS job */
+//						setImageState( eOTA_PAL_ImageState_Invalid );			/* Note image as invalid */
+//						break;
+//
+//					case eOTA_PAL_ImageState_Valid:								/* If image state is valid, set to unknown */
+//					case eOTA_PAL_ImageState_Invalid:							/* If image state is invalid, set to unknown */
+//					default:
+//						setImageState( eOTA_PAL_ImageState_Unknown );			/* Note image as unknown */
+//						break;
+//				}
+
+		    	vTaskDelay( 5000 / portTICK_PERIOD_MS );						/* 5 second delay before retry */
+
+				_hostota.waitMQTTretry = MQTT_WAIT_RETRY_COUNT;
+				IotLogInfo( "_hostOtaTask -> WaitMQTT" );
+				_hostota.state = eHostOtaWaitMQTT;				/* Pend on an update from AWS */
 				break;
 
 			case eHostOtaWaitMQTT:
@@ -2677,6 +3104,7 @@ static void _hostOtaTask(void *arg)
 				else if( _hostota.reportedStatus == eDownloadComplete )
 				{
 					IotLogInfo( "Download Complete" );
+					_hostota.bImageDownloaded = true;
 					IotLogInfo( "_hostOtaTask -> ReadMetaData" );
 					_hostota.state = eHostOtaReadMetaData;									/* back to image verification */
 				}
@@ -2711,6 +3139,7 @@ static void _hostOtaTask(void *arg)
 				else if( _hostota.bStartTransfer )
 				{
 					_hostota.bStartTransfer = false;											/* Clear flag */
+					_hostota.bImageDownloaded = false;										/* Clear Image downloaded flag */
 					IotLogInfo(" Bootloader is active" );
     				IotLogInfo( "_hostOtaTask -> Transfer" );
 
@@ -2759,7 +3188,7 @@ static void _hostOtaTask(void *arg)
 				break;
 
     	}
-    	vTaskDelay( 10 / portTICK_PERIOD_MS );
+    	vTaskDelay( 50 / portTICK_PERIOD_MS );
     }
 
 }
@@ -2793,10 +3222,13 @@ void vXfrTimerCallback( TimerHandle_t xTimer )
  *
  * @param[in]	notifyCb	Handler to be called for Host OTA Update notifications
  */
-int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb )
+int32_t hostOta_init( _hostOtaNotifyCallback_t notifyCb, _hostOtaFetchMcuIDCallback_t fetchMcuIdCb  )
 {
 	/* Save the notification handler */
 	_hostota.notifyHandler = notifyCb;
+
+	/* Save the Fetch MCU ID handler */
+	_hostota.fetchMcuIdHandler = fetchMcuIdCb;
 
 	_hostota.imageState = eOTA_PAL_ImageState_Unknown;
 

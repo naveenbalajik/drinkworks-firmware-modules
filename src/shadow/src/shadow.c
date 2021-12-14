@@ -1011,7 +1011,7 @@ static void _initString( char **pString )
 	else
 	{
 		strcpy( *pString, uninit );				// copy "uninitialized" string
-		printf( "_initString: %s\n", *pString );
+		IotLogInfo( "_initString: %s\n", *pString );
 	}
 }
 
@@ -1047,7 +1047,7 @@ void shadow_initItemList( _shadowItem_t *pShadowItemList )
 		{
 			/* For strings without associated NVS storage, create string, but don't set update flag */
 			_initString( &pShadowItem->jItem.jValue.string );
-			printf( "shadow_initItemList, key = %s, value = %s\n", pShadowItem->jItem.key, pShadowItem->jItem.jValue.string );
+			IotLogInfo( "shadow_initItemList, key = %s, value = %s\n", pShadowItem->jItem.key, pShadowItem->jItem.jValue.string );
 		}
 	}
 	IotLogInfo( "%d items initialized", shadowData.numberOfItems );

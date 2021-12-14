@@ -713,15 +713,16 @@ int32_t NVS_pSet( const NVS_Entry_Details_t * pItem, const void * pInput, size_t
 	if( err == ESP_OK )
 	{
 		err = nvs_commit( handle );
+
+		if( err != ESP_OK )
+		{
+			IotLogError( "ERROR Committing Handle: (%04X)", err );
+		}
+
 	}
 	else
 	{
-		IotLogError( "ERROR setting NVS Item" );
-	}
-
-	if( err != ESP_OK )
-	{
-		IotLogError( "ERROR Committing Handle" );
+		IotLogError( "ERROR setting NVS Item: (%04X)", err );
 	}
 
 	nvs_close( handle );
